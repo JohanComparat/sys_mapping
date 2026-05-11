@@ -134,3 +134,28 @@ class TestCorrectTwoPoint:
 
         w_corr = correct_two_point_function(w_obs, a_hat, b_hat, var_a, var_b, tcorr)
         np.testing.assert_allclose(w_corr, w_obs, atol=1e-12)
+
+
+class TestCorrectPowerSpectrumHarmonic:
+    def test_output_shape(self):
+        from sys_mapping.correction import correct_power_spectrum_harmonic
+
+        n_ell, n_sys = 20, 2
+        ell = np.arange(n_ell, dtype=float)
+        cl_obs = np.ones(n_ell) * 1e-4
+        alpha = np.array([0.1, -0.05])
+        t_cls = np.ones((n_sys, n_ell)) * 5e-5
+        cl_corr = correct_power_spectrum_harmonic(cl_obs, ell, n_sys, alpha, t_cls)
+        assert cl_corr.shape == (n_ell,)
+
+    def test_zero_alpha_applies_harmonic_bias_only(self):
+        from sys_mapping.correction import correct_power_spectrum_harmonic
+        from sys_mapping.power_spectrum import harmonic_bias
+
+        n_ell, n_sys = 10, 2
+        ell = np.arange(n_ell, dtype=float)
+        cl_obs = np.ones(n_ell) * 1e-4
+        alpha = np.zeros(n_sys)
+        t_cls = np.ones((n_sys, n_ell)) * 5e-5
+        cl_corr = correct_power_spectrum_harmonic(cl_obs, ell, n_sys, alpha, t_cls)
+        np.testing.assert_allclose(cl_corr, cl_obs - harmonic_bias(n_sys, ell), rtol=1e-10)

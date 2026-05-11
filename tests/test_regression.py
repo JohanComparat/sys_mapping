@@ -297,3 +297,37 @@ class TestRunDecontamination:
         assert np.all(res["weights"] > 0)
         assert res["flat_chain"] is not None
         assert res["R"].shape == (n_sys, n_sys)
+
+    def test_isd1_nonfinite_coefficients_warning(self):
+        """Non-finite ISD coefficients trigger fallback to zeros and unit weights."""
+        from unittest.mock import patch
+        rng = np.random.default_rng(0)
+        n_pix, n_sys = 500, 2
+        delta_g = rng.standard_normal(n_pix) * 0.1
+        delta_t = rng.standard_normal((n_sys, n_pix))
+        nan_alpha = np.array([np.nan, 0.0])
+        with patch("sys_mapping.regression.iterative_systematics_decontamination",
+                   return_value=(np.ones(n_pix), nan_alpha, 1)):
+            with pytest.warns(UserWarning, match="non-finite coefficients"):
+                res = run_decontamination("ISD-1", delta_g, delta_t)
+        np.testing.assert_array_equal(res["a_hat"], np.zeros(n_sys))
+        np.testing.assert_array_equal(res["weights"], np.ones(n_pix))
+
+
+class TestMethodComparisonAdditiveMcmc:
+    def test_additive_mcmc_returns_required_keys(self):
+        rng = np.random.default_rng(13)
+        n_pix, n_sys = 2000, 2
+        nside = 16
+        delta_t = rng.standard_normal((n_sys, n_pix))
+        delta_g = 0.1 * delta_t[0] + rng.standard_normal(n_pix) * 0.3
+        good = np.ones(n_pix, dtype=bool)
+        results = method_comparison(
+            delta_g, delta_t, good, nside,
+            methods=("additive_mcmc",),
+            mcmc_kwargs={"n_walkers": 20, "n_steps": 30, "n_burn": 10},
+        )
+        assert "additive_mcmc" in results
+        assert "a_hat" in results["additive_mcmc"]
+        assert "weights" in results["additive_mcmc"]
+        assert np.all(results["additive_mcmc"]["weights"] > 0)
