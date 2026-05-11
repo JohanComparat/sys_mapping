@@ -318,6 +318,14 @@ pip install 'jax[cuda12_pip]' \
 
 ## Installation
 
+Install from [PyPI](https://pypi.org/project/sys-mapping/0.9/):
+
+```bash
+pip install sys-mapping==0.9
+```
+
+Or install from source:
+
 ```bash
 cd ~/sys_mapping
 mamba env create -f environment.yml
