@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sys_mapping"
+version = "0.2.3"
+description = "Joint inference of multiplicative and additive systematics in galaxy clustering"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.11"
+authors = [
+    {name = "Johan Comparat", email = "johan.comparat@pm.me"},
+]
+keywords = ["astronomy", "galaxy clustering", "systematic effects", "HEALPix", "MCMC", "decontamination"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Astronomy",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "astropy",
+    "healpy",
+    "emcee",
+    "jax[cpu]",
+    "treecorr",
+    "matplotlib",
+]
+
+[project.urls]
+Homepage = "https://github.com/JohanComparat/sys_mapping"
+Documentation = "https://johancomparat.github.io/sys_mapping"
+Source = "https://github.com/JohanComparat/sys_mapping"
+
+[project.optional-dependencies]
+regression = ["scikit-learn>=1.3"]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "matplotlib",
+    "scikit-learn>=1.3",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["sys_mapping*"]

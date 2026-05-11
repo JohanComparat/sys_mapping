@@ -1,0 +1,141 @@
+"""Tests for likelihood.py: Gaussian and skewed-Gaussian log-likelihoods."""
+
+import numpy as np
+import pytest
+import jax
+import jax.numpy as jnp
+
+from sys_mapping.likelihood import make_log_likelihood
+from sys_mapping.contamination import pack_params
+
+
+N_PIX = 200
+N_SYS = 3
+
+
+def _make_data(seed=42):
+    rng = np.random.default_rng(seed)
+    delta_t = rng.standard_normal((N_SYS, N_PIX))
+    delta_t -= delta_t.mean(axis=1, keepdims=True)
+    delta_g_obs = rng.standard_normal(N_PIX) * 0.1
+    return delta_g_obs, delta_t
+
+
+class TestGaussianLikelihood:
+    def test_zero_params_equals_normal_logpdf(self):
+        """When a=b=0, log_likelihood = Gaussian log-density of delta_g_obs."""
+        from scipy.stats import norm
+
+        dg, dt = _make_data()
+        sigma = float(np.std(dg))
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+        theta = pack_params(a, b, sigma, model="combined")
+
+        log_lik = make_log_likelihood(N_SYS, "combined", use_skewed=False)
+        ll = float(log_lik(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+
+        expected = float(np.sum(norm.logpdf(dg, loc=0, scale=sigma)))
+        np.testing.assert_allclose(ll, expected, rtol=1e-6)
+
+    def test_wrong_sigma_lower_likelihood(self):
+        """Mis-specified sigma should give a lower likelihood."""
+        dg, dt = _make_data()
+        sigma_true = float(np.std(dg))
+        sigma_bad = sigma_true * 3.0
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+
+        theta_good = pack_params(a, b, sigma_true, model="combined")
+        theta_bad = pack_params(a, b, sigma_bad, model="combined")
+
+        log_lik = make_log_likelihood(N_SYS, "combined")
+        ll_good = float(log_lik(jnp.asarray(theta_good), jnp.asarray(dg), jnp.asarray(dt)))
+        ll_bad = float(log_lik(jnp.asarray(theta_bad), jnp.asarray(dg), jnp.asarray(dt)))
+        assert ll_good > ll_bad
+
+    def test_all_models_return_finite(self):
+        dg, dt = _make_data()
+        sigma = 0.1
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+
+        for model in ("additive", "multiplicative", "combined"):
+            theta = pack_params(a, b, sigma, model=model)
+            log_lik = make_log_likelihood(N_SYS, model)
+            ll = float(log_lik(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+            assert np.isfinite(ll), f"log_likelihood not finite for model={model}"
+
+
+class TestSkewedLikelihood:
+    def test_gamma_zero_equals_gaussian(self):
+        """Setting gamma=0 should recover the Gaussian log-likelihood."""
+        dg, dt = _make_data()
+        sigma = 0.1
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+
+        theta_gauss = pack_params(a, b, sigma, model="combined")
+        theta_skewed = pack_params(a, b, sigma, gamma=0.0, model="combined")
+
+        log_lik_gauss = make_log_likelihood(N_SYS, "combined", use_skewed=False)
+        log_lik_skewed = make_log_likelihood(N_SYS, "combined", use_skewed=True)
+
+        ll_g = float(log_lik_gauss(jnp.asarray(theta_gauss), jnp.asarray(dg), jnp.asarray(dt)))
+        ll_s = float(log_lik_skewed(jnp.asarray(theta_skewed), jnp.asarray(dg), jnp.asarray(dt)))
+        np.testing.assert_allclose(ll_s, ll_g, atol=1e-6)
+
+    def test_nonzero_gamma_returns_finite(self):
+        dg, dt = _make_data()
+        sigma = 0.1
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+        theta = pack_params(a, b, sigma, gamma=1.5, model="combined")
+        log_lik = make_log_likelihood(N_SYS, "combined", use_skewed=True)
+        ll = float(log_lik(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        assert np.isfinite(ll)
+
+
+class TestGradient:
+    def test_gradient_is_finite(self):
+        """JAX grad of log_likelihood w.r.t. theta must be finite."""
+        dg, dt = _make_data()
+        sigma = 0.1
+        a = np.zeros(N_SYS)
+        b = np.zeros(N_SYS)
+        theta = jnp.asarray(pack_params(a, b, sigma, model="combined"))
+
+        log_lik = make_log_likelihood(N_SYS, "combined")
+        grad_fn = jax.grad(lambda t: log_lik(t, jnp.asarray(dg), jnp.asarray(dt)))
+        grad = grad_fn(theta)
+        assert np.all(np.isfinite(np.asarray(grad))), "Gradient contains non-finite values"
+
+    def test_gradient_zero_at_mle(self):
+        """Gradient of the additive Gaussian log-likelihood is zero at the OLS MLE.
+
+        For the additive model (b=0):
+          a_MLE = (dt @ dt.T)^{-1} @ (dt @ dg)   [OLS solution]
+          σ_MLE = std(residual)                    [biased MLE]
+        At this point the score is identically zero.
+        """
+        rng = np.random.default_rng(99)
+        n_pix = 2000
+        dg = rng.normal(0, 0.1, n_pix)
+        dt = rng.standard_normal((N_SYS, n_pix))
+        dt -= dt.mean(axis=1, keepdims=True)
+
+        # Analytical MLE for additive model
+        C = dt @ dt.T                          # (N_SYS, N_SYS)
+        a_mle = np.linalg.solve(C, dt @ dg)   # OLS: ∂lnL/∂a = 0
+
+        residual = dg - a_mle @ dt
+        # ∂lnL/∂σ = -N/σ + Σr²/σ³ = 0  →  σ² = mean(r²)  (NOT std, which centres first)
+        sigma_mle = float(np.sqrt(np.mean(residual**2)))
+
+        theta = jnp.asarray(pack_params(a_mle, None, sigma_mle, model="additive"))
+        log_lik = make_log_likelihood(N_SYS, "additive")
+        grad_fn = jax.grad(lambda t: log_lik(t, jnp.asarray(dg), jnp.asarray(dt)))
+        grad = np.asarray(grad_fn(theta))
+
+        np.testing.assert_allclose(grad[:N_SYS], 0.0, atol=1e-5)   # ∂lnL/∂a = 0
+        np.testing.assert_allclose(grad[N_SYS], 0.0, atol=1e-5)    # ∂lnL/∂σ = 0
