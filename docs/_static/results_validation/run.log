@@ -1,0 +1,53 @@
+An NVIDIA GPU may be present on this machine, but a CUDA-enabled jaxlib is not installed. Falling back to cpu.
+NSIDE=32  n_sys=3  n_mean=50.0  sigma=0.5
+MCMC: 100 walkers × 600 steps (100 burn-in)
+Scenarios: ['none', 'additive', 'multiplicative', 'combined']
+Output: docs/_static/results_validation
+
+Generating mock suite...
+  a_true = [0. 0. 0.]
+  b_true = [0. 0. 0.]
+  none: 405,500 galaxies, 8,064 good pixels
+  additive: 414,246 galaxies, 8,064 good pixels
+  multiplicative: 419,695 galaxies, 8,064 good pixels
+  combined: 392,134 galaxies, 8,064 good pixels
+
+=== Scenario: none ===
+  Obs RMS error: 0.1474
+  OLS                 : RMS=0.1499  r=0.9561  null=0.9743
+  ElasticNet          : RMS=0.1474  r=0.9577  null=0.0000
+  ISD (order 1)       : RMS=0.1499  r=0.9561  null=0.9719
+  ISD (order 3)       : RMS=0.1485  r=0.9571  null=0.8935
+  MCMC-additive       : RMS=0.1500  r=0.9560  null=0.9795
+  MCMC-combined       : RMS=0.1499  r=0.9561  null=0.9651
+
+=== Scenario: additive ===
+  Obs RMS error: 0.1944
+  OLS                 : RMS=0.1693  r=0.9575  null=0.7256
+  ElasticNet          : RMS=0.1686  r=0.9578  null=0.7275
+  ISD (order 1)       : RMS=0.1689  r=0.9577  null=0.7204
+  ISD (order 3)       : RMS=0.1669  r=0.9587  null=0.6945
+  MCMC-additive       : RMS=0.1692  r=0.9575  null=0.7273
+  MCMC-combined       : RMS=0.1680  r=0.9581  null=0.7263
+
+=== Scenario: multiplicative ===
+  Obs RMS error: 0.1972
+  OLS                 : RMS=0.1932  r=0.9381  null=0.9791
+  ElasticNet          : RMS=0.1937  r=0.9378  null=0.9884
+  ISD (order 1)       : RMS=0.1932  r=0.9381  null=0.9796
+  ISD (order 3)       : RMS=0.1906  r=0.9396  null=0.8677
+  MCMC-additive       : RMS=0.1931  r=0.9381  null=0.9781
+  MCMC-combined       : RMS=0.1940  r=0.9377  null=0.9928
+
+=== Scenario: combined ===
+  Obs RMS error: 0.2314
+  OLS                 : RMS=0.2023  r=0.9359  null=0.7459
+  ElasticNet          : RMS=0.2008  r=0.9365  null=0.7508
+  ISD (order 1)       : RMS=0.2017  r=0.9361  null=0.7416
+  ISD (order 3)       : RMS=0.2229  r=0.9267  null=0.6930
+  MCMC-additive       : RMS=0.2020  r=0.9360  null=0.7478
+  MCMC-combined       : RMS=0.2025  r=0.9358  null=0.7231
+
+Generating summary plots...
+
+All outputs written to docs/_static/results_validation

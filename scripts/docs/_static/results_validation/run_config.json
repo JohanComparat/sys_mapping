@@ -1,0 +1,27 @@
+{
+  "nside": 32,
+  "n_sys": 3,
+  "n_mean": 50.0,
+  "sigma": 0.5,
+  "n_walkers": 100,
+  "n_steps": 600,
+  "n_burn": 100,
+  "seed": 42,
+  "scenarios": [
+    "none",
+    "additive",
+    "multiplicative",
+    "combined"
+  ],
+  "output_dir": "docs/_static/results_validation",
+  "a_true": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "b_true": [
+    0.0,
+    0.0,
+    0.0
+  ]
+}

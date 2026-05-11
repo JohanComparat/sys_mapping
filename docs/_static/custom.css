@@ -1,0 +1,5 @@
+/* Best-result highlighting in tables */
+.best-result {
+    color: darkgreen;
+    font-weight: bold;
+}
