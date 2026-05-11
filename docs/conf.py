@@ -5,7 +5,7 @@ sys.path.insert(0, os.path.abspath(".."))
 
 project = "sys_mapping"
 author = "JohanComparat"
-release = "0.2.3"
+release = "0.9"
 
 extensions = [
     "sphinx.ext.autodoc",
