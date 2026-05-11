@@ -1,12 +1,15 @@
 # sys_mapping
 
+[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/0.9/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/#)
+
+**PyPI:** https://pypi.org/project/sys-mapping/0.9/
+**Docs:** https://sys-mapping.readthedocs.io/en/latest/#
+
 Joint inference of multiplicative and additive systematics in galaxy
 clustering. Implements six decontamination methods with a shared
 contamination model, template normalisation, noise debiasing, and
 two-point function correction infrastructure.
-
-Core method: [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293)
-(MNRAS 531, 4954).
 
 ---
 
@@ -54,6 +57,9 @@ scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS
 ---
 
 ## Method
+
+Core method: [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293)
+(MNRAS 531, 4954).
 
 ### Contamination model (Eq. 11–13)
 
