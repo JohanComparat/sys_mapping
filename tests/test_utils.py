@@ -10,6 +10,16 @@ from sys_mapping.utils import (
     measure_kk_correlation_corrfunc,
 )
 
+try:
+    import Corrfunc  # noqa: F401
+    _corrfunc_available = True
+except ImportError:
+    _corrfunc_available = False
+
+corrfunc_available = pytest.mark.skipif(
+    not _corrfunc_available, reason="Corrfunc not installed"
+)
+
 N_GAL = 500
 N_RAND = 1000
 
@@ -53,6 +63,7 @@ class TestMeasureTwoPointTreecorr:
         assert np.all(np.diff(theta) > 0)
 
 
+@corrfunc_available
 class TestMeasureTwoPointCorrfunc:
     def test_output_shapes(self, sky_patch):
         ra_g, dec_g, ra_r, dec_r = sky_patch
@@ -91,6 +102,7 @@ class TestMeasureKKTreecorr:
         assert xi.shape == (5,)
 
 
+@corrfunc_available
 class TestMeasureKKCorrfunc:
     def test_auto_correlation_shape(self, kk_catalog):
         ra, dec, k = kk_catalog
