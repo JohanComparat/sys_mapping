@@ -68,6 +68,16 @@ class TestPackUnpack:
         _, _, s, g = unpack_params(jnp.asarray(theta), n, "combined", use_skewed=True)
         np.testing.assert_allclose(float(g), 1.5, atol=1e-12)
 
+    def test_pack_params_combined_missing_b_raises(self):
+        a = np.array([0.1, 0.2])
+        with pytest.raises(ValueError, match="combined model requires b"):
+            pack_params(a, None, 0.1, model="combined")
+
+    def test_unpack_params_unknown_model_raises(self):
+        theta = jnp.zeros(4)
+        with pytest.raises(ValueError, match="Unknown model"):
+            unpack_params(theta, 3, "unknown_model")
+
 
 class TestApplyInvertRoundtrip:
     def test_roundtrip_combined(self, delta_g_clean, delta_t, true_a, true_b):

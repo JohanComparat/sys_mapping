@@ -116,6 +116,13 @@ class TestSnrTemplateRanking:
         snr = snr_template_ranking(delta_g, delta_t, method="template")
         assert np.all(snr >= 0)
 
+    def test_zero_norm_gives_zero_snr(self):
+        n_pix, n_sys = 200, 2
+        delta_g = np.zeros(n_pix)  # zero-norm galaxy field → snr[i] = 0
+        delta_t = np.random.default_rng(0).standard_normal((n_sys, n_pix))
+        snr = snr_template_ranking(delta_g, delta_t, method="data")
+        np.testing.assert_array_equal(snr, 0.0)
+
     def test_invalid_method_raises(self, strong_contamination_data):
         delta_g, delta_t = strong_contamination_data
         with pytest.raises(ValueError, match="method must be"):

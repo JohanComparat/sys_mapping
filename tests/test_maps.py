@@ -267,6 +267,41 @@ class TestLoadRealTemplateLS10Depth:
         np.testing.assert_allclose(t[mask].std(), 1.0, atol=1e-10)
 
 
+class TestLoadRealTemplatesMocked:
+    """Tests for load_real_templates using mocked load_real_template — no real data needed."""
+
+    def test_shape_and_names(self, tmp_path):
+        from unittest.mock import patch
+        nside = 32
+        n_pix = hp.nside2npix(nside)
+        rng = np.random.default_rng(0)
+        fake_t = rng.standard_normal(n_pix)
+        fake_mask = np.ones(n_pix, dtype=bool)
+
+        with patch("sys_mapping.maps.load_real_template", return_value=(fake_t, fake_mask)):
+            templates, names, mask = load_real_templates(nside, tmp_path)
+
+        assert templates.shape == (2, n_pix)
+        assert names == ["GAIA_nstar_faint", "LS10_GALDEPTH_Z"]
+
+    def test_mask_is_intersection(self, tmp_path):
+        from unittest.mock import patch
+        nside = 32
+        n_pix = hp.nside2npix(nside)
+        mask_gaia = np.ones(n_pix, dtype=bool)
+        mask_depth = np.ones(n_pix, dtype=bool)
+        mask_depth[:10] = False  # depth misses first 10 pixels
+
+        fake_t = np.zeros(n_pix)
+        side_effects = [(fake_t, mask_gaia), (fake_t, mask_depth)]
+
+        with patch("sys_mapping.maps.load_real_template", side_effect=side_effects):
+            _, _, mask = load_real_templates(nside, tmp_path)
+
+        assert not mask[:10].any()
+        assert mask[10:].all()
+
+
 class TestLoadRealTemplates:
     @real_data
     def test_shape(self):

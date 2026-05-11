@@ -86,6 +86,12 @@ class TestMeasurePseudoCl:
         _, cl = measure_pseudo_cl(zero_map, mask, lmax=10)
         np.testing.assert_allclose(cl, 0.0, atol=1e-30)
 
+    def test_lmax_none_uses_default(self, nside, full_sky_map):
+        n_pix = 12 * nside**2
+        mask = np.ones(n_pix, dtype=bool)
+        ell, cl = measure_pseudo_cl(full_sky_map, mask)  # lmax=None
+        assert len(ell) == 3 * nside
+
     def test_mask_zeros_out_pixels(self, nside, full_sky_map):
         n_pix = 12 * nside**2
         mask = np.zeros(n_pix, dtype=bool)
@@ -125,6 +131,11 @@ class TestSubtractTemplateCl:
         cl_cleaned = subtract_template_cl(pseudo_cl, delta_t, mask, alpha, lmax=lmax)
         # Mean power should be reduced (template is subtracted with positive sign)
         assert np.mean(cl_cleaned) < np.mean(pseudo_cl)
+
+    def test_lmax_none_infers_from_pseudo_cl(self, setup):
+        pseudo_cl, delta_t, mask, alpha, _ = setup
+        cl_cleaned = subtract_template_cl(pseudo_cl, delta_t, mask, alpha)  # lmax=None
+        assert cl_cleaned.shape == pseudo_cl.shape
 
 
 class TestModeProjectionBias:

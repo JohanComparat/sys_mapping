@@ -93,7 +93,7 @@ def make_log_prob(
         )
 
         def log_prob_vec(thetas: np.ndarray) -> np.ndarray:
-            lps = np.asarray(_batched_ll(jnp.asarray(thetas, dtype=jnp.float64)))
+            lps = np.array(_batched_ll(jnp.asarray(thetas, dtype=jnp.float64)))
             lps[thetas[:, n_cont] <= sigma_min] = -np.inf
             lps[~np.isfinite(lps)] = -np.inf
             return lps
