@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sys_mapping"
-version = "0.2.3"
+version = "0.9"
 description = "Joint inference of multiplicative and additive systematics in galaxy clustering"
 readme = "README.md"
 license = {text = "MIT"}
