@@ -3,3 +3,7 @@
     color: darkgreen;
     font-weight: bold;
 }
+
+.wy-nav-content {
+    max-width: none;
+}
