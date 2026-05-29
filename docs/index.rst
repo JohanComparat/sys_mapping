@@ -29,6 +29,7 @@ density maps.
    results_validation
    results_progressive_contamination
    results_real_template_validation
+   results_simulation_tests
 
 .. toctree::
    :maxdepth: 2
@@ -63,6 +64,8 @@ density maps.
    api/regression
    api/diagnostics
    api/mocks
+   api/glass_mocks
+   api/simulation
 
 .. toctree::
    :maxdepth: 1

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sys_mapping"
-version = "0.9"
+version = "0.9.5"
 description = "Joint inference of multiplicative and additive systematics in galaxy clustering"
 readme = "README.md"
 license = {text = "MIT"}
@@ -41,6 +41,8 @@ Source = "https://github.com/JohanComparat/sys_mapping"
 
 [project.optional-dependencies]
 regression = ["scikit-learn>=1.3"]
+glass = ["glass>=2026.1"]
+corrfunc = ["corrfunc"]
 dev = [
     "pytest",
     "pytest-cov",

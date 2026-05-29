@@ -319,7 +319,8 @@ def run_25sys(nside, n_real, n_sys, n_mean, sigma_G, n_walkers, n_steps, n_burn,
                               ("multiplicative", "darkorange", "--"),
                               ("combined", "C0", "-")]:
         w_m = np.mean(results_25[model]["w_corr"], axis=0)
-        frac = (w_m - w_true_m) / (np.abs(w_true_m) + 1e-8)
+        _scale = max(1e-3, float(np.max(np.abs(w_true_m))))
+        frac = (w_m - w_true_m) / _scale
         ax2.semilogx(theta_am, frac, color=color, ls=ls, lw=2)
     ax2.set_xlabel(r"$\theta$ [arcmin]")
     ax2.set_ylabel(r"$(w_{\rm corr} - w_{\rm true})/|w_{\rm true}|$")

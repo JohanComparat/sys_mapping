@@ -226,8 +226,16 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
     result["lrt_reject"] = bool(lrt.reject_null)
 
     # ── Null test (residual correlation with templates) ────────────────────
-    weights_comb = 1.0 / np.maximum(
-        1.0 + a_hat_comb @ delta_t, 1e-3   # delta_t: (n_sys, n_good)
+    # Use exact pixel-level inverse: w = (1+δ_g_clean)/(1+δ_g_obs)
+    from sys_mapping.contamination import invert_contamination as _inv_cont
+    import jax.numpy as _jnp
+    _dg_clean = np.asarray(_inv_cont(
+        _jnp.asarray(delta_g), _jnp.asarray(delta_t),
+        _jnp.asarray(a_hat_comb), _jnp.asarray(b_hat_comb),
+    ))
+    weights_comb = np.clip(
+        (1.0 + _dg_clean) / np.maximum(1.0 + delta_g, 1e-6),
+        0.05, 20.0,
     )
     try:
         null = sm.null_test_cross_correlations(

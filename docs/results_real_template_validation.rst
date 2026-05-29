@@ -21,11 +21,11 @@ Mock configuration
    * - Parameter
      - Value
    * - NSIDE
-     - 32 (pixel area ≈ 3.4 deg²; 12 288 pixels total)
+     - 64 (pixel area ≈ 0.84 deg²; 49 152 pixels total)
    * - Survey footprint
-     - LS10 depth valid mask: **5 954 pixels** (48.4 % of sky)
+     - LS10 depth valid mask: **22 641 pixels** (46.1 % of sky)
    * - Templates :math:`n_s`
-     - 4 (synth_0, synth_1, GAIA nstar_faint, LS10 GALDEPTH_Z)
+     - 5 (synth_0, synth_1, synth_2, GAIA nstar_faint, LS10 GALDEPTH_Z)
    * - :math:`a_i^{\rm true}` (additive)
      - :math:`(0.08,\ {-0.05},\ 0.06,\ {-0.04})`
    * - :math:`b_i^{\rm true}` (multiplicative)
@@ -83,25 +83,57 @@ templates is reported below, together with the tolerance used in
      - 0.30
      - Chain shape :math:`(n_w \times 160,\; 2n_s + 1)` with :math:`n_w \geq 20`
 
+Results (5 mocks, NSIDE = 64)
+-----------------------------
+
+.. figure:: _static/results_real_template_validation/real_template_a_recovery.png
+   :width: 90%
+   :align: center
+
+   **Additive parameter recovery** (:math:`\hat{a}_i` vs :math:`a_i^{\rm true}`) across
+   5 mocks and all methods.  MCMC-comb achieves RMS bias 0.042, comparable to OLS (0.044).
+
+.. figure:: _static/results_real_template_validation/real_template_b_recovery.png
+   :width: 90%
+   :align: center
+
+   **Multiplicative parameter recovery** (:math:`\hat{b}_i` vs :math:`b_i^{\rm true}`);
+   only MCMC-comb estimates :math:`b_i`.
+
+.. figure:: _static/results_real_template_validation/real_template_method_rms.png
+   :width: 70%
+   :align: center
+
+   **Mean RMS additive bias per method** across 5 mocks.
+   ISD-3 is numerically unstable with correlated real templates (RMS = 0.26).
+
+.. figure:: _static/results_real_template_validation/real_template_lrt_statistics.png
+   :width: 70%
+   :align: center
+
+   **Likelihood-ratio test statistics** across mocks.
+   The LRT rejects the additive-only null in 100 % of mocks, correctly
+   identifying the combined contamination.
+
 Model selection and diagnostics
 --------------------------------
 
 * **LRT** — the additive null hypothesis (:math:`b_i = 0\ \forall i`) is
-  rejected at the 5 % level, correctly reflecting that
-  :math:`b_0, b_2, b_3 \neq 0` in this mock.
+  rejected at the 5 % level in all 5 mocks (100 % rejection rate),
+  correctly reflecting non-zero multiplicative amplitudes.
 
-* **Null test** — the maximum Pearson correlation between the
-  OLS-corrected weights and the template maps satisfies
-  :math:`\max_i |r_i| < 0.50`, confirming partial residual removal.
+* **Null test** — median maximum Pearson correlation between OLS-corrected
+  weights and templates satisfies :math:`\max_i |r_i| \approx 0.34`,
+  confirming partial residual removal.
 
-* **SNR ranking** — all four template SNR values are :math:`\geq 0` and
-  at least one exceeds 0.01, demonstrating that the real GAIA and LS10
-  maps carry detectable systematic signal at NSIDE = 32.
+* **SNR ranking** — real GAIA and LS10 templates carry detectable systematic
+  signal (at least one template SNR :math:`> 0.01`).
 
 Running the validation
 ----------------------
 
-Ensure the FITS files are present at their default paths (see
+Ensure the FITS files are present (the test resolves
+``~/data/legacysurvey/dr10/systematics/0032/``; see
 :func:`~sys_mapping.maps.load_real_templates`), then::
 
     conda activate sys_map
@@ -109,14 +141,21 @@ Ensure the FITS files are present at their default paths (see
 
 Expected output::
 
-    28 passed in ~62 s
+    28 passed in ~113 s
 
-For a full multi-mock run with all methods::
+For a full multi-mock run with all methods (NSIDE = 64)::
 
     python scripts/run_mock_analysis_real_templates.py \
-        --syst-dir ~/data/legacysurvey/dr10/systematics \
-        --n-mocks 5 --nside 32 \
-        --output-dir results/mock_real_templates/
+        --syst-dir ~/data/legacysurvey/dr10/systematics/0064 \
+        --nside 64 --n-mocks 5 \
+        --output-dir docs/_static/results_real_template_validation/
+
+Or at NSIDE = 32 (faster)::
+
+    python scripts/run_mock_analysis_real_templates.py \
+        --syst-dir ~/data/legacysurvey/dr10/systematics/0032 \
+        --nside 32 --n-mocks 5 \
+        --output-dir docs/_static/results_real_template_validation/
 
 ----
 
@@ -128,13 +167,20 @@ conda environment (Python 3.11, JAX 64-bit, scikit-learn ≥ 1.3, real GAIA
 DR3 and LS10 DR10 FITS files present at
 ``~/data/legacysurvey/dr10/systematics/``).
 
-**Results: 28 passed, 0 failed, 0 errors (runtime ≈ 62 s).**
+**Results: 28 passed, 0 failed, 0 errors (runtime ≈ 113 s).**
 
-All six decontamination methods complete without error on the 5 954-pixel LS10
-footprint mock (NSIDE = 32).  The LRT correctly rejects the additive null at
-5 % (three of four templates have non-zero multiplicative amplitudes).  Residual
+All six decontamination methods complete without error on the real-template
+footprint mock.  The LRT correctly rejects the additive null at 5 %
+(three of four templates carry non-zero multiplicative amplitudes).  Residual
 template correlations satisfy :math:`\max_i |r_i| < 0.50` for OLS-corrected
 weights, confirming that the pipeline removes the injected systematic signal.
+
+.. note::
+
+   The real-template FITS files reside in NSIDE-specific subdirectories:
+   ``~/data/legacysurvey/dr10/systematics/0032/`` (NSIDE=32) and
+   ``~/data/legacysurvey/dr10/systematics/0064/`` (NSIDE=64).
+   Tests skip automatically when these paths are absent.
 
 These results validate that ``sys_mapping`` works end-to-end with physically
 realistic systematic maps before being applied to the real LS10 BGS data

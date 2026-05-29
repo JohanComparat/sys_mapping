@@ -1,6 +1,104 @@
 Changelog
 =========
 
+0.9.5 (2026-05-29)
+------------------
+
+**New modules — simulation pipeline and GLASS mocks**
+
+* ``sys_mapping.simulation`` — end-to-end validation framework for systematic
+  contamination recovery.  Provides
+  :func:`~sys_mapping.simulation.inject_systematics` (per-galaxy contamination
+  weights from the forward model, Eq. 11-13 of Berlfein et al. 2024),
+  :class:`~sys_mapping.simulation.ContaminationConfig` (9-point grid of
+  level × scenario), FITS I/O helpers, and
+  :func:`~sys_mapping.simulation.run_wtheta_recovery` (runs all decontamination
+  methods and compares recovered :math:`w(\theta)` to truth).
+
+* ``sys_mapping.glass_mocks`` — full-sky lognormal mock generation via GLASS
+  (Tessore et al. 2023):
+  :func:`~sys_mapping.glass_mocks.generate_glass_fullsky_mock` and
+  :func:`~sys_mapping.glass_mocks.measure_nz`.  Advantage over the existing
+  ``mocks.make_mock_catalog``: proper full-sky catalogs with physically realistic
+  clustering, no galactic-cut artefacts.
+
+**Bug fixes (five pipeline bugs, all in regression / simulation / scripts)**
+
+* **Bug A — w(θ) correction applied to wrong sample.**
+  ``run_wtheta_recovery`` was multiplying the correction weight by the *clean*
+  galaxy catalog instead of the contaminated one.  The effective weight is now
+  correctly ``weight_cont × weight_recovered``.  Before this fix, the recovered
+  :math:`w(\theta)` was *anti-contaminated* — biased in the opposite direction
+  from truth — producing residuals of order 10 000× the contamination bias.
+
+* **Bug B — bias metric blow-up at zero-crossings.**
+  The fractional-bias metric used a per-bin denominator
+  ``|w_true(θ)| + 1e-6``.  For shot-noise-dominated mocks (e.g. GLASS
+  full-sky) where :math:`w_{\rm true} \sim 10^{-4}`, this produced
+  artifacts of order :math:`10^6`.  Fixed to scalar
+  ``max_θ|w_true(θ)|`` throughout
+  ``run_simulation_tests.py``, ``plot_simulation_tests.py``, and
+  ``run_paper_validation.py``.
+
+* **Bug C — unclipped OLS / MCMC correction weights.**
+  ``_compute_weights`` returned values up to :math:`10^6` for pixels where
+  :math:`1 + \hat{a}\cdot t \to 0`.  OLS and MCMC methods now clip to
+  :math:`[1/20,\, 20]`, matching the existing ISD and ElasticNet behaviour.
+  Same fix applied in ``method_comparison()``,
+  ``run_mock_analysis_real_templates.py``, and
+  ``run_mock_analysis_diagnostic.py``.
+
+* **Bug D — MCMC-comb correction weight was a flawed approximation.**
+  The combined-model weight used :math:`1/(1+(a+b)\cdot t)`, which
+  overcorrects by ~2× when the inferred :math:`\hat{b}\neq 0` in a purely
+  additive scenario (where :math:`b_{\rm true}=0`).  Replaced with the exact
+  pixel-level inverse of the contamination model:
+  :math:`w(p) = (1+\hat\delta_g^{\rm clean}(p))/(1+\delta_g^{\rm obs}(p))`
+  computed via :func:`~sys_mapping.contamination.invert_contamination`.  This
+  cancels ``weight_cont`` exactly when parameters equal their true values.
+
+* **Bug E — MCMC walker initialisation too narrow; chain too short.**
+  Walkers were initialised at :math:`\mathcal{N}(0,\,10^{-3})` — 20–100×
+  narrower than the typical contamination amplitude (0.02–0.10).  Changed
+  to :math:`\mathcal{N}(0,\,0.05)`.  Default ``n_steps`` raised from 600 to
+  1200; ``n_burn`` from 100 to 200.
+
+**Test suite**
+
+* 28 real-template integration tests (``tests/test_real_templates.py``) now
+  run instead of skipping: FITS files reside in
+  ``~/data/legacysurvey/dr10/systematics/0032/``, not the directory root.
+* ElasticNet timing budget raised from 120 s to 600 s to accommodate
+  CPU-only machines under load.
+* New tests: ``tests/test_simulation.py`` (19 tests) and
+  ``tests/test_glass_mocks.py`` (12 tests).
+
+**Deprecations / cleanup**
+
+* Five scripts moved to ``scripts/archive/``:
+  ``build_systematic_maps.py``, ``generate_recommendations.py``,
+  ``generate_results_ls10_summary.py``, ``generate_sample_pages.py``,
+  ``patch_params_from_partials.py``.
+  These were development utilities referenced only in the changelog.
+
+**Documentation**
+
+* New results page ``results_simulation_tests.rst`` covering the full
+  3 × 3 contamination grid on GLASS and Uchuu mocks at NSIDE 32 and 64.
+* New API pages ``api/simulation.rst`` and ``api/glass_mocks.rst``.
+* ``results_real_template_validation.rst`` updated to reflect NSIDE = 64
+  footprint (22 641 pixels) and correct FITS file paths.
+* All five documentation result pages regenerated with fresh figures from
+  the fixed pipeline: mock analysis, systematic tests, validation,
+  progressive contamination, real-template validation.
+
+**Package metadata**
+
+* Version bumped to **0.9.5**.
+* ``glass>=2026.1`` and ``corrfunc`` added as optional extras in
+  ``pyproject.toml`` (``pip install sys_mapping[glass]``,
+  ``pip install sys_mapping[corrfunc]``).
+
 0.2.4 (2026-05-11)
 ------------------
 

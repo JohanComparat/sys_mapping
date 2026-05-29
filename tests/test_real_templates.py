@@ -34,14 +34,16 @@ from sys_mapping.model_selection import likelihood_ratio_test
 
 # ── Data availability check ────────────────────────────────────────────────
 
-_SYST_DIR = Path("~/data/legacysurvey/dr10/systematics").expanduser()
+_SYST_ROOT = Path("~/data/legacysurvey/dr10/systematics").expanduser()
+# Files live in the NSIDE-specific subdirectory (e.g. 0032/)
+_SYST_DIR = _SYST_ROOT / "0032"
 _GAIA_32 = _SYST_DIR / "GAIA_nstar_faint_NSIDE_00032.fits"
 _LS10_32 = _SYST_DIR / "LS10_GALDEPTH_Z_NSIDE_0032.fits"
 _HAS_REAL_DATA = _GAIA_32.exists() and _LS10_32.exists()
 
 real_data = pytest.mark.skipif(
     not _HAS_REAL_DATA,
-    reason="GAIA/LS10 FITS files not found in ~/data/legacysurvey/dr10/systematics/",
+    reason="GAIA/LS10 FITS files not found in ~/data/legacysurvey/dr10/systematics/0032/",
 )
 
 # ── Shared fixture ─────────────────────────────────────────────────────────
