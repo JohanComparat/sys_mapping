@@ -10,3 +10,10 @@ results/
 docs/_build/
 *.egg-info/
 dist/
+# Coverage reports
+.coverage
+htmlcov/
+coverage.xml
+# Raw per-mock simulation dumps (generated, not tracked)
+docs/_static/results_*/mock_*.json
+docs/_static/results_progressive_contamination/progressive_k*.json

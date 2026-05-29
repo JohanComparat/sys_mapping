@@ -156,7 +156,7 @@ def plot_templates_sky(templates, template_names, outdir):
 
 def plot_weight_histograms(delta_t, R,
                            flat_add, flat_comb,
-                           a_hat_add, b_hat_comb,
+                           a_hat_add, a_hat_comb, b_hat_comb,
                            n_sys, outdir, n_post=300, seed=1):
     rng = np.random.default_rng(seed)
     bins = np.linspace(0.5, 1.6, 60)
@@ -164,15 +164,16 @@ def plot_weight_histograms(delta_t, R,
 
     def pixel_weights_add(a_vec):
         linear = delta_t.T @ a_vec          # (n_good_pix,)
-        return 1.0 / np.maximum(1.0 + linear, 0.01)
+        return np.clip(1.0 / np.maximum(1.0 + linear, 0.05), 0.05, 20.0)
 
-    def pixel_weights_comb(b_vec):
-        linear = delta_t.T @ b_vec
-        return 1.0 / np.maximum(1.0 + linear, 0.01)
+    def pixel_weights_comb(a_vec, b_vec):
+        # Use (a+b)·t approximation for visualisation (exact inverse needs δ_g_obs)
+        linear = delta_t.T @ (a_vec + b_vec)
+        return np.clip(1.0 / np.maximum(1.0 + linear, 0.05), 0.05, 20.0)
 
     # MAP weights
     w_map_add = pixel_weights_add(a_hat_add)
-    w_map_comb = pixel_weights_comb(b_hat_comb)
+    w_map_comb = pixel_weights_comb(a_hat_comb, b_hat_comb)
 
     # Posterior histograms
     idx_add = rng.choice(len(flat_add), size=min(n_post, len(flat_add)), replace=False)
@@ -190,9 +191,9 @@ def plot_weight_histograms(delta_t, R,
 
     for j, si in enumerate(idx_comb):
         theta_s = flat_comb[si]
-        _, b_rot_s, _, _ = unpack_params(theta_s, n_sys, "combined")
-        _, b_s = transform_params_from_rotated(np.zeros(n_sys), np.asarray(b_rot_s), R)
-        h, _ = np.histogram(pixel_weights_comb(np.asarray(b_s)), bins=bins, density=True)
+        a_rot_s, b_rot_s, _, _ = unpack_params(theta_s, n_sys, "combined")
+        a_s, b_s = transform_params_from_rotated(np.asarray(a_rot_s), np.asarray(b_rot_s), R)
+        h, _ = np.histogram(pixel_weights_comb(np.asarray(a_s), np.asarray(b_s)), bins=bins, density=True)
         hist_post_comb[j] = h
 
     fig, axes = plt.subplots(1, 2, figsize=(12, 4.5))
@@ -387,7 +388,7 @@ def main():
     print("Figure 3: weight histograms ...")
     plot_weight_histograms(delta_t, R,
                            flat_add, flat_comb,
-                           np.asarray(a_hat_add), np.asarray(b_hat_comb),
+                           np.asarray(a_hat_add), np.asarray(a_hat_comb), np.asarray(b_hat_comb),
                            n_sys, outdir)
 
     print("Figure 4: parameter S/N ...")

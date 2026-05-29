@@ -5,7 +5,7 @@
   "sigma": 0.5,
   "n_walkers": 100,
   "n_steps": 600,
-  "n_burn": 100,
+  "n_burn": 150,
   "seed": 42,
   "scenarios": [
     "none",

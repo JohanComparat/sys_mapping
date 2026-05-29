@@ -429,7 +429,10 @@ def method_comparison(
     if "ols" in methods:
         X = delta_t.T  # (n_pix, n_sys)
         alpha_ols, *_ = np.linalg.lstsq(X, delta_g_obs, rcond=None)
-        weights_ols = _compute_weights(alpha_ols, delta_t)
+        weights_ols = np.clip(
+            _compute_weights(alpha_ols, delta_t),
+            1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT,
+        )
         results["ols"] = {
             "alpha_hat": alpha_ols,
             "weights": weights_ols,
@@ -466,7 +469,16 @@ def method_comparison(
         theta_hat = get_mle_params(flat_chain)
         n_sys = delta_t.shape[0]
         a_hat, b_hat, _, _ = unpack_params(theta_hat, n_sys, "combined", use_skewed=False)
-        weights_comb = _compute_weights(b_hat, delta_t)
+        from .contamination import invert_contamination as _inv_cont
+        import jax.numpy as _jnp
+        _dg_clean = np.asarray(_inv_cont(
+            _jnp.asarray(delta_g_obs), _jnp.asarray(delta_t),
+            _jnp.asarray(a_hat), _jnp.asarray(b_hat),
+        ))
+        weights_comb = np.clip(
+            (1.0 + _dg_clean) / np.maximum(1.0 + delta_g_obs, 1e-6),
+            1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT,
+        )
         results["combined_mcmc"] = {
             "a_hat": np.asarray(a_hat),
             "b_hat": np.asarray(b_hat),
@@ -485,7 +497,10 @@ def method_comparison(
         theta_hat = get_mle_params(flat_chain)
         n_sys = delta_t.shape[0]
         a_hat, _, _, _ = unpack_params(theta_hat, n_sys, "additive", use_skewed=False)
-        weights_mcmc = _compute_weights(a_hat, delta_t)
+        weights_mcmc = np.clip(
+            _compute_weights(a_hat, delta_t),
+            1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT,
+        )
         results["additive_mcmc"] = {
             "a_hat": np.asarray(a_hat),
             "weights": weights_mcmc,
@@ -501,8 +516,8 @@ def run_decontamination(
     delta_t: np.ndarray,
     *,
     n_walkers: int = 100,
-    n_steps: int = 600,
-    n_burn: int = 100,
+    n_steps: int = 1200,
+    n_burn: int = 200,
     seed: int = 42,
     use_skewed: bool = False,
     progress: bool = False,
@@ -571,8 +586,9 @@ def run_decontamination(
     * OLS / ElasticNet / ISD-1 / ISD-3 / MCMC-add:
       ``w(p) = 1 / (1 + a_hat @ t(p))`` — additive weight.
     * MCMC-comb:
-      ``w(p) = 1 / (1 + b_hat @ t(p))`` — multiplicative weight, matching
-      the production weight-map convention used in real-data pipelines.
+      ``w(p) = (1 + δ_g_clean(p)) / (1 + δ_g_obs(p))`` — exact pixel-level
+      inverse of the contamination weight; cancels ``weight_cont`` exactly
+      when (a_hat, b_hat) equal the true parameters.
 
     References
     ----------
@@ -611,7 +627,10 @@ def run_decontamination(
         X = delta_t.T  # (n_pix, n_sys)
         a_hat, *_ = np.linalg.lstsq(X, delta_g_obs, rcond=None)
         b_hat = np.zeros(n_sys)
-        weights = _compute_weights(a_hat, delta_t)
+        weights = np.clip(
+            _compute_weights(a_hat, delta_t),
+            1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT,
+        )
         result.update({"a_hat": a_hat, "b_hat": b_hat, "weights": weights})
 
     # ── ElasticNet ────────────────────────────────────────────────────────────
@@ -722,9 +741,25 @@ def run_decontamination(
         cov_a = R.T @ cov_a_rot @ R
         cov_b = R.T @ cov_b_rot @ R
 
-        # Weight convention: additive for MCMC-add; multiplicative for MCMC-comb
-        weights = _compute_weights(
-            b_hat if mcmc_model == "combined" else a_hat, delta_t
+        # Exact pixel-level decontamination weight:
+        #   w(p) = (1 + δ_g_clean(p)) / (1 + δ_g_obs(p))
+        # where δ_g_clean = invert_contamination(δ_g_obs, δ_t, a_hat, b_hat).
+        # This is the exact inverse of the contamination weight and cancels
+        # weight_cont perfectly when (a_hat, b_hat) = (a_true, b_true).
+        # The 1/(1+α·t) approximation overcorrects when noisy b_hat≠0 in
+        # additive scenarios — the exact inverse avoids that bias.
+        from .contamination import invert_contamination
+        import jax.numpy as _jnp
+        _delta_g_clean = np.asarray(invert_contamination(
+            _jnp.asarray(delta_g_obs),
+            _jnp.asarray(delta_t),
+            _jnp.asarray(a_hat),
+            _jnp.asarray(b_hat),
+        ))
+        _denom = np.maximum(1.0 + delta_g_obs, 1e-6)
+        weights = np.clip(
+            (1.0 + _delta_g_clean) / _denom,
+            1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT,
         )
 
         result.update({

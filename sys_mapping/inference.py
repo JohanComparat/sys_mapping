@@ -193,10 +193,13 @@ def run_mcmc(
     n_cont = n_free_params(n_sys, model)
     sigma0 = float(np.std(delta_g_obs))
 
-    # Initial walker positions: small perturbations around zero contamination
+    # Initial walker positions: spread over a range that covers typical
+    # contamination amplitudes (0.02–0.10).  A scale of 0.05 ensures walkers
+    # explore the full posterior from the start rather than having to diffuse
+    # away from an overly tight ball near zero.
     p0 = np.zeros((n_walkers, n_dim))
-    p0[:, :n_cont] = rng.normal(0.0, 1e-3, (n_walkers, n_cont))
-    p0[:, n_cont] = sigma0 * (1.0 + rng.normal(0.0, 0.01, n_walkers))
+    p0[:, :n_cont] = rng.normal(0.0, 0.05, (n_walkers, n_cont))
+    p0[:, n_cont] = sigma0 * (1.0 + rng.normal(0.0, 0.1, n_walkers))
     if use_skewed:
         p0[:, n_cont + 1] = rng.normal(0.0, 0.1, n_walkers)
 
