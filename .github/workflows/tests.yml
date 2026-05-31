@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install -e ".[dev,regression]"
+          pip install -e ".[dev,regression,glass]"
 
       - name: Run tests with coverage
         run: |
