@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sys_mapping"
-version = "0.9.5"
+version = "1.0.0"
 description = "Joint inference of multiplicative and additive systematics in galaxy clustering"
 readme = "README.md"
 license = {text = "MIT"}
@@ -14,7 +14,7 @@ authors = [
 ]
 keywords = ["astronomy", "galaxy clustering", "systematic effects", "HEALPix", "MCMC", "decontamination"]
 classifiers = [
-    "Development Status :: 4 - Beta",
+    "Development Status :: 5 - Production/Stable",
     "Intended Audience :: Science/Research",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",

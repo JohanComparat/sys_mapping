@@ -29,7 +29,14 @@ from .correction import (
     correct_two_point_function,
     correct_power_spectrum_harmonic,
 )
-from .model_selection import likelihood_ratio_test
+from .model_selection import (
+    likelihood_ratio_test,
+    greedy_forward_select,
+    GreedyForwardSelectionResult,
+    ForwardSelectionRound,
+    SnrPreselectionResult,
+    snr_preselect,
+)
 from .bootstrap import block_bootstrap_variance, jackknife_covariance
 from .power_spectrum import (
     measure_pseudo_cl,
@@ -47,6 +54,7 @@ from .diagnostics import (
     null_test_cross_correlations,
     snr_template_ranking,
     footprint_mask_diagnostics,
+    isd_template_significance,
 )
 from .mocks import (
     generate_lognormal_field,
@@ -122,6 +130,11 @@ __all__ = [
     "correct_power_spectrum_harmonic",
     # model_selection
     "likelihood_ratio_test",
+    "greedy_forward_select",
+    "GreedyForwardSelectionResult",
+    "ForwardSelectionRound",
+    "SnrPreselectionResult",
+    "snr_preselect",
     # bootstrap
     "block_bootstrap_variance",
     "jackknife_covariance",
@@ -146,6 +159,7 @@ __all__ = [
     "null_test_cross_correlations",
     "snr_template_ranking",
     "footprint_mask_diagnostics",
+    "isd_template_significance",
     # mocks
     "generate_lognormal_field",
     "make_galactic_mask",

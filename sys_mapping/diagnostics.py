@@ -10,6 +10,70 @@ from __future__ import annotations
 
 import numpy as np
 
+try:
+    import jax
+    import jax.numpy as jnp
+    _JAX_AVAILABLE = True
+except ImportError:
+    _JAX_AVAILABLE = False
+
+if _JAX_AVAILABLE:
+    # --- "data": batched Pearson |r| (n_sys, n_pix) × (n_pix,) → (n_sys,) ---
+    @jax.jit
+    def _jax_pearson(t_mat, g):
+        g_c = g - g.mean()
+        t_c = t_mat - t_mat.mean(axis=1, keepdims=True)
+        g_norm = jnp.linalg.norm(g_c) + 1e-30
+        t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
+        return jnp.abs(t_c @ g_c) / (g_norm * t_norm)
+
+    # --- "template": per-template OLS |t|-stat via vmap ---
+    def _one_tstat(t_i, g):
+        denom = jnp.dot(t_i, t_i) + 1e-30
+        alpha = jnp.dot(t_i, g) / denom
+        sigma2 = jnp.mean((g - alpha * t_i) ** 2)
+        return jnp.abs(alpha) / jnp.sqrt(sigma2 / denom + 1e-30)
+
+    _jax_tstat = jax.jit(jax.vmap(_one_tstat, in_axes=(0, None)))
+
+    # --- "isd": vmap over templates, fixed bins, poly_order=1 analytic ---
+    def _one_isd(t_i, g, n_bins):
+        g_bar = g.mean()
+        t_min, t_max = t_i.min(), t_i.max()
+        span = t_max - t_min + 1e-30
+        bin_idx = jnp.clip(
+            jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32),
+            0, n_bins - 1,
+        )
+        count  = jnp.zeros(n_bins).at[bin_idx].add(1)
+        g_sum  = jnp.zeros(n_bins).at[bin_idx].add(g)
+        t_sum  = jnp.zeros(n_bins).at[bin_idx].add(t_i)
+        g2_sum = jnp.zeros(n_bins).at[bin_idx].add(g ** 2)
+        valid  = count > 0
+        n_b    = count.clip(min=1)
+        g_mean = g_sum / n_b
+        t_mean = t_sum / n_b
+        g_var  = g2_sum / n_b - g_mean ** 2
+        inv_s2 = jnp.where(valid & (g_var > 1e-20),
+                            n_b / jnp.maximum(g_var, 1e-20), 0.0)
+        chi2_null = jnp.sum(inv_s2 * (g_mean - g_bar) ** 2)
+        W   = inv_s2
+        S   = W.sum();   Ss  = (W * t_mean).sum();  Sn  = (W * g_mean).sum()
+        Sss = (W * t_mean ** 2).sum();  Ssn = (W * t_mean * g_mean).sum()
+        alpha = (S * Ssn - Ss * Sn) / (S * Sss - Ss ** 2 + 1e-30)
+        beta  = (Sn - alpha * Ss) / (S + 1e-30)
+        chi2_model = jnp.sum(inv_s2 * (g_mean - (alpha * t_mean + beta)) ** 2)
+        return jnp.maximum(chi2_null - chi2_model, 0.0)
+
+    _jax_isd_cache: dict[int, object] = {}
+
+    def _get_jax_isd(n_bins: int):
+        if n_bins not in _jax_isd_cache:
+            _jax_isd_cache[n_bins] = jax.jit(
+                jax.vmap(lambda t, g: _one_isd(t, g, n_bins), in_axes=(0, None))
+            )
+        return _jax_isd_cache[n_bins]
+
 
 def null_test_cross_correlations(
     weights: np.ndarray,
@@ -119,17 +183,24 @@ def snr_template_ranking(
     delta_t: np.ndarray,
     *,
     method: str = "template",
+    n_bins: int = 10,
+    poly_order: int = 1,
+    fracdet: np.ndarray | None = None,
 ) -> np.ndarray:
     """Rank systematic templates by signal-to-noise ratio of their contamination.
 
-    Three SNR definitions adapted from Tanidis et al. 2026 (Sec. 3) for galaxy
-    clustering:
+    Four SNR definitions:
 
     - ``"template"``: :math:`|\\hat\\alpha_i| / \\sigma_{\\hat\\alpha_i}` from OLS.
     - ``"data"``: :math:`|\\mathrm{Corr}(\\delta_g, t_i)|`, the absolute
       cross-correlation between the galaxy field and each template.
     - ``"peak"``: peak pseudo-:math:`C_\\ell` cross-spectrum between
       :math:`\\delta_g` and :math:`t_i`, divided by the noise level.
+    - ``"isd"``: :math:`\\Delta\\chi^2 = \\chi^2_{\\rm null} - \\chi^2_{\\rm model}`
+      from the ISD 1D binned relation (Rodríguez-Monroy et al. 2025, Eqs. 4–5).
+      For each template, pixels are binned by template value; the fracdet-weighted
+      mean galaxy density per bin is compared to a polynomial fit.  Large
+      :math:`\\Delta\\chi^2` indicates significant systematic contamination.
 
     Parameters
     ----------
@@ -138,7 +209,15 @@ def snr_template_ranking(
     delta_t:
         Template maps (shape ``(n_sys, n_pix)``).
     method:
-        One of ``"template"``, ``"data"``, ``"peak"``.
+        One of ``"template"``, ``"data"``, ``"peak"``, ``"isd"``.
+    n_bins:
+        Number of equal-width bins for ``method="isd"``.  Ignored otherwise.
+    poly_order:
+        Polynomial degree for the 1D fit in ``method="isd"`` (1 = linear,
+        3 = cubic as used in DES Y6).  Ignored otherwise.
+    fracdet:
+        Per-pixel fractional coverage weights (shape ``(n_pix,)``).  Only
+        used by ``method="isd"``; if ``None``, uniform weights are assumed.
 
     Returns
     -------
@@ -171,33 +250,39 @@ def snr_template_ranking(
     References
     ----------
     Tanidis et al. 2026, MNRAS 547.
+    Rodríguez-Monroy et al. 2025, arXiv:2509.07943, Sec. IV.A.1, Eqs. 4–5.
     """
     n_sys, n_pix = delta_t.shape
 
     if method == "template":
-        X = delta_t.T  # (n_pix, n_sys)
-        alpha_hat, res, rank, sv = np.linalg.lstsq(X, delta_g_obs, rcond=None)
-        # OLS variance estimate: sigma^2 = RSS / (n - p)
-        residual = delta_g_obs - X @ alpha_hat
-        dof = max(n_pix - n_sys, 1)
-        sigma2 = float(np.sum(residual**2) / dof)
-        XtX_inv = np.linalg.pinv(X.T @ X)
-        param_var = sigma2 * np.diag(XtX_inv)
-        param_var = np.maximum(param_var, 1e-30)
-        snr = np.abs(alpha_hat) / np.sqrt(param_var)
+        if _JAX_AVAILABLE:
+            return np.asarray(
+                _jax_tstat(jnp.asarray(delta_t, dtype=jnp.float64),
+                           jnp.asarray(delta_g_obs, dtype=jnp.float64))
+            )
+        # NumPy fallback: per-template OLS |t|-stat
+        snr = np.empty(n_sys)
+        for i, t_i in enumerate(delta_t):
+            denom = float(np.dot(t_i, t_i)) + 1e-30
+            alpha = float(np.dot(t_i, delta_g_obs)) / denom
+            sigma2 = float(np.mean((delta_g_obs - alpha * t_i) ** 2))
+            snr[i] = abs(alpha) / np.sqrt(sigma2 / denom + 1e-30)
         return snr
 
     elif method == "data":
+        if _JAX_AVAILABLE:
+            return np.asarray(
+                _jax_pearson(jnp.asarray(delta_t, dtype=jnp.float64),
+                             jnp.asarray(delta_g_obs, dtype=jnp.float64))
+            )
+        # NumPy fallback: Pearson |r| per template
         g_centered = delta_g_obs - delta_g_obs.mean()
-        g_norm = np.sqrt(np.sum(g_centered**2))
+        g_norm = np.sqrt(np.sum(g_centered ** 2)) + 1e-30
         snr = np.empty(n_sys)
         for i, t_i in enumerate(delta_t):
             t_centered = t_i - t_i.mean()
-            t_norm = np.sqrt(np.sum(t_centered**2))
-            if g_norm < 1e-30 or t_norm < 1e-30:
-                snr[i] = 0.0
-            else:
-                snr[i] = abs(float(np.sum(g_centered * t_centered) / (g_norm * t_norm)))
+            t_norm = np.sqrt(np.sum(t_centered ** 2)) + 1e-30
+            snr[i] = abs(float(np.sum(g_centered * t_centered) / (g_norm * t_norm)))
         return snr
 
     elif method == "peak":
@@ -213,8 +298,77 @@ def snr_template_ranking(
             snr[i] = float(np.max(np.abs(cl_cross))) / noise_level
         return snr
 
+    elif method == "isd":
+        if _JAX_AVAILABLE and poly_order == 1 and fracdet is None:
+            return np.asarray(
+                _get_jax_isd(n_bins)(
+                    jnp.asarray(delta_t, dtype=jnp.float64),
+                    jnp.asarray(delta_g_obs, dtype=jnp.float64),
+                )
+            )
+
+        # NumPy fallback (poly_order > 1 or fracdet provided)
+        w = np.ones(n_pix, dtype=float) if fracdet is None else np.asarray(fracdet, dtype=float)
+        w_total = float(np.sum(w))
+        g_bar = float(np.dot(w, delta_g_obs) / w_total) if w_total > 1e-30 else 0.0
+
+        snr = np.empty(n_sys)
+        for i, t_i in enumerate(delta_t):
+            t_min, t_max = float(t_i.min()), float(t_i.max())
+            if t_min >= t_max:
+                snr[i] = 0.0
+                continue
+
+            # Assign each pixel to one of n_bins equal-width bins
+            span = t_max - t_min
+            bin_idx = np.floor((t_i - t_min) / span * n_bins).astype(int)
+            bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+
+            s_b_list: list[float] = []
+            n_b_list: list[float] = []
+            sigma_b_list: list[float] = []
+            for b in range(n_bins):
+                mask_b = bin_idx == b
+                if not np.any(mask_b):
+                    continue
+                w_b = w[mask_b]
+                w_b_sum = float(np.sum(w_b))
+                if w_b_sum < 1e-30:
+                    continue
+                g_b = delta_g_obs[mask_b]
+                n_b_pix = int(np.sum(mask_b))
+                std_g = float(np.std(g_b))
+                if std_g < 1e-10:
+                    continue  # degenerate bin — all pixels have same overdensity
+                s_b_list.append(float(np.dot(w_b, t_i[mask_b]) / w_b_sum))
+                n_b_list.append(float(np.dot(w_b, g_b) / w_b_sum))
+                sigma_b_list.append(std_g / np.sqrt(n_b_pix))
+
+            n_valid = len(s_b_list)
+            if n_valid < 2:
+                snr[i] = 0.0
+                continue
+
+            s_arr = np.array(s_b_list)
+            n_arr = np.array(n_b_list)
+            sigma_arr = np.array(sigma_b_list)
+            inv_s2 = 1.0 / sigma_arr ** 2
+
+            chi2_null = float(np.dot((n_arr - g_bar) ** 2, inv_s2))
+
+            eff_order = min(poly_order, n_valid - 1)
+            import warnings as _warnings
+            with _warnings.catch_warnings():
+                _warnings.filterwarnings("ignore")
+                coeffs = np.polyfit(s_arr, n_arr, eff_order, w=1.0 / sigma_arr)
+            f_s = np.polyval(coeffs, s_arr)
+            chi2_model = float(np.dot((n_arr - f_s) ** 2, inv_s2))
+
+            snr[i] = max(chi2_null - chi2_model, 0.0)
+        return snr
+
     else:
-        raise ValueError(f"method must be 'template', 'data', or 'peak', got '{method}'")
+        raise ValueError(f"method must be 'template', 'data', 'peak', or 'isd', got '{method}'")
 
 
 def footprint_mask_diagnostics(
@@ -311,3 +465,178 @@ def footprint_mask_diagnostics(
 
     scatter = np.std(alpha_all, axis=0)
     return {"alpha_hat": alpha_all, "scatter": scatter}
+
+
+def isd_template_significance(
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    good_pixels: np.ndarray,
+    nside: int,
+    n_total: int,
+    z_edges: np.ndarray,
+    nz: np.ndarray,
+    *,
+    n_total_footprint: int | None = None,
+    n_mocks: int = 100,
+    n_bins: int = 10,
+    poly_order: int = 1,
+    fracdet: np.ndarray | None = None,
+    seed: int = 0,
+    rand_factor: int = 10,
+) -> dict[str, np.ndarray]:
+    """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
+
+    For each template map, computes the ISD contamination metric
+    :math:`\\Delta\\chi^2 = \\chi^2_{\\rm null} - \\chi^2_{\\rm model}` on the
+    data and on ``n_mocks`` systematic-free GLASS mocks generated on the same
+    footprint and redshift range.  The fraction of mocks that exceed the data
+    value defines the template's p-value.
+
+    Parameters
+    ----------
+    delta_g_obs:
+        Observed galaxy overdensity at footprint pixels (shape ``(n_good_pix,)``).
+    delta_t:
+        Template maps at footprint pixels (shape ``(n_sys, n_good_pix)``).
+    good_pixels:
+        Boolean footprint mask over the full HEALPix sky
+        (shape ``(12 * nside**2,)``).
+    nside:
+        HEALPix resolution of the template and galaxy maps.
+    n_total:
+        Target galaxy count per GLASS mock (full-sky).  Ignored when
+        ``n_total_footprint`` is provided.
+    n_total_footprint:
+        Number of galaxies in the survey footprint (i.e. ``len(ra_gal)`` from
+        the real data).  When provided, ``n_total`` is computed automatically
+        as ``n_total_footprint × n_full_pix / n_good_pix`` so that after
+        trimming the mock to ``good_pixels``, the footprint surface density
+        matches the data.  Preferred over passing a raw ``n_total``.
+    z_edges:
+        Redshift bin edges for the n(z) model (length ``n_bins_z + 1``).
+    nz:
+        Galaxy counts per redshift bin (length ``n_bins_z``).
+    n_mocks:
+        Number of systematic-free mocks to generate.
+    n_bins:
+        Number of template-value bins for the ISD 1D relation.
+    poly_order:
+        Polynomial degree for the 1D fit (1 = linear, 3 = cubic).
+    fracdet:
+        Per-pixel fractional coverage weights (shape ``(n_good_pix,)``).
+        If ``None``, uniform weights are used.
+    seed:
+        Base random seed; mock *k* uses ``seed + k``.
+    rand_factor:
+        Ratio of random to galaxy counts in each GLASS mock.  Reducing this
+        (e.g. to 2) cuts memory usage and generation time proportionally with
+        negligible effect on the overdensity estimate.  Default is 10.
+
+    Returns
+    -------
+    result : dict with keys
+
+        - ``"delta_chi2"`` — shape ``(n_sys,)``, Δχ² for the data.
+        - ``"p_values"`` — shape ``(n_sys,)``, mock-based p-values in ``(0, 1]``.
+          Small values indicate significant systematic contamination.
+        - ``"delta_chi2_mocks"`` — shape ``(n_mocks, n_sys)``, Δχ² distribution
+          from systematic-free mocks.
+
+    Notes
+    -----
+    Mocks are generated with :func:`~glass_mocks.generate_glass_fullsky_mock`,
+    pixelised with :func:`~maps.pixelize_catalog`, and restricted to the survey
+    footprint via ``good_pixels``.  The same template maps ``delta_t`` are used
+    for both the data and the mocks.
+
+    p-value formula (smoothed to avoid zero):
+
+    .. math::
+
+        p_i = \\frac{\\#\\{k : \\Delta\\chi^2_{\\rm mock,k,i} \\ge
+              \\Delta\\chi^2_{\\rm data,i}\\} + 1}{n_{\\rm mocks} + 1}
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import isd_template_significance
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix, n_sys = 3072, 3   # nside=16 footprint size
+    >>> delta_t = rng.standard_normal((n_sys, n_pix))
+    >>> delta_g = 0.4 * delta_t[1] + rng.standard_normal(n_pix) * 0.1
+    >>> good = np.ones(12 * 16 ** 2, dtype=bool)
+    >>> z_edges = np.array([0.0, 0.5])
+    >>> nz = np.array([1000.0])
+    >>> result = isd_template_significance(
+    ...     delta_g, delta_t, good, nside=16, n_total=3000,
+    ...     z_edges=z_edges, nz=nz, n_mocks=5, seed=0)
+    >>> set(result.keys()) == {"delta_chi2", "p_values", "delta_chi2_mocks"}
+    True
+    >>> result["delta_chi2"].shape
+    (3,)
+    >>> result["p_values"].shape
+    (3,)
+    >>> result["delta_chi2_mocks"].shape
+    (5, 3)
+
+    References
+    ----------
+    Rodríguez-Monroy et al. 2025, arXiv:2509.07943, Sec. IV.A.1.
+    Tessore et al. 2023, OJAp, 6, 11.
+    """
+    import healpy as hp
+    from .glass_mocks import generate_glass_fullsky_mock
+    from .maps import pixelize_catalog
+
+    n_sys = delta_t.shape[0]
+
+    if n_total_footprint is not None:
+        n_full_pix = hp.nside2npix(nside)
+        n_good_pix = int(good_pixels.sum())
+        n_total = int(n_total_footprint * n_full_pix / n_good_pix)
+
+    delta_chi2_data = snr_template_ranking(
+        delta_g_obs, delta_t, method="isd",
+        n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
+    )
+
+    delta_chi2_mocks = np.empty((n_mocks, n_sys))
+
+    for k in range(n_mocks):
+        cat = generate_glass_fullsky_mock(
+            nside, n_total, z_edges, nz, seed=seed + k,
+            rand_factor=rand_factor,
+        )
+        n_gal_full = pixelize_catalog(cat["ra"], cat["dec"], nside)
+        n_rand_full = pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)
+
+        n_gal_foot = n_gal_full[good_pixels].astype(float)
+        n_rand_foot = n_rand_full[good_pixels].astype(float)
+
+        total_gal = float(np.sum(n_gal_foot))
+        total_rand = float(np.sum(n_rand_foot))
+        if total_gal < 1 or total_rand < 1:
+            delta_chi2_mocks[k] = 0.0
+            continue
+
+        norm = total_gal / total_rand
+        n_rand_safe = np.where(n_rand_foot > 0, n_rand_foot, 1.0)
+        delta_g_mock = np.where(
+            n_rand_foot > 0,
+            n_gal_foot / (norm * n_rand_safe) - 1.0,
+            0.0,
+        )
+
+        delta_chi2_mocks[k] = snr_template_ranking(
+            delta_g_mock, delta_t, method="isd",
+            n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
+        )
+
+    n_extreme = np.sum(delta_chi2_mocks >= delta_chi2_data[np.newaxis, :], axis=0)
+    p_values = (n_extreme + 1.0) / (n_mocks + 1.0)
+
+    return {
+        "delta_chi2": delta_chi2_data,
+        "p_values": p_values,
+        "delta_chi2_mocks": delta_chi2_mocks,
+    }
