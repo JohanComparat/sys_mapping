@@ -25,6 +25,7 @@ python scripts/run_ls10_analysis.py \\
 """
 import argparse
 import json
+import re
 import warnings
 from pathlib import Path
 
@@ -39,6 +40,14 @@ from sys_mapping.correction import correct_two_point_function
 
 warnings.filterwarnings("ignore", category=UserWarning)
 warnings.filterwarnings("ignore", category=RuntimeWarning)
+
+
+def _parse_z_range(sample_id: str) -> tuple[float, float]:
+    """Extract z_min, z_max from a sample_id like …_0.05_z_0.22_…."""
+    m = re.search(r'_(\d+\.\d+)_z_(\d+\.\d+)_', sample_id)
+    if m:
+        return float(m.group(1)), float(m.group(2))
+    return 0.05, 0.35  # BGS fallback
 
 
 # ── Template loading ───────────────────────────────────────────────────────
@@ -205,7 +214,9 @@ def _plot_wtheta_figure(theta_arcmin, w_obs, all_w_corr, sample_id, nside, n_gal
 
 def run_sample(sample_id, data_file, rand_file, templates, template_names,
                nside, n_walkers, n_steps, n_burn, output_dir, args,
-               only_methods=None, force=False, figures_only=False):
+               only_methods=None, force=False, figures_only=False,
+               preselect=False, preselect_method="isd", preselect_n_top=None,
+               preselect_p_threshold=0.05, preselect_n_mocks=100):
     import matplotlib.pyplot as plt
 
     outdir = Path(output_dir)
@@ -415,6 +426,48 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     _methods_to_run = set(_METHOD_ORDER) if only_methods is None else set(only_methods)
     _partial_mode   = "MCMC-comb" not in _methods_to_run
 
+    # Pre-selection: run once, then pass pre-filtered delta_t to each method
+    _presel_result = None
+    _presel_isd    = None
+    _presel_indices = None
+    delta_t_decontam = delta_t  # may be replaced by filtered subset below
+
+    if preselect:
+        from sys_mapping.diagnostics import isd_template_significance
+        from sys_mapping.model_selection import snr_preselect
+
+        _z_min, _z_max = _parse_z_range(sample_id)
+        _z_edges = np.array([_z_min, _z_max])
+        _nz = np.array([float(len(ra_gal))])
+        print(f"  Pre-selection: method={preselect_method}  "
+              f"z=[{_z_min},{_z_max}]  n_mocks={preselect_n_mocks}")
+
+        _pre = snr_preselect(delta_g, delta_t,
+                             method=preselect_method,
+                             n_top=preselect_n_top)
+        _selected = list(_pre.selected_indices)
+
+        if preselect_method == "isd" and preselect_p_threshold is not None:
+            _isd_sig = isd_template_significance(
+                delta_g, delta_t[_selected], good_pix, nside,
+                n_total=0,
+                n_total_footprint=int(len(ra_gal)),
+                z_edges=_z_edges, nz=_nz,
+                n_mocks=preselect_n_mocks, seed=0, rand_factor=2,
+            )
+            _keep = [s for s, p in zip(_selected, _isd_sig["p_values"])
+                     if p <= preselect_p_threshold]
+            _selected = _keep if _keep else _selected[:1]
+            _presel_isd = _isd_sig
+            print(f"    Selected {len(_selected)}/{n_sys} templates "
+                  f"(p ≤ {preselect_p_threshold}): {_selected}")
+        else:
+            print(f"    Selected {len(_selected)}/{n_sys} templates: {_selected}")
+
+        _presel_result   = _pre
+        _presel_indices  = _selected
+        delta_t_decontam = delta_t[_selected]
+
     all_method_results = {}
     for _meth in _METHOD_ORDER:
         if _meth not in _methods_to_run:
@@ -422,21 +475,27 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         print(f"  Running {_meth} ...")
         try:
             all_method_results[_meth] = sm.run_decontamination(
-                _meth, delta_g, delta_t,
+                _meth, delta_g, delta_t_decontam,
                 n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
                 seed=42, progress=_meth.startswith("MCMC"),
             )
+            # Store pre-selection metadata in each method result
+            if preselect:
+                all_method_results[_meth]["preselect_indices"] = _presel_indices
+                all_method_results[_meth]["preselect_result"]  = _presel_result
+                all_method_results[_meth]["preselect_isd"]     = _presel_isd
             print(f"    {_meth}: {all_method_results[_meth]['elapsed_s']:.1f}s")
         except Exception as _exc:
             import warnings
             warnings.warn(f"{_meth} failed: {_exc}")
         # Compute sigma_hat from residuals for non-MCMC methods
+        _n_decontam = delta_t_decontam.shape[0]
         _res_sh = all_method_results.get(_meth, {})
         if (_res_sh.get("sigma_hat") is None
                 and _res_sh.get("a_hat") is not None):
             _a_sh = np.asarray(_res_sh["a_hat"])
-            if _a_sh.shape == (n_sys,):
-                _resid_sh = delta_g - _a_sh @ delta_t
+            if _a_sh.shape == (_n_decontam,):
+                _resid_sh = delta_g - _a_sh @ delta_t_decontam
                 _res_sh["sigma_hat"] = float(np.sqrt(np.mean(_resid_sh ** 2)))
 
     # ── Partial-mode early return ─────────────────────────────────────────
@@ -1135,6 +1194,19 @@ def main():
                         help="Regenerate weight-map and histogram figures from saved JSON "
                              "without re-running MCMC.  Requires existing params.json / "
                              "partial JSON files.")
+    # Pre-selection
+    parser.add_argument("--preselect", action="store_true",
+                        help="Run ISD-based SNR pre-selection before decontamination.")
+    parser.add_argument("--preselect-method", default="isd",
+                        choices=["data", "template", "isd"],
+                        help="SNR ranking method for pre-selection (default: isd).")
+    parser.add_argument("--preselect-n-top", type=int, default=None,
+                        help="Keep only the top-K templates; None keeps all passing the "
+                             "p-value threshold.")
+    parser.add_argument("--preselect-p-threshold", type=float, default=0.05,
+                        help="ISD mock p-value threshold for template inclusion (default 0.05).")
+    parser.add_argument("--preselect-n-mocks", type=int, default=100,
+                        help="Number of GLASS mocks for ISD significance (default 100).")
     args = parser.parse_args()
 
     catalog_dir = Path(args.catalog_dir)
@@ -1176,6 +1248,11 @@ def main():
             only_methods=args.only_methods,
             force=args.force,
             figures_only=args.figures_only,
+            preselect=args.preselect,
+            preselect_method=args.preselect_method,
+            preselect_n_top=args.preselect_n_top,
+            preselect_p_threshold=args.preselect_p_threshold,
+            preselect_n_mocks=args.preselect_n_mocks,
         )
         entries.append(entry)
 

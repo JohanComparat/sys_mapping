@@ -1,21 +1,34 @@
 # sys_mapping
 
-[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/0.9/)
+[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.0.0/)
 [![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/#)
 [![Tests](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml/badge.svg)](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 
-**PyPI:** https://pypi.org/project/sys-mapping/0.9/
+**PyPI:** https://pypi.org/project/sys-mapping/1.0.0/
 **Docs:** https://sys-mapping.readthedocs.io/en/latest/#
 
 Joint inference of multiplicative and additive systematics in galaxy
-clustering. Implements six decontamination methods with a shared
-contamination model, template normalisation, noise debiasing, and
-two-point function correction infrastructure.
+clustering. Implements a two-stage pipeline: fast SNR pre-selection (Stage 1)
+followed by six decontamination methods (Stage 2), with shared contamination
+model, template normalisation, noise debiasing, and two-point function
+correction infrastructure.
 
 ---
 
-## Six decontamination methods
+## Stage 1 — Template pre-selection
+
+| Method | Speed | Description |
+|---|---|---|
+| `"data"` | < 1 ms | Pearson \|r\| between δg and each template (JAX-accelerated) |
+| `"template"` | < 1 ms | Per-template OLS \|t\|-statistic (JAX-accelerated) |
+| `"isd"` | ~10 ms | ISD Δχ² with GLASS mock significance (JAX-accelerated) |
+
+Pre-selection is integrated into `run_decontamination` via `preselect=True`.
+GLASS mocks are footprint-aware: surface density is matched to the data by
+scaling `n_total` by the footprint fraction before full-sky generation.
+
+## Stage 2 — Six decontamination methods
 
 | Method | Model | Parameter estimation |
 |---|---|---|
@@ -42,6 +55,14 @@ scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS
         ▼
     Template FITS files  (LS10_EBV_NSIDE_0064.fits, GAIA_nstar_faint_NSIDE_00064.fits, …)
         │
+        ▼
+  Stage 1: SNR pre-selection (data / template / ISD + GLASS mocks)
+  → snr_template_ranking()  /  isd_template_significance()
+  → run_decontamination(..., preselect=True)
+        │
+        ▼
+  Stage 2: Full decontamination on reduced template set
+        │
         ├──► scripts/run_ls10_analysis.py              ← LS10 BGS per-method weights + w(θ)
         │         (or scripts/run_all_methods_sequential.sh for phased multi-method run)
         ├──► scripts/run_mock_analysis.py              ← parameter recovery on mocks
@@ -54,6 +75,34 @@ scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS
                 │
                 ▼
         data/sys_weights/  ← consumed by sum_stat package
+```
+
+**Quick start with pre-selection:**
+
+```python
+import sys_mapping as sm
+
+result = sm.run_decontamination(
+    "ISD-1", delta_g, delta_t,
+    preselect=True,             # enable Stage 1
+    preselect_method="isd",     # use GLASS mock significance
+    preselect_n_mocks=100,
+    preselect_p_threshold=0.05,
+    good_pixels=good_pix,
+    n_total_footprint=len(ra_gal),
+    z_edges=z_edges, nz=nz, nside=nside,
+)
+print("Templates selected:", result["preselect_indices"])
+print("a_hat:", result["a_hat"])
+```
+
+Or from the CLI:
+
+```bash
+python scripts/run_ls10_analysis.py \
+    --catalog-dir /path/to/BGS_VLIM_Mstar \
+    --only-methods OLS ISD-1 ElasticNet \
+    --preselect --preselect-method isd --preselect-n-mocks 100
 ```
 
 ---

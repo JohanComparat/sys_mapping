@@ -13,6 +13,85 @@ reference see :doc:`bibliography`.
 
 ----
 
+Template pre-selection (Stage 1)
+---------------------------------
+
+When many candidate systematic maps are available, running the full Bayesian
+decontamination on all of them is computationally expensive and
+numerically ill-conditioned.  A fast Stage 1 pre-selection filters the
+template pool before Stage 2 decontamination.
+
+**Module:** :mod:`sys_mapping.diagnostics`, :mod:`sys_mapping.model_selection`
+
+Three SNR ranking statistics are available
+(:func:`~sys_mapping.diagnostics.snr_template_ranking`):
+
+.. list-table::
+   :header-rows: 1
+   :widths: 15 25 60
+
+   * - Key
+     - Speed
+     - Description
+   * - ``"data"``
+     - < 1 ms (JAX)
+     - Pearson :math:`|r|` between :math:`\delta_g` and each template :math:`t_i`.
+       Purely linear; insensitive to the sign of the contamination amplitude.
+   * - ``"template"``
+     - < 1 ms (JAX)
+     - Per-template OLS :math:`|\hat\alpha_i|/\sigma_{\hat\alpha_i}` (*t*-statistic).
+       Equivalent to :math:`|r|` up to a scaling; useful when template variances
+       differ substantially.
+   * - ``"isd"``
+     - ~10 ms (JAX)
+     - ISD :math:`\Delta\chi^2` (Rodríguez-Monroy et al. 2025, Sec. IV.A.1):
+       pixels are binned by template value; a linear model :math:`f(s)` is fit
+       to the binned galaxy density; :math:`\Delta\chi^2 =
+       \chi^2_{\rm null} - \chi^2_{\rm model}` measures the contamination.
+
+For a rigorous significance test,
+:func:`~sys_mapping.diagnostics.isd_template_significance` compares the data
+:math:`\Delta\chi^2` against a distribution from GLASS systematic-free mocks
+on the same footprint, giving mock-based *p*-values.  The mocks are trimmed to
+the survey footprint via ``good_pixels`` and generated with the correct surface
+density by scaling ``n_total_footprint → n_total_footprint × N_{\rm full} /
+N_{\rm good}`` before drawing on the full sky.
+
+**Recommended two-stage workflow:**
+
+.. code-block:: python
+
+   import sys_mapping as sm
+
+   # Stage 1 — pre-selection with ISD mocks (built into run_decontamination)
+   result = sm.run_decontamination(
+       "ISD-1", delta_g, delta_t,
+       preselect=True,
+       preselect_method="isd",
+       preselect_n_mocks=100,
+       preselect_p_threshold=0.05,
+       good_pixels=good_pix,
+       n_total_footprint=len(ra_gal),
+       z_edges=z_edges, nz=nz, nside=nside,
+   )
+   print("Selected templates:", result["preselect_indices"])
+
+   # Stage 2 results use only the pre-selected templates
+   print("a_hat:", result["a_hat"])
+
+See :doc:`results_snr_preselection` for a full validation on a 15 M galaxy
+simulation with 20 templates at three contamination levels.
+
+**Rule of thumb for N_mocks:**
+
+.. math::
+
+   N_{\rm mocks} \;\ge\; \max\!\left(20,\; \left\lceil 5 / \alpha \right\rceil\right)
+
+where :math:`\alpha` is the target significance level (0.05 → 100 mocks).
+
+----
+
 Core contamination model
 -------------------------
 

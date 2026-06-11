@@ -524,6 +524,20 @@ def run_decontamination(
     cv_folds: int = 5,
     isd_max_iter: int = 50,
     isd_lambda_poly: float = 0.0,
+    # Pre-selection (ignored when preselect=False)
+    preselect: bool = False,
+    preselect_method: str = "isd",
+    preselect_n_top: int | None = None,
+    preselect_p_threshold: float | None = 0.05,
+    preselect_n_mocks: int = 100,
+    preselect_seed: int = 0,
+    preselect_rand_factor: int = 2,
+    # Required when preselect=True and preselect_method="isd"
+    good_pixels: np.ndarray | None = None,
+    n_total_footprint: int | None = None,
+    z_edges: np.ndarray | None = None,
+    nz: np.ndarray | None = None,
+    nside: int | None = None,
 ) -> dict:
     """Run a single decontamination method and return a standardised result dict.
 
@@ -561,6 +575,35 @@ def run_decontamination(
         ``1e-3 * np.var(delta_g_obs)`` is recommended when ISD-3 converges
         to implausible solutions.  Has no effect for ISD-1 (poly_order=1 has
         no polynomial-only columns).  Default ``0.0`` (plain OLS).
+    preselect:
+        If ``True``, run Stage 1 SNR pre-selection before decontamination.
+        The ``delta_t`` passed to the decontamination method will be the
+        filtered subset.
+    preselect_method:
+        SNR ranking method for Stage 1: ``"data"``, ``"template"``, or
+        ``"isd"`` (default).
+    preselect_n_top:
+        Keep only the top-K templates.  ``None`` keeps all that pass the
+        p-value threshold (ISD only).
+    preselect_p_threshold:
+        ISD mock p-value threshold (default 0.05).  Templates with
+        ``p > threshold`` are removed.  Set to ``None`` to disable p-filtering.
+    preselect_n_mocks:
+        Number of GLASS mocks for ISD significance (default 100).
+    preselect_seed:
+        Random seed for GLASS mock generation.
+    preselect_rand_factor:
+        Ratio of randoms to galaxies in each GLASS mock (default 2).
+    good_pixels:
+        Boolean footprint mask, shape ``(12 * nside**2,)``.  Required when
+        ``preselect=True`` and ``preselect_method="isd"``.
+    n_total_footprint:
+        Number of galaxies in the survey footprint (e.g. ``len(ra_gal)``).
+        Used to scale the GLASS mock surface density to match the data.
+    z_edges, nz:
+        Redshift histogram for GLASS mock generation.
+    nside:
+        HEALPix resolution.  Auto-derived from ``good_pixels`` if ``None``.
 
     Returns
     -------
@@ -577,6 +620,10 @@ def run_decontamination(
         ``n_iterations`` (int).
     ElasticNet additionally
         ``cv_info`` (dict).
+    Pre-selection (when ``preselect=True``)
+        ``preselect_indices`` (list[int]), ``preselect_result``
+        (:class:`~model_selection.SnrPreselectionResult`),
+        ``preselect_isd`` (dict or ``None``).
     Non-applicable keys are ``None``.
 
     Notes
@@ -620,7 +667,43 @@ def run_decontamination(
         "isd_masked_fraction": None, # float: fraction of pixels excluded in pass 2
         # ElasticNet-only
         "cv_info": None,
+        # Pre-selection (None when preselect=False)
+        "preselect_indices": None,
+        "preselect_result": None,
+        "preselect_isd": None,
     }
+
+    # ── Pre-selection (Stage 1) ───────────────────────────────────────────────
+    if preselect:
+        from .diagnostics import isd_template_significance
+        from .model_selection import snr_preselect
+
+        pre = snr_preselect(delta_g_obs, delta_t,
+                            method=preselect_method,
+                            n_top=preselect_n_top)
+        selected = list(pre.selected_indices)
+
+        if preselect_method == "isd" and preselect_p_threshold is not None:
+            _ns = nside or int(round(np.sqrt(len(good_pixels) / 12)))
+            isd_sig = isd_template_significance(
+                delta_g_obs, delta_t[selected], good_pixels, _ns,
+                n_total=0,  # overridden by n_total_footprint below
+                z_edges=z_edges, nz=nz,
+                n_total_footprint=n_total_footprint,
+                n_mocks=preselect_n_mocks, seed=preselect_seed,
+                rand_factor=preselect_rand_factor,
+            )
+            keep = [s for s, p in zip(selected, isd_sig["p_values"])
+                    if p <= preselect_p_threshold]
+            selected = keep if keep else selected[:1]
+            result["preselect_isd"] = isd_sig
+        else:
+            isd_sig = None
+
+        delta_t = delta_t[selected]
+        n_sys   = delta_t.shape[0]
+        result["preselect_indices"] = selected
+        result["preselect_result"]  = pre
 
     # ── OLS ───────────────────────────────────────────────────────────────────
     if method == "OLS":

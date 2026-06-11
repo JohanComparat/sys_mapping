@@ -1541,3 +1541,26 @@ yields a clear conclusion:
   model (too few pixels).  NSIDE 128/256 add noise without improving the fit.
 
 * **Recommended weight**: ``WEIGHT_COMB`` (NSIDE 64) for all science.
+
+.. _auto-ls10-ElasticNet_ISD_1_OLS-start:
+
+ElasticNet+ISD-1+OLS Results — LS10 BGS (auto-generated 2026-06-11T20:46Z)
+----------------------------------------------------------------------------
+
+Samples processed: 9
+
+.. csv-table:: LS10 ElasticNet+ISD-1+OLS estimates per sample
+   :header: "Sample", "N_gal", "acc_add", "acc_comb", "lambda_LR", "p-val", "reject", "t (h)"
+   :widths: 40, 12, 10, 10, 10, 8, 8, 8
+
+   "LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.1", "2,759,238", "0.389", "0.277", "123.9", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.", "3,308,841", "0.389", "0.277", "66.9", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.2", "3,263,228", "0.390", "0.287", "69.6", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.", "2,802,710", "0.392", "0.281", "89.1", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.3", "1,619,838", "0.390", "0.289", "75.1", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.", "541,855", "0.389", "0.288", "123.4", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.3", "120,882", "0.388", "0.287", "151.5", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08", "523,486", "0.390", "0.296", "1489.5", "0.0000", "True", "0.00"
+   "LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12", "1,432,502", "0.391", "0.297", "730.6", "0.0000", "True", "0.00"
+
+.. _auto-ls10-ElasticNet_ISD_1_OLS-end:
