@@ -81,6 +81,8 @@ from .plotting import (
 from .glass_mocks import (
     measure_nz,
     generate_glass_fullsky_mock,
+    generate_glass_delta_map,
+    sample_positions_from_delta,
 )
 from .simulation import (
     ContaminationConfig,
@@ -175,6 +177,8 @@ __all__ = [
     # glass_mocks
     "measure_nz",
     "generate_glass_fullsky_mock",
+    "generate_glass_delta_map",
+    "sample_positions_from_delta",
     # simulation
     "ContaminationConfig",
     "LEVELS",
