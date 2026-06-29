@@ -238,3 +238,134 @@ def generate_glass_fullsky_mock(
         "nside": nside,
         "seed": seed,
     }
+
+
+def generate_glass_delta_map(
+    nside: int,
+    z_max: float,
+    *,
+    cl_amplitude: float = 5e-4,
+    seed: int | None = None,
+) -> np.ndarray:
+    """Generate a single full-sky lognormal overdensity map with GLASS.
+
+    Unlike :func:`generate_glass_fullsky_mock`, this returns the *field* itself
+    (one tophat shell over ``[0, z_max]``) rather than sampled galaxy positions.
+    The map can then be sampled multiple times — e.g. once for a clean catalog
+    and once for a contaminated catalog that shares the same underlying
+    structure — via :func:`sample_positions_from_delta`.
+
+    Parameters
+    ----------
+    nside:
+        HEALPix resolution of the field.  ``lmax = 3 * nside``.
+    z_max:
+        Upper edge of the single tophat redshift shell.
+    cl_amplitude:
+        Amplitude of the galaxy angular power spectrum C_ℓ at ℓ=1.
+    seed:
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    (12*nside²,) float array — the galaxy overdensity δ in RING ordering, with
+    near-zero mean and ``1 + δ ≥ 0`` (lognormal field).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.glass_mocks import generate_glass_delta_map
+    >>> delta = generate_glass_delta_map(nside=16, z_max=0.3, seed=0)
+    >>> delta.shape
+    (3072,)
+    >>> bool((1.0 + delta).min() >= 0.0)
+    True
+    """
+    import glass
+
+    rng = np.random.default_rng(seed)
+    z_glass = np.array([0.0, float(z_max)])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        shells = glass.tophat_windows(z_glass)
+
+    fields = glass.lognormal_fields(shells)
+    cl = _make_glass_cls(nside, amplitude=cl_amplitude)
+    gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, [cl]))
+
+    # Single shell → single delta map
+    for delta in glass.generate(fields, gls, nside, rng=rng):
+        return np.asarray(delta)
+    raise RuntimeError("glass.generate yielded no fields")
+
+
+def sample_positions_from_delta(
+    delta: np.ndarray,
+    ngal_per_arcmin2: float,
+    *,
+    vis: np.ndarray | None = None,
+    bias: float = 1.0,
+    seed: int | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Poisson-sample galaxy positions tracing an overdensity field.
+
+    Thin wrapper over :func:`glass.positions_from_delta`.  The expected number
+    of galaxies per pixel is ``ngal_per_arcmin2 × vis × (1 + bias·delta)``.
+    Passing a visibility/footprint map in ``vis`` restricts the sample to the
+    survey area without materialising full-sky positions.
+
+    This is the count-modulation primitive used to inject systematics into the
+    galaxy *number density* (as opposed to per-galaxy weights): sample once from
+    a clean ``delta`` and once from a contaminated ``delta`` (see
+    :func:`sys_mapping.contamination.apply_contamination`) sharing the same
+    realisation.
+
+    Parameters
+    ----------
+    delta:
+        (n_pix,) overdensity map (RING ordering).  Must satisfy ``1 + δ ≥ 0``
+        wherever ``vis > 0``; clip beforehand if a contamination model can push
+        it negative.
+    ngal_per_arcmin2:
+        Target mean galaxy surface density.
+    vis:
+        Optional (n_pix,) visibility map (e.g. survey coverage in ``[0, 1]``).
+        Pixels with ``vis = 0`` are never sampled.
+    bias:
+        Linear bias passed to GLASS (``δ_g = bias · δ``).  Use ``1.0`` to sample
+        directly from ``delta`` as an already-biased galaxy overdensity.
+    seed:
+        Random seed for reproducibility.
+
+    Returns
+    -------
+    ra, dec : (n_gal,) arrays in degrees.  ``ra`` is wrapped to ``[0, 360)``.
+
+    Examples
+    --------
+    >>> import numpy as np, healpy as hp
+    >>> from sys_mapping.glass_mocks import generate_glass_delta_map, sample_positions_from_delta
+    >>> nside = 16
+    >>> delta = generate_glass_delta_map(nside=nside, z_max=0.3, seed=0)
+    >>> vis = np.zeros(hp.nside2npix(nside)); vis[: vis.size // 2] = 1.0
+    >>> ra, dec = sample_positions_from_delta(delta, 5.0, vis=vis, seed=1)
+    >>> bool(ra.shape == dec.shape and ra.size > 0)
+    True
+    >>> bool(ra.min() >= 0.0 and ra.max() < 360.0)
+    True
+    """
+    import glass
+
+    rng = np.random.default_rng(seed)
+    all_lon: list[np.ndarray] = []
+    all_lat: list[np.ndarray] = []
+    for lon_batch, lat_batch, _ in glass.positions_from_delta(
+        ngal_per_arcmin2, np.asarray(delta), bias, vis, rng=rng
+    ):
+        all_lon.append(lon_batch)
+        all_lat.append(lat_batch)
+
+    if not all_lon:
+        return np.empty(0), np.empty(0)
+    return np.concatenate(all_lon) % 360.0, np.concatenate(all_lat)
