@@ -36,11 +36,17 @@ scaling `n_total` by the footprint fraction before full-sky generation.
 | **ElasticNet** | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
 | **ISD-1** | Additive–multiplicative | Iterative reweighted OLS, poly order 1 |
 | **ISD-3** | Additive–multiplicative | Iterative reweighted OLS, poly order 3 |
-| **MCMC-add** | Additive | Bayesian posterior sampling (emcee), b=0 |
-| **MCMC-comb** | Combined | Bayesian posterior sampling (emcee), free a, b |
+| **MCMC-add** | Additive | Exact analytic posterior (default) / emcee, b=0 |
+| **MCMC-comb** | Combined | Gradient-based NUTS (default) / emcee, free a, b |
 
 All methods produce per-galaxy weights (`WEIGHT_SYS` / `WEIGHT_COMB`) for use
 downstream in two-point function estimators.
+
+Since v1.1.0 the MCMC methods default to faster samplers (`--sampler auto`):
+an exact Normal-Inverse-Gamma posterior for the linear-Gaussian additive model,
+and gradient-based BlackJAX NUTS (run under `jax.lax.scan`, multi-chain via
+`jax.vmap`) for the non-linear combined/skew models. The original gradient-free
+emcee sampler remains available as `--sampler emcee` (the validation baseline).
 
 ---
 
@@ -425,7 +431,8 @@ cd docs && make html
 | `contamination` | `apply_contamination`, `invert_contamination`, `compute_two_point_correction`, `pack_params`, `unpack_params`, `n_free_params` |
 | `likelihood` | `make_log_likelihood` — factory returning a `@jax.jit` log-likelihood (Gaussian or skew-normal) |
 | `maps` | `systematic_power_spectrum`, `generate_systematic_map`, `generate_systematic_maps`, `load_real_template`, `load_real_templates`, `pixelize_catalog`, `compute_overdensity`, `assign_template_values` |
-| `inference` | `make_log_prob`, `run_mcmc`, `get_mle_params`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
+| `inference` | `make_log_prob`, `run_mcmc`, `run_additive_analytic`, `get_mle_params`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
+| `nuts` | `run_nuts` (BlackJAX NUTS), `build_logdensity`, `default_n_chains` |
 | `correction` | `debias_params` (Eq. 21), `rotate_templates` (App. A), `transform_params_from_rotated`, `correct_two_point_function`, `correct_power_spectrum_harmonic` |
 | `model_selection` | `likelihood_ratio_test` → `LikelihoodRatioResult` (Eq. 19) |
 | `bootstrap` | `block_bootstrap_variance` — spatial block bootstrap via HEALPix coarsening (Sec. 6.2); `jackknife_covariance` |

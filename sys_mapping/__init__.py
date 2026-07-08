@@ -21,7 +21,8 @@ from .maps import (
     compute_overdensity,
     assign_template_values,
 )
-from .inference import make_log_prob, run_mcmc, get_mle_params, get_param_variance_from_chain, get_param_covariance_from_chain
+from .inference import make_log_prob, run_mcmc, run_additive_analytic, get_mle_params, get_param_variance_from_chain, get_param_covariance_from_chain
+from .nuts import run_nuts, build_logdensity, default_n_chains
 from .correction import (
     debias_params,
     rotate_templates,
@@ -121,9 +122,14 @@ __all__ = [
     # inference
     "make_log_prob",
     "run_mcmc",
+    "run_additive_analytic",
     "get_mle_params",
     "get_param_variance_from_chain",
     "get_param_covariance_from_chain",
+    # nuts
+    "run_nuts",
+    "build_logdensity",
+    "default_n_chains",
     # correction
     "debias_params",
     "rotate_templates",

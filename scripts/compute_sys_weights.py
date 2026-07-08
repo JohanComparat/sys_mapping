@@ -432,8 +432,18 @@ def run_model(
     use_skewed: bool,
     rotation_matrix: np.ndarray,
     vectorize: bool = False,
+    sampler: str = "auto",
+    n_chains: int | None = None,
+    nuts_n_warmup: int = 1000,
+    nuts_n_samples: int = 1000,
+    seed: int = 42,
 ) -> dict:
-    """Run MCMC for one model and return a dict with extracted MAP parameters.
+    """Run inference for one model and return a dict with extracted MAP parameters.
+
+    ``sampler`` selects the backend (see :func:`sys_mapping.run_decontamination`):
+    ``"auto"`` uses the exact analytic posterior for the additive model and
+    BlackJAX NUTS for the combined / skew models; ``"emcee"`` forces the legacy
+    gradient-free sampler.
 
     Returns
     -------
@@ -441,23 +451,40 @@ def run_model(
         a_hat, b_hat, sigma_hat  — MAP params in original template basis
         var_a, var_b             — posterior variances
         acceptance_fraction      — mean acceptance rate
+        rhat, ess, num_divergences, sampler_backend — convergence diagnostics
         flat_chain               — (n_samples, n_dim) posterior samples
     """
-    n_dim = (2 * n_sys + 1) if model == "combined" else (n_sys + 1)
-    n_w = max(n_walkers, 2 * n_dim + 2)
+    _sampler = sampler
+    if _sampler == "auto":
+        _sampler = "analytic" if (model == "additive" and not use_skewed) else "nuts"
+    elif _sampler == "analytic" and (model != "additive" or use_skewed):
+        _sampler = "nuts"  # analytic posterior only exists for additive Gaussian
 
-    flat_chain, sampler = sm.run_mcmc(
-        n_sys=n_sys,
-        model=model,
-        delta_g_obs=delta_g,
-        delta_t=delta_t_rot,
-        n_walkers=n_w,
-        n_steps=n_steps,
-        n_burn=n_burn,
-        use_skewed=use_skewed,
-        progress=True,
-        vectorize=vectorize,
-    )
+    if _sampler == "analytic":
+        flat_chain, sampler_obj = sm.run_additive_analytic(
+            n_sys, delta_g_obs=delta_g, delta_t=delta_t_rot, seed=seed,
+        )
+    elif _sampler == "nuts":
+        flat_chain, sampler_obj = sm.run_nuts(
+            n_sys, model=model, delta_g_obs=delta_g, delta_t=delta_t_rot,
+            use_skewed=use_skewed, n_chains=n_chains,
+            n_warmup=nuts_n_warmup, n_samples=nuts_n_samples, seed=seed,
+        )
+    else:  # "emcee" — legacy gradient-free baseline
+        n_dim = (2 * n_sys + 1) if model == "combined" else (n_sys + 1)
+        n_w = max(n_walkers, 2 * n_dim + 2)
+        flat_chain, sampler_obj = sm.run_mcmc(
+            n_sys=n_sys,
+            model=model,
+            delta_g_obs=delta_g,
+            delta_t=delta_t_rot,
+            n_walkers=n_w,
+            n_steps=n_steps,
+            n_burn=n_burn,
+            use_skewed=use_skewed,
+            progress=True,
+            vectorize=vectorize,
+        )
 
     theta_hat = sm.get_mle_params(flat_chain)
     a_rot, b_rot, sigma_hat, _ = unpack_params(theta_hat, n_sys, model)
@@ -475,8 +502,12 @@ def run_model(
         sigma_hat=float(sigma_hat),
         var_a=var_a,
         var_b=var_b,
-        acceptance_fraction=float(np.mean(sampler.acceptance_fraction)),
+        acceptance_fraction=float(np.mean(sampler_obj.acceptance_fraction)),
         flat_chain=flat_chain,
+        sampler_backend=_sampler,
+        rhat=float(getattr(sampler_obj, "rhat", np.nan)),
+        ess=float(getattr(sampler_obj, "ess", np.nan)),
+        num_divergences=int(getattr(sampler_obj, "num_divergences", 0)),
     )
 
 
@@ -546,6 +577,10 @@ def process_sample(
     template_sources: list[str],
     norm_method: str,
     vectorize: bool = False,
+    sampler: str = "auto",
+    n_chains: int | None = None,
+    nuts_n_warmup: int = 1000,
+    nuts_n_samples: int = 1000,
 ) -> dict:
     """Run full systematic analysis for one DATA/RAND pair.
 
@@ -604,6 +639,10 @@ def process_sample(
         use_skewed=use_skewed,
         rotation_matrix=R,
         vectorize=vectorize,
+        sampler=sampler,
+        n_chains=n_chains,
+        nuts_n_warmup=nuts_n_warmup,
+        nuts_n_samples=nuts_n_samples,
     )
     print(f"  acceptance = {res_add['acceptance_fraction']:.3f}  σ_noise = {res_add['sigma_hat']:.4f}")
 
@@ -620,6 +659,10 @@ def process_sample(
         use_skewed=use_skewed,
         rotation_matrix=R,
         vectorize=vectorize,
+        sampler=sampler,
+        n_chains=n_chains,
+        nuts_n_warmup=nuts_n_warmup,
+        nuts_n_samples=nuts_n_samples,
     )
     print(f"  acceptance = {res_comb['acceptance_fraction']:.3f}  σ_noise = {res_comb['sigma_hat']:.4f}")
 
@@ -770,12 +813,20 @@ def process_sample(
                 "weight_scheme": "1 / max(1 + sum_i a_i_add * t_i(p), 0.01)",
                 "sigma_noise": res_add["sigma_hat"],
                 "acceptance_fraction": res_add["acceptance_fraction"],
+                "sampler_backend": res_add.get("sampler_backend"),
+                "rhat": res_add.get("rhat"),
+                "ess": res_add.get("ess"),
+                "num_divergences": res_add.get("num_divergences"),
             },
             "combined": {
                 "weight_col": "WEIGHT_COMB",
                 "weight_scheme": "1 / max(1 + sum_i b_i_comb * t_i(p), 0.01)",
                 "sigma_noise": res_comb["sigma_hat"],
                 "acceptance_fraction": res_comb["acceptance_fraction"],
+                "sampler_backend": res_comb.get("sampler_backend"),
+                "rhat": res_comb.get("rhat"),
+                "ess": res_comb.get("ess"),
+                "num_divergences": res_comb.get("num_divergences"),
                 "lrt_lambda": float(lrt.lambda_lr),
                 "lrt_pvalue": float(lrt.p_value),
                 "reject_additive": bool(lrt.reject_null),
@@ -811,7 +862,17 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--nside",      type=int, default=64,   help="HEALPix NSIDE.")
     p.add_argument("--n-walkers",  type=int, default=210,  help="emcee walkers (floor is 2·n_dim+2).")
     p.add_argument("--n-steps",    type=int, default=2100, help="MCMC steps per walker.")
-    p.add_argument("--n-burn",     type=int, default=200,  help="Burn-in steps to discard.")
+    p.add_argument("--n-burn",     type=int, default=200,  help="Burn-in steps to discard (emcee only).")
+    p.add_argument("--sampler", default="auto",
+                   choices=["auto", "analytic", "nuts", "emcee"],
+                   help="Inference backend: auto (analytic additive + NUTS combined), "
+                        "analytic, nuts, or emcee (legacy baseline).")
+    p.add_argument("--n-chains", type=int, default=None,
+                   help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
+    p.add_argument("--nuts-warmup", type=int, default=1000,
+                   help="NUTS window-adaptation steps.")
+    p.add_argument("--nuts-samples", type=int, default=1000,
+                   help="NUTS post-warmup draws per chain.")
     p.add_argument(
         "--template-sources",
         nargs="+",
@@ -957,6 +1018,10 @@ def main() -> None:
             template_sources=args.template_sources,
             norm_method=args.norm_method,
             vectorize=vectorize,
+            sampler=args.sampler,
+            n_chains=args.n_chains,
+            nuts_n_warmup=args.nuts_warmup,
+            nuts_n_samples=args.nuts_samples,
         )
         summary_entries.append(entry)
 

@@ -74,6 +74,77 @@ if _JAX_AVAILABLE:
             )
         return _jax_isd_cache[n_bins]
 
+    # --- "isd", general: arbitrary polynomial order + optional fracdet weights ---
+    def _one_isd_poly(t_i, g, w, n_bins, order):
+        """Δχ² of a weighted degree-``order`` polynomial fit of binned n̄(s̄).
+
+        Generalises :func:`_one_isd` (poly_order=1, unit weights) to any order and
+        optional per-pixel weights ``w`` (fracdet).  Bin means use ``w``; the
+        per-bin standard error uses the unweighted variance / pixel count, exactly
+        as the NumPy fallback in :func:`snr_template_ranking`.
+        """
+        w_total = w.sum()
+        g_bar = jnp.dot(w, g) / (w_total + 1e-30)
+        t_min, t_max = t_i.min(), t_i.max()
+        span = t_max - t_min + 1e-30
+        bin_idx = jnp.clip(
+            jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32), 0, n_bins - 1
+        )
+        W_b  = jnp.zeros(n_bins).at[bin_idx].add(w)          # Σ w
+        wt_b = jnp.zeros(n_bins).at[bin_idx].add(w * t_i)    # Σ w t
+        wg_b = jnp.zeros(n_bins).at[bin_idx].add(w * g)      # Σ w g
+        cnt  = jnp.zeros(n_bins).at[bin_idx].add(1.0)        # pixel count
+        g1   = jnp.zeros(n_bins).at[bin_idx].add(g)          # Σ g   (unweighted)
+        g2   = jnp.zeros(n_bins).at[bin_idx].add(g ** 2)     # Σ g²  (unweighted)
+
+        s_arr = wt_b / jnp.maximum(W_b, 1e-30)               # weighted t mean
+        n_arr = wg_b / jnp.maximum(W_b, 1e-30)               # weighted g mean
+        g_mean_uw = g1 / jnp.maximum(cnt, 1.0)
+        g_var = g2 / jnp.maximum(cnt, 1.0) - g_mean_uw ** 2
+        valid = (W_b > 1e-30) & (cnt >= 1) & (g_var > 1e-20)
+        inv_s2 = jnp.where(valid, cnt / jnp.maximum(g_var, 1e-20), 0.0)
+
+        chi2_null = jnp.sum(inv_s2 * (n_arr - g_bar) ** 2)
+
+        # Weighted polynomial least squares (weight = inv_s2): solve on the
+        # sqrt-weighted Vandermonde to avoid squaring the condition number.
+        powers = jnp.arange(order + 1)
+        V = s_arr[:, None] ** powers[None, :]                # (n_bins, order+1)
+        sw = jnp.sqrt(inv_s2)
+        coeffs, *_ = jnp.linalg.lstsq(sw[:, None] * V, sw * n_arr, rcond=None)
+        f_s = V @ coeffs
+        chi2_model = jnp.sum(inv_s2 * (n_arr - f_s) ** 2)
+
+        n_valid = jnp.sum(valid)
+        return jnp.where(n_valid < 2, 0.0, jnp.maximum(chi2_null - chi2_model, 0.0))
+
+    _jax_isd_poly_cache: dict[tuple[int, int], object] = {}
+
+    def _get_jax_isd_poly(n_bins: int, order: int):
+        key = (n_bins, order)
+        if key not in _jax_isd_poly_cache:
+            _jax_isd_poly_cache[key] = jax.jit(
+                jax.vmap(lambda t, g, w: _one_isd_poly(t, g, w, n_bins, order),
+                         in_axes=(0, None, None))
+            )
+        return _jax_isd_poly_cache[key]
+
+    # --- null test: signed corr + permutation p-values, vmapped over resamples ---
+    def _null_test_jax(weights, delta_t, n_bootstrap, seed):
+        w_c = weights - weights.mean()
+        w_norm = jnp.linalg.norm(w_c) + 1e-30
+        t_c = delta_t - delta_t.mean(axis=1, keepdims=True)
+        t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
+        signed = (t_c @ w_c) / (t_norm * w_norm)             # (n_sys,)
+        obs = jnp.abs(signed)
+
+        keys = jax.random.split(jax.random.PRNGKey(seed), n_bootstrap)
+        one = lambda k: jnp.abs(t_c @ jax.random.permutation(k, w_c)) / (t_norm * w_norm)
+        perm = jax.vmap(one)(keys)                           # (n_bootstrap, n_sys)
+        count = jnp.sum(perm >= obs[None, :], axis=0)        # (n_sys,)
+        p = (count + 1.0) / (n_bootstrap + 1.0)
+        return signed, p
+
 
 def null_test_cross_correlations(
     weights: np.ndarray,
@@ -143,6 +214,14 @@ def null_test_cross_correlations(
     ----------
     Ross et al. 2011, MNRAS 417, 1350.
     """
+    if _JAX_AVAILABLE:
+        signed, p = _null_test_jax(
+            jnp.asarray(weights, dtype=jnp.float64),
+            jnp.asarray(delta_t, dtype=jnp.float64),
+            int(n_bootstrap), int(seed),
+        )
+        return {"correlations": np.asarray(signed), "p_values": np.asarray(p)}
+
     rng = np.random.default_rng(seed)
     n_sys = delta_t.shape[0]
 
@@ -306,8 +385,19 @@ def snr_template_ranking(
                     jnp.asarray(delta_g_obs, dtype=jnp.float64),
                 )
             )
+        if _JAX_AVAILABLE:
+            # General JAX path: arbitrary poly_order and/or fracdet weights.
+            w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
+                 else jnp.asarray(fracdet, dtype=jnp.float64))
+            return np.asarray(
+                _get_jax_isd_poly(n_bins, int(poly_order))(
+                    jnp.asarray(delta_t, dtype=jnp.float64),
+                    jnp.asarray(delta_g_obs, dtype=jnp.float64),
+                    w,
+                )
+            )
 
-        # NumPy fallback (poly_order > 1 or fracdet provided)
+        # NumPy fallback (JAX unavailable)
         w = np.ones(n_pix, dtype=float) if fracdet is None else np.asarray(fracdet, dtype=float)
         w_total = float(np.sum(w))
         g_bar = float(np.dot(w, delta_g_obs) / w_total) if w_total > 1e-30 else 0.0
@@ -483,6 +573,7 @@ def isd_template_significance(
     fracdet: np.ndarray | None = None,
     seed: int = 0,
     rand_factor: int = 10,
+    n_jobs: int = 1,
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
 
@@ -531,6 +622,11 @@ def isd_template_significance(
         Ratio of random to galaxy counts in each GLASS mock.  Reducing this
         (e.g. to 2) cuts memory usage and generation time proportionally with
         negligible effect on the overdensity estimate.  Default is 10.
+    n_jobs:
+        Number of parallel worker processes for the (embarrassingly parallel,
+        GLASS/healpy-bound) mock loop.  ``1`` (default) runs serially; ``-1``
+        uses all cores.  Mock ``k`` always uses ``seed + k``, so results are
+        reproducible regardless of ``n_jobs``.
 
     Returns
     -------
@@ -600,9 +696,8 @@ def isd_template_significance(
         n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
     )
 
-    delta_chi2_mocks = np.empty((n_mocks, n_sys))
-
-    for k in range(n_mocks):
+    def _one_mock(k: int) -> np.ndarray:
+        """Δχ² of a single systematic-free GLASS mock (mock ``k`` uses seed+k)."""
         cat = generate_glass_fullsky_mock(
             nside, n_total, z_edges, nz, seed=seed + k,
             rand_factor=rand_factor,
@@ -616,8 +711,7 @@ def isd_template_significance(
         total_gal = float(np.sum(n_gal_foot))
         total_rand = float(np.sum(n_rand_foot))
         if total_gal < 1 or total_rand < 1:
-            delta_chi2_mocks[k] = 0.0
-            continue
+            return np.zeros(n_sys)
 
         norm = total_gal / total_rand
         n_rand_safe = np.where(n_rand_foot > 0, n_rand_foot, 1.0)
@@ -626,10 +720,17 @@ def isd_template_significance(
             n_gal_foot / (norm * n_rand_safe) - 1.0,
             0.0,
         )
-
-        delta_chi2_mocks[k] = snr_template_ranking(
+        return snr_template_ranking(
             delta_g_mock, delta_t, method="isd",
             n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
+        )
+
+    if n_jobs == 1:
+        delta_chi2_mocks = np.array([_one_mock(k) for k in range(n_mocks)])
+    else:
+        from joblib import Parallel, delayed
+        delta_chi2_mocks = np.array(
+            Parallel(n_jobs=n_jobs)(delayed(_one_mock)(k) for k in range(n_mocks))
         )
 
     n_extreme = np.sum(delta_chi2_mocks >= delta_chi2_data[np.newaxis, :], axis=0)

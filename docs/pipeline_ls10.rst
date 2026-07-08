@@ -136,9 +136,23 @@ Full run with real templates (recommended)
        --force \
        2>&1 | tee logs/ls10_run.log
 
-**Runtime**: OLS/ElasticNet/ISD run in seconds–minutes per sample; MCMC-add and
-MCMC-comb take 30–90 minutes per sample on CPU (9 samples × 2 MCMC methods).
-Use ``--only-methods MCMC-comb`` to run only the combined model.
+**Runtime**: OLS/ElasticNet/ISD run in seconds–minutes per sample. The MCMC
+stage depends on ``--sampler`` (default ``auto``, since v1.1.0):
+
+- ``auto`` / ``analytic`` / ``nuts`` — ``MCMC-add`` uses an exact analytic
+  Normal-Inverse-Gamma posterior: **milliseconds** after JIT warmup (vs tens of
+  seconds for emcee), and exact rather than Monte-Carlo. ``MCMC-comb`` uses
+  gradient-based BlackJAX NUTS (whole chain under ``lax.scan``, multi-chain via
+  ``vmap``): the samples are near-independent (``ess`` ≈ ``n_samples``), so far
+  fewer are needed than emcee for equivalent precision. At large ``N_pix`` each
+  gradient step is costly, so NUTS wall-time is *competitive* with emcee while
+  delivering much higher effective sample size and ``rhat`` / ``ess`` /
+  ``num_divergences`` diagnostics. Tune with ``--n-chains`` / ``--nuts-samples``.
+- ``emcee`` — the legacy gradient-free sampler; ``MCMC-add`` and ``MCMC-comb``
+  take 30–90 minutes per sample on CPU. Retained as the validation baseline.
+
+Use ``--only-methods MCMC-comb`` to run only the combined model, and
+``--n-chains`` / ``--nuts-warmup`` / ``--nuts-samples`` to tune NUTS.
 
 Regenerate figures without re-running MCMC
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

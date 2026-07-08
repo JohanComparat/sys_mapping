@@ -444,6 +444,52 @@ the JAX likelihood is compiled once (~227 ms) then runs at ~284 μs/eval.
 :func:`~sys_mapping.inference.get_param_variance_from_chain`,
 :func:`~sys_mapping.inference.get_param_covariance_from_chain`
 
+Samplers (v1.1.0)
+~~~~~~~~~~~~~~~~~~
+
+``run_decontamination(..., sampler=...)`` selects the inference backend. The
+emcee sampler above remains available as ``sampler="emcee"`` (the validation
+baseline); the default ``"auto"`` uses two faster, exact/gradient-based paths.
+
+*Analytic additive posterior*
+(:func:`~sys_mapping.inference.run_additive_analytic`). The additive model
+:math:`\delta_g^{\rm obs} = \sum_i a_i t_i + \varepsilon`,
+:math:`\varepsilon \sim \mathcal N(0,\sigma^2)` is ordinary linear regression,
+so under the flat priors emcee uses the posterior is Normal-Inverse-Gamma in
+closed form:
+
+.. math::
+
+   \sigma^2 \mid {\rm data} \sim \mathrm{Inv\text{-}Gamma}\!\left(
+     \tfrac{N_{\rm pix}-n_s-1}{2},\ \tfrac{\rm RSS}{2}\right),\qquad
+   a \mid \sigma^2,{\rm data} \sim \mathcal N\!\left(\hat a_{\rm OLS},\
+     \sigma^2 (X^\top X)^{-1}\right).
+
+Sampling this hierarchy (σ² then a|σ²) draws the exact multivariate-t marginal
+posterior on :math:`a` with **no** Monte-Carlo autocorrelation, in milliseconds,
+replacing the ~80 s emcee ``MCMC-add`` run.
+
+*Gradient-based NUTS* (:func:`~sys_mapping.nuts.run_nuts`, BlackJAX) for the
+non-linear ``combined`` / skew models. The JAX log-likelihood is differentiable,
+so the No-U-Turn Sampler explores the posterior with gradients — far higher
+effective sample size per step than emcee's stretch move — and BlackJAX runs the
+entire chain (window adaptation + sampling) under ``jax.lax.scan``, removing the
+Python per-step loop and per-walker host↔device sync. Only ``σ > 0`` is
+constrained, via an ``exp`` reparameterization (with the transform Jacobian), so
+NUTS never sees the hard ``σ_min`` discontinuity. Chains run in parallel with a
+single ``jax.vmap`` (chain count auto-selected from the JAX backend, so the same
+code runs on CPU and GPU), and ``rhat`` / ``ess`` / ``num_divergences`` are
+returned for convergence checking.
+
+Both paths return the same ``(flat_chain, sampler)`` contract as
+:func:`~sys_mapping.inference.run_mcmc`, so PCA back-transformation, point
+estimates, and covariance extraction are unchanged.
+
+**Functions:**
+:func:`~sys_mapping.inference.run_additive_analytic`,
+:func:`~sys_mapping.nuts.run_nuts`,
+:func:`~sys_mapping.nuts.build_logdensity`
+
 ----
 
 .. _Template PCA rotation:

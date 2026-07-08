@@ -210,6 +210,103 @@ def run_mcmc(
     return flat_chain, sampler
 
 
+class _AnalyticSampler:
+    """Lightweight stand-in for :class:`emcee.EnsembleSampler`.
+
+    Exposes the single attribute downstream code reads from a real sampler
+    (``acceptance_fraction``) plus the convergence diagnostics
+    (``rhat``, ``ess``, ``num_divergences``) used by the sampler-diagnostics
+    contract.  All are trivially perfect for exact i.i.d. analytic draws.
+    """
+
+    def __init__(self, n_samples: int, n_dim: int):
+        self.acceptance_fraction = 1.0        # every draw accepted
+        self.num_divergences = 0
+        self.rhat = 1.0                        # exact draws => perfect mixing
+        self.ess = float(n_samples)            # i.i.d. => ESS == n_samples
+        self.n_samples = n_samples
+        self.n_dim = n_dim
+
+
+def run_additive_analytic(
+    n_sys: int,
+    *,
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    n_samples: int = 100_000,
+    seed: int = 42,
+) -> tuple[np.ndarray, _AnalyticSampler]:
+    """Draw the exact analytic posterior for the additive (linear-Gaussian) model.
+
+    The additive model ``δ_g_obs = Σ a_i t_i + ε``, ``ε ~ N(0, σ²)`` is ordinary
+    linear regression, so under the *same* flat priors :func:`run_mcmc` uses (flat
+    on ``a``, flat on ``σ > 0``) the posterior is Normal–Inverse-Gamma in closed
+    form:
+
+        σ² | data ~ Inv-Gamma(α = (n_pix − n_sys − 1)/2, β = RSS/2)
+        a  | σ², data ~ N(a_hat, σ² (XᵀX)⁻¹)
+
+    where ``X = delta_t.T``, ``a_hat`` is the OLS solution and ``RSS`` the residual
+    sum of squares.  Sampling this hierarchy (σ² then a|σ²) yields the exact
+    multivariate-t marginal posterior on ``a`` — with **no** Monte-Carlo
+    autocorrelation — in milliseconds, replacing the ~80 s emcee ``MCMC-add`` run.
+
+    Parameters
+    ----------
+    n_sys : int
+    delta_g_obs : (n_pix,) observed overdensity (keyword-only)
+    delta_t : (n_sys, n_pix) template values (keyword-only)
+    n_samples : int  number of independent posterior draws (default 100_000)
+    seed : int
+
+    Returns
+    -------
+    flat_chain : (n_samples, n_sys + 1) posterior draws, layout ``[a_0..a_{n-1}, σ]``
+    sampler : :class:`_AnalyticSampler`
+
+    Notes
+    -----
+    The ``(n_pix − n_sys − 1)/2`` shape reproduces the flat-in-σ prior that emcee
+    implicitly samples (uniform on ``σ``, not ``log σ``); for ``n_pix ≫ n_sys`` the
+    distinction from a Jeffreys prior is negligible.  Matches an emcee ``MCMC-add``
+    chain's posterior mean and covariance to Monte-Carlo error, but is exact.
+    """
+    delta_g = jnp.asarray(delta_g_obs, dtype=jnp.float64)
+    n_pix = int(delta_g.shape[0])
+    key_sigma, key_a = jax.random.split(jax.random.PRNGKey(seed))
+
+    if n_sys == 0:
+        rss = jnp.dot(delta_g, delta_g)
+        alpha = max((n_pix - 1) / 2.0, 1e-3)
+        g = jax.random.gamma(key_sigma, alpha, shape=(n_samples,))
+        sigma = np.asarray(jnp.sqrt((rss / 2.0) / g))
+        return sigma[:, None], _AnalyticSampler(n_samples, 1)
+
+    X = jnp.asarray(delta_t, dtype=jnp.float64).T              # (n_pix, n_sys)
+    XtX = X.T @ X                                              # (n_sys, n_sys)
+    Xty = X.T @ delta_g                                        # (n_sys,)
+    # Cholesky of the (small) normal-equations matrix: XᵀX = L Lᵀ
+    L = jax.scipy.linalg.cholesky(XtX, lower=True)
+    a_hat = jax.scipy.linalg.cho_solve((L, True), Xty)         # OLS solution
+    resid = delta_g - X @ a_hat
+    rss = jnp.dot(resid, resid)
+
+    # σ² ~ Inv-Gamma(α, β):  σ² = β / Gamma(α, 1)
+    alpha = max((n_pix - n_sys - 1) / 2.0, 1e-3)
+    beta = rss / 2.0
+    g = jax.random.gamma(key_sigma, alpha, shape=(n_samples,))
+    sigma = jnp.sqrt(beta / g)                                 # (n_samples,)
+
+    # a | σ² ~ N(a_hat, σ² (XᵀX)⁻¹).  With XᵀX = L Lᵀ, a draw with covariance
+    # (XᵀX)⁻¹ is L⁻ᵀ z for z ~ N(0, I): Cov(L⁻ᵀ z) = L⁻ᵀ L⁻¹ = (XᵀX)⁻¹.
+    z = jax.random.normal(key_a, shape=(n_samples, n_sys))
+    y = jax.scipy.linalg.solve_triangular(L.T, z.T, lower=False).T   # L⁻ᵀ z
+    a_samples = a_hat[None, :] + sigma[:, None] * y
+
+    flat_chain = jnp.concatenate([a_samples, sigma[:, None]], axis=1)
+    return np.asarray(flat_chain), _AnalyticSampler(n_samples, n_sys + 1)
+
+
 def get_mle_params(flat_chain: np.ndarray) -> np.ndarray:
     """Return the posterior median as a robust point estimate.
 
