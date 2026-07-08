@@ -454,6 +454,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 n_total_footprint=int(len(ra_gal)),
                 z_edges=_z_edges, nz=_nz,
                 n_mocks=preselect_n_mocks, seed=0, rand_factor=2,
+                n_jobs=args.preselect_n_jobs,
             )
             _keep = [s for s, p in zip(_selected, _isd_sig["p_values"])
                      if p <= preselect_p_threshold]
@@ -478,6 +479,8 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 _meth, delta_g, delta_t_decontam,
                 n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
                 seed=42, progress=_meth.startswith("MCMC"),
+                sampler=args.sampler, n_chains=args.n_chains,
+                nuts_n_warmup=args.nuts_warmup, nuts_n_samples=args.nuts_samples,
             )
             # Store pre-selection metadata in each method result
             if preselect:
@@ -1181,7 +1184,17 @@ def main():
     parser.add_argument("--nside", type=int, default=64, help="HEALPix NSIDE.")
     parser.add_argument("--n-walkers", type=int, default=210, help="MCMC walkers.")
     parser.add_argument("--n-steps", type=int, default=1500, help="MCMC steps.")
-    parser.add_argument("--n-burn", type=int, default=300, help="MCMC burn-in.")
+    parser.add_argument("--n-burn", type=int, default=300, help="MCMC burn-in (emcee only).")
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend: auto (analytic additive + NUTS combined), "
+                             "analytic, nuts, or emcee (legacy baseline).")
+    parser.add_argument("--n-chains", type=int, default=None,
+                        help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps.")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS post-warmup draws per chain.")
     parser.add_argument("--output-dir", default="data/sys_weights/",
                         help="Output directory for weights, params, and plots.")
     parser.add_argument("--only-methods", nargs="+", metavar="METHOD", default=None,
@@ -1207,6 +1220,8 @@ def main():
                         help="ISD mock p-value threshold for template inclusion (default 0.05).")
     parser.add_argument("--preselect-n-mocks", type=int, default=100,
                         help="Number of GLASS mocks for ISD significance (default 100).")
+    parser.add_argument("--preselect-n-jobs", type=int, default=1,
+                        help="Parallel workers for the GLASS mock loop (default 1; -1 = all cores).")
     args = parser.parse_args()
 
     catalog_dir = Path(args.catalog_dir)

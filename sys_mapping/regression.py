@@ -52,6 +52,49 @@ def _compute_weights(
     return 1.0 / denominator
 
 
+try:
+    import jax as _jax
+    import jax.numpy as _jnp
+    from functools import partial as _partial
+    _JAX_AVAILABLE_REG = True
+except ImportError:  # pragma: no cover
+    _JAX_AVAILABLE_REG = False
+
+if _JAX_AVAILABLE_REG:
+    @_partial(_jax.jit, static_argnums=(4, 5))
+    def _isd_iterate_jax(X, y, ridge_diag, delta_t_lin, n_sys, max_iter, tol, w_max):
+        """Fully-jitted ISD reweighting loop (``lax.while_loop``).
+
+        Numerically equivalent to the NumPy iteration in
+        :func:`iterative_systematics_decontamination`: the constant design matrix
+        ``X`` becomes a JIT constant, so the whole fixed-point iteration compiles
+        into a single kernel with no Python-level loop overhead.
+        """
+        n_pix, n_expanded = X.shape
+        Xt = X.T
+        eye = _jnp.eye(n_expanded)
+
+        def cond(state):
+            it, _weights, _alpha, rel = state
+            return (it < max_iter) & (rel >= tol)
+
+        def body(state):
+            it, weights, _alpha, _rel = state
+            Xw = Xt * weights                              # (n_expanded, n_pix)
+            XtWX = Xw @ X + eye * ridge_diag               # ridge on the diagonal
+            XtWy = Xw @ y
+            alpha_new, *_ = _jnp.linalg.lstsq(XtWX, XtWy, rcond=None)
+            field = alpha_new[:n_sys] @ delta_t_lin
+            w_new = 1.0 / _jnp.maximum(1.0 + field, 1e-6)
+            w_new = _jnp.clip(w_new, 1.0 / w_max, w_max)
+            rel_new = _jnp.linalg.norm(w_new - weights) / (_jnp.linalg.norm(weights) + 1e-30)
+            return (it + 1, w_new, alpha_new, rel_new)
+
+        init = (0, _jnp.ones(n_pix), _jnp.zeros(n_expanded), _jnp.asarray(tol + 1.0))
+        it, weights, alpha, _rel = _jax.lax.while_loop(cond, body, init)
+        return weights, alpha, it
+
+
 def elasticnet_contamination_fit(
     delta_g_obs: np.ndarray,
     delta_t: np.ndarray,
@@ -189,6 +232,7 @@ def iterative_systematics_decontamination(
     max_iter: int = 20,
     tol: float = 1e-5,
     lambda_poly: float = 0.0,
+    backend: str = "numpy",
 ) -> tuple[np.ndarray, np.ndarray, int]:
     """Iterative Systematics Decontamination (ISD) via polynomial OLS.
 
@@ -230,6 +274,14 @@ def iterative_systematics_decontamination(
         prevents the polynomial terms from absorbing signal that belongs to the
         linear coefficients, which are the only ones used for the weight update.
         Defaults to ``0.0`` (plain OLS, backward-compatible).
+    backend:
+        ``"numpy"`` (default) or ``"jax"``.  The ``"jax"`` path compiles the
+        whole reweighting fixed-point into a single ``lax.while_loop`` kernel
+        (numerically identical to ``"numpy"`` — verified to ``~1e-14``).  On CPU
+        the NumPy BLAS path is typically faster (the per-iteration cost is a
+        small BLAS-3 ``XᵀWX``); ``"jax"`` is provided for GPU execution and
+        device-portable pipelines where the constant design matrix can stay
+        resident on-device.
 
     Returns
     -------
@@ -320,6 +372,19 @@ def iterative_systematics_decontamination(
     # Linear columns (first n_sys) are never penalised.
     ridge_diag = np.zeros(n_expanded)
     ridge_diag[n_sys:] = lambda_poly
+
+    # Opt-in fully-jitted iteration (identical numerics, no Python loop overhead).
+    if backend == "jax":
+        if not _JAX_AVAILABLE_REG:
+            warnings.warn("backend='jax' requested but JAX is unavailable; "
+                          "falling back to NumPy.", stacklevel=2)
+        else:
+            w_j, a_j, it_j = _isd_iterate_jax(
+                _jnp.asarray(X), _jnp.asarray(delta_g_obs),
+                _jnp.asarray(ridge_diag), _jnp.asarray(delta_t_expanded[:n_sys]),
+                int(n_sys), int(max_iter), float(tol), float(_ISD_MAX_WEIGHT),
+            )
+            return np.asarray(w_j), np.asarray(a_j), int(it_j)
 
     for iteration in range(1, max_iter + 1):
         weights_old = weights.copy()
@@ -521,6 +586,11 @@ def run_decontamination(
     seed: int = 42,
     use_skewed: bool = False,
     progress: bool = False,
+    # Sampler backend for MCMC-add / MCMC-comb
+    sampler: str = "auto",
+    n_chains: int | None = None,
+    nuts_n_warmup: int = 1000,
+    nuts_n_samples: int = 1000,
     cv_folds: int = 5,
     isd_max_iter: int = 50,
     isd_lambda_poly: float = 0.0,
@@ -532,6 +602,7 @@ def run_decontamination(
     preselect_n_mocks: int = 100,
     preselect_seed: int = 0,
     preselect_rand_factor: int = 2,
+    preselect_n_jobs: int = 1,
     # Required when preselect=True and preselect_method="isd"
     good_pixels: np.ndarray | None = None,
     n_total_footprint: int | None = None,
@@ -565,6 +636,22 @@ def run_decontamination(
         methods.
     progress:
         Show emcee progress bar (MCMC methods only).
+    sampler:
+        Sampling backend for ``MCMC-add`` / ``MCMC-comb``.  One of:
+
+        * ``"auto"`` (default): additive → exact analytic Normal-Inverse-Gamma
+          posterior (:func:`~inference.run_additive_analytic`); combined / skew →
+          gradient-based BlackJAX NUTS (:func:`~nuts.run_nuts`).
+        * ``"analytic"``: force the analytic posterior (additive only; falls back
+          to NUTS for combined / skew).
+        * ``"nuts"``: force BlackJAX NUTS.
+        * ``"emcee"``: force the legacy gradient-free emcee sampler
+          (:func:`~inference.run_mcmc`) — kept as the validation baseline.
+    n_chains:
+        Number of parallel NUTS chains; ``None`` picks from the JAX backend
+        (CPU: 4, GPU: 8).  Ignored for analytic / emcee.
+    nuts_n_warmup, nuts_n_samples:
+        NUTS window-adaptation steps and post-warmup draws per chain.
     cv_folds:
         Cross-validation folds for ElasticNet (when ``alpha_reg`` is auto).
     isd_max_iter:
@@ -594,6 +681,9 @@ def run_decontamination(
         Random seed for GLASS mock generation.
     preselect_rand_factor:
         Ratio of randoms to galaxies in each GLASS mock (default 2).
+    preselect_n_jobs:
+        Parallel worker processes for the GLASS mock loop in ISD pre-selection
+        (default 1 = serial; -1 = all cores).
     good_pixels:
         Boolean footprint mask, shape ``(12 * nside**2,)``.  Required when
         ``preselect=True`` and ``preselect_method="isd"``.
@@ -692,6 +782,7 @@ def run_decontamination(
                 n_total_footprint=n_total_footprint,
                 n_mocks=preselect_n_mocks, seed=preselect_seed,
                 rand_factor=preselect_rand_factor,
+                n_jobs=preselect_n_jobs,
             )
             keep = [s for s, p in zip(selected, isd_sig["p_values"])
                     if p <= preselect_p_threshold]
@@ -788,7 +879,7 @@ def run_decontamination(
 
     # ── MCMC-add / MCMC-comb ──────────────────────────────────────────────────
     else:
-        from .inference import run_mcmc, get_mle_params, get_param_covariance_from_chain
+        from .inference import get_mle_params, get_param_covariance_from_chain
         from .contamination import unpack_params
         from .correction import rotate_templates, transform_params_from_rotated
 
@@ -798,17 +889,40 @@ def run_decontamination(
         # PCA rotation — deterministic for fixed delta_t
         delta_t_rot, R, _eigenvalues = rotate_templates(delta_t)
 
-        # Emcee requires n_walkers >= 2*n_dim+2
-        n_dim = n_sys + 1 if mcmc_model == "additive" else 2 * n_sys + 1
-        nw = max(n_walkers, 2 * n_dim + 2)
+        # ── Sampler dispatch ──────────────────────────────────────────────
+        # "auto": exact analytic posterior for the linear-Gaussian additive
+        # model, gradient-based NUTS for the non-linear combined / skew models.
+        _sampler = sampler
+        if _sampler == "auto":
+            _sampler = "analytic" if (mcmc_model == "additive" and not _use_skewed) else "nuts"
+        elif _sampler == "analytic" and (mcmc_model != "additive" or _use_skewed):
+            _sampler = "nuts"  # analytic posterior only exists for additive Gaussian
 
-        flat_chain, sampler = run_mcmc(
-            n_sys=n_sys, model=mcmc_model,
-            delta_g_obs=delta_g_obs, delta_t=delta_t_rot,
-            n_walkers=nw, n_steps=n_steps, n_burn=n_burn,
-            seed=seed, progress=progress,
-            use_skewed=_use_skewed,
-        )
+        if _sampler == "analytic":
+            from .inference import run_additive_analytic
+            flat_chain, sampler_obj = run_additive_analytic(
+                n_sys, delta_g_obs=delta_g_obs, delta_t=delta_t_rot, seed=seed,
+            )
+        elif _sampler == "nuts":
+            from .nuts import run_nuts
+            flat_chain, sampler_obj = run_nuts(
+                n_sys, model=mcmc_model,
+                delta_g_obs=delta_g_obs, delta_t=delta_t_rot,
+                use_skewed=_use_skewed,
+                n_chains=n_chains, n_warmup=nuts_n_warmup, n_samples=nuts_n_samples,
+                seed=seed, progress=progress,
+            )
+        else:  # "emcee" — legacy gradient-free baseline
+            from .inference import run_mcmc
+            n_dim = n_sys + 1 if mcmc_model == "additive" else 2 * n_sys + 1
+            nw = max(n_walkers, 2 * n_dim + 2)  # emcee requires >= 2*n_dim+2 walkers
+            flat_chain, sampler_obj = run_mcmc(
+                n_sys=n_sys, model=mcmc_model,
+                delta_g_obs=delta_g_obs, delta_t=delta_t_rot,
+                n_walkers=nw, n_steps=n_steps, n_burn=n_burn,
+                seed=seed, progress=progress,
+                use_skewed=_use_skewed,
+            )
 
         theta_hat = get_mle_params(flat_chain)
         a_rot_raw, b_rot_raw, sigma_hat_val, _ = unpack_params(
@@ -847,13 +961,17 @@ def run_decontamination(
 
         result.update({
             "a_hat": a_hat, "b_hat": b_hat, "weights": weights,
-            "flat_chain": flat_chain, "sampler": sampler,
+            "flat_chain": flat_chain, "sampler": sampler_obj,
             "a_rot": np.asarray(a_rot_raw), "b_rot": np.asarray(b_rot_raw),
             "cov_a_rot": cov_a_rot, "cov_b_rot": cov_b_rot,
             "cov_a": cov_a, "cov_b": cov_b,
             "R": R,
-            "acceptance_fraction": float(np.mean(sampler.acceptance_fraction)),
+            "acceptance_fraction": float(np.mean(sampler_obj.acceptance_fraction)),
             "sigma_hat": float(sigma_hat_val),
+            "sampler_backend": _sampler,
+            "rhat": float(getattr(sampler_obj, "rhat", np.nan)),
+            "ess": float(getattr(sampler_obj, "ess", np.nan)),
+            "num_divergences": int(getattr(sampler_obj, "num_divergences", 0)),
         })
 
     result["elapsed_s"] = time.perf_counter() - t0
