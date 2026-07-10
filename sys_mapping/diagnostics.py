@@ -36,15 +36,24 @@ if _JAX_AVAILABLE:
 
     _jax_tstat = jax.jit(jax.vmap(_one_tstat, in_axes=(0, None)))
 
-    # --- "isd": vmap over templates, fixed bins, poly_order=1 analytic ---
-    def _one_isd(t_i, g, n_bins):
-        g_bar = g.mean()
+    # --- "isd": vmap over templates, poly_order=1 analytic ---
+    # Bin-assignment: equal-WIDTH (default) or equal-OCCUPANCY (quantile) edges.
+    # Quantile binning is robust when a template's pixel distribution is skewed —
+    # equal-width bins then collapse most pixels into one bin and lose the trend.
+    def _binidx_width(t_i, n_bins):
         t_min, t_max = t_i.min(), t_i.max()
         span = t_max - t_min + 1e-30
-        bin_idx = jnp.clip(
-            jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32),
-            0, n_bins - 1,
-        )
+        return jnp.clip(jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32),
+                        0, n_bins - 1)
+
+    def _binidx_quantile(t_i, n_bins):
+        edges = jnp.quantile(t_i, jnp.linspace(0.0, 1.0, n_bins + 1))
+        # place each pixel by the n_bins-1 interior quantile edges → indices 0..n_bins-1
+        return jnp.clip(jnp.searchsorted(edges[1:-1], t_i, side="right").astype(jnp.int32),
+                        0, n_bins - 1)
+
+    def _isd_core(t_i, g, bin_idx, n_bins):
+        g_bar = g.mean()
         count  = jnp.zeros(n_bins).at[bin_idx].add(1)
         g_sum  = jnp.zeros(n_bins).at[bin_idx].add(g)
         t_sum  = jnp.zeros(n_bins).at[bin_idx].add(t_i)
@@ -65,31 +74,31 @@ if _JAX_AVAILABLE:
         chi2_model = jnp.sum(inv_s2 * (g_mean - (alpha * t_mean + beta)) ** 2)
         return jnp.maximum(chi2_null - chi2_model, 0.0)
 
-    _jax_isd_cache: dict[int, object] = {}
+    _jax_isd_cache: dict[tuple[int, bool], object] = {}
 
-    def _get_jax_isd(n_bins: int):
-        if n_bins not in _jax_isd_cache:
-            _jax_isd_cache[n_bins] = jax.jit(
-                jax.vmap(lambda t, g: _one_isd(t, g, n_bins), in_axes=(0, None))
+    def _get_jax_isd(n_bins: int, quantile: bool = False):
+        key = (n_bins, quantile)
+        if key not in _jax_isd_cache:
+            binf = _binidx_quantile if quantile else _binidx_width
+            _jax_isd_cache[key] = jax.jit(
+                jax.vmap(lambda t, g: _isd_core(t, g, binf(t, n_bins), n_bins),
+                         in_axes=(0, None))
             )
-        return _jax_isd_cache[n_bins]
+        return _jax_isd_cache[key]
 
     # --- "isd", general: arbitrary polynomial order + optional fracdet weights ---
-    def _one_isd_poly(t_i, g, w, n_bins, order):
+    def _one_isd_poly(t_i, g, w, n_bins, order, quantile):
         """Δχ² of a weighted degree-``order`` polynomial fit of binned n̄(s̄).
 
-        Generalises :func:`_one_isd` (poly_order=1, unit weights) to any order and
+        Generalises :func:`_isd_core` (poly_order=1, unit weights) to any order and
         optional per-pixel weights ``w`` (fracdet).  Bin means use ``w``; the
         per-bin standard error uses the unweighted variance / pixel count, exactly
-        as the NumPy fallback in :func:`snr_template_ranking`.
+        as the NumPy fallback in :func:`snr_template_ranking`.  ``quantile`` selects
+        equal-occupancy bins (robust to skewed templates) over equal-width.
         """
         w_total = w.sum()
         g_bar = jnp.dot(w, g) / (w_total + 1e-30)
-        t_min, t_max = t_i.min(), t_i.max()
-        span = t_max - t_min + 1e-30
-        bin_idx = jnp.clip(
-            jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32), 0, n_bins - 1
-        )
+        bin_idx = _binidx_quantile(t_i, n_bins) if quantile else _binidx_width(t_i, n_bins)
         W_b  = jnp.zeros(n_bins).at[bin_idx].add(w)          # Σ w
         wt_b = jnp.zeros(n_bins).at[bin_idx].add(w * t_i)    # Σ w t
         wg_b = jnp.zeros(n_bins).at[bin_idx].add(w * g)      # Σ w g
@@ -118,13 +127,13 @@ if _JAX_AVAILABLE:
         n_valid = jnp.sum(valid)
         return jnp.where(n_valid < 2, 0.0, jnp.maximum(chi2_null - chi2_model, 0.0))
 
-    _jax_isd_poly_cache: dict[tuple[int, int], object] = {}
+    _jax_isd_poly_cache: dict[tuple[int, int, bool], object] = {}
 
-    def _get_jax_isd_poly(n_bins: int, order: int):
-        key = (n_bins, order)
+    def _get_jax_isd_poly(n_bins: int, order: int, quantile: bool = False):
+        key = (n_bins, order, quantile)
         if key not in _jax_isd_poly_cache:
             _jax_isd_poly_cache[key] = jax.jit(
-                jax.vmap(lambda t, g, w: _one_isd_poly(t, g, w, n_bins, order),
+                jax.vmap(lambda t, g, w: _one_isd_poly(t, g, w, n_bins, order, quantile),
                          in_axes=(0, None, None))
             )
         return _jax_isd_poly_cache[key]
@@ -265,6 +274,7 @@ def snr_template_ranking(
     n_bins: int = 10,
     poly_order: int = 1,
     fracdet: np.ndarray | None = None,
+    binning: str = "width",
 ) -> np.ndarray:
     """Rank systematic templates by signal-to-noise ratio of their contamination.
 
@@ -297,6 +307,13 @@ def snr_template_ranking(
     fracdet:
         Per-pixel fractional coverage weights (shape ``(n_pix,)``).  Only
         used by ``method="isd"``; if ``None``, uniform weights are assumed.
+    binning:
+        Bin-edge scheme for ``method="isd"``.  ``"width"`` (default) uses
+        ``n_bins`` equal-width bins across the template range; ``"quantile"``
+        (aka ``"equal_occupancy"``) uses equal-occupancy bins at the template
+        value quantiles.  Quantile binning is strongly preferred for real,
+        skewed systematic maps, where equal-width bins pile most pixels into a
+        single bin and lose the density–template trend.  Ignored otherwise.
 
     Returns
     -------
@@ -378,9 +395,12 @@ def snr_template_ranking(
         return snr
 
     elif method == "isd":
+        if binning not in ("width", "quantile", "equal_occupancy"):
+            raise ValueError("binning must be 'width', 'quantile', or 'equal_occupancy'")
+        quantile = binning in ("quantile", "equal_occupancy")
         if _JAX_AVAILABLE and poly_order == 1 and fracdet is None:
             return np.asarray(
-                _get_jax_isd(n_bins)(
+                _get_jax_isd(n_bins, quantile)(
                     jnp.asarray(delta_t, dtype=jnp.float64),
                     jnp.asarray(delta_g_obs, dtype=jnp.float64),
                 )
@@ -390,7 +410,7 @@ def snr_template_ranking(
             w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
                  else jnp.asarray(fracdet, dtype=jnp.float64))
             return np.asarray(
-                _get_jax_isd_poly(n_bins, int(poly_order))(
+                _get_jax_isd_poly(n_bins, int(poly_order), quantile)(
                     jnp.asarray(delta_t, dtype=jnp.float64),
                     jnp.asarray(delta_g_obs, dtype=jnp.float64),
                     w,
@@ -409,10 +429,15 @@ def snr_template_ranking(
                 snr[i] = 0.0
                 continue
 
-            # Assign each pixel to one of n_bins equal-width bins
-            span = t_max - t_min
-            bin_idx = np.floor((t_i - t_min) / span * n_bins).astype(int)
-            bin_idx = np.clip(bin_idx, 0, n_bins - 1)
+            # Assign each pixel to one of n_bins bins (equal-width or equal-occupancy)
+            if quantile:
+                edges = np.quantile(t_i, np.linspace(0.0, 1.0, n_bins + 1))
+                bin_idx = np.clip(np.searchsorted(edges[1:-1], t_i, side="right"),
+                                  0, n_bins - 1)
+            else:
+                span = t_max - t_min
+                bin_idx = np.floor((t_i - t_min) / span * n_bins).astype(int)
+                bin_idx = np.clip(bin_idx, 0, n_bins - 1)
 
             s_b_list: list[float] = []
             n_b_list: list[float] = []
@@ -574,6 +599,7 @@ def isd_template_significance(
     seed: int = 0,
     rand_factor: int = 10,
     n_jobs: int = 1,
+    binning: str = "width",
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
 
@@ -693,7 +719,7 @@ def isd_template_significance(
 
     delta_chi2_data = snr_template_ranking(
         delta_g_obs, delta_t, method="isd",
-        n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
+        n_bins=n_bins, poly_order=poly_order, fracdet=fracdet, binning=binning,
     )
 
     def _one_mock(k: int) -> np.ndarray:
@@ -722,7 +748,7 @@ def isd_template_significance(
         )
         return snr_template_ranking(
             delta_g_mock, delta_t, method="isd",
-            n_bins=n_bins, poly_order=poly_order, fracdet=fracdet,
+            n_bins=n_bins, poly_order=poly_order, fracdet=fracdet, binning=binning,
         )
 
     if n_jobs == 1:
