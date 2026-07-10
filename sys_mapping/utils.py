@@ -187,6 +187,121 @@ def measure_two_point_function(
     return theta, w
 
 
+def measure_cross_two_point_function(
+    ra1: np.ndarray,
+    dec1: np.ndarray,
+    ra2: np.ndarray,
+    dec2: np.ndarray,
+    ra_rand: np.ndarray,
+    dec_rand: np.ndarray,
+    w1: np.ndarray | None = None,
+    w2: np.ndarray | None = None,
+    min_sep: float = 0.06,
+    max_sep: float = 30.0,
+    nbins: int = 15,
+    sep_units: str = "arcmin",
+    metric: str = "Arc",
+    bin_slop: float | None = None,
+    dr=None,
+    rr=None,
+):
+    """Measure the angular *cross*-correlation of two point samples (Landy-Szalay).
+
+    Estimates ``w_x(θ)`` between sample 1 (e.g. galaxies) and sample 2 (e.g.
+    stars) that share a common footprint, using a single random catalog drawn
+    uniformly over that footprint for both samples::
+
+        w_x(θ) = (D1D2 − D1R − R D2 + RR) / RR
+
+    computed with TreeCorr's :meth:`NNCorrelation.calculateXi(rr, dr, rd)` where
+    ``dr = D1R`` and ``rd = R D2``.  Unlike
+    :func:`measure_two_point_function` (auto-correlation), this counts distinct
+    ``D1×D2`` pairs, so it is the correct estimator for a galaxy×star signal.
+
+    The ``D1R`` (``dr``) and ``RR`` (``rr``) pair counts depend only on sample 1
+    and the randoms — not on sample 2 — so when scanning many sample-2 catalogs
+    (e.g. magnitude-binned star samples) against a *fixed* sample 1, pass the
+    returned ``dr``/``rr`` back in to skip recomputing them.
+
+    Parameters
+    ----------
+    ra1, dec1 : (n1,) sample-1 positions in degrees
+    ra2, dec2 : (n2,) sample-2 positions in degrees
+    ra_rand, dec_rand : (n_rand,) random positions in degrees (common footprint)
+    w1, w2 : optional per-object weights for samples 1 and 2
+    min_sep, max_sep : float  angular bin limits in ``sep_units``
+    nbins : int  number of log-spaced bins
+    sep_units : str  angular units for ``min_sep``/``max_sep`` (default ``'arcmin'``)
+    metric : str  TreeCorr metric (default ``'Arc'``, great-circle separation)
+    bin_slop : float or None  TreeCorr ``bin_slop`` (None → TreeCorr default)
+    dr, rr : optional pre-computed ``NNCorrelation`` objects (``D1R`` and ``RR``)
+        to reuse across many sample-2 catalogs sharing the same sample 1 and
+        randoms.  When ``None`` they are computed and returned.
+
+    Returns
+    -------
+    theta : (nbins,) bin centers in ``sep_units``
+    w : (nbins,) Landy-Szalay cross-correlation estimate
+    varxi : (nbins,) TreeCorr shot-noise variance per bin
+    dr : NNCorrelation  the ``D1R`` counts (reusable across sample-2 catalogs)
+    rr : NNCorrelation  the ``RR`` counts (reusable across sample-2 catalogs)
+
+    Notes
+    -----
+    For two statistically independent samples over the same footprint the
+    estimator is consistent with ``w_x(θ) = 0`` within shot noise — the basis
+    for the GLASS null test.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import measure_cross_two_point_function
+    >>> rng = np.random.default_rng(0)
+    >>> ra1  = rng.uniform(30, 60, 5_000);  dec1 = rng.uniform(-10, 10, 5_000)
+    >>> ra2  = rng.uniform(30, 60, 5_000);  dec2 = rng.uniform(-10, 10, 5_000)
+    >>> ra_r = rng.uniform(30, 60, 50_000); dec_r = rng.uniform(-10, 10, 50_000)
+    >>> theta, w, var, dr, rr = measure_cross_two_point_function(
+    ...     ra1, dec1, ra2, dec2, ra_r, dec_r,
+    ...     min_sep=1.0, max_sep=100.0, nbins=8, sep_units="arcmin")
+    >>> theta.shape, w.shape
+    ((8,), (8,))
+    """
+    try:
+        import treecorr
+    except ImportError as e:
+        raise ImportError("treecorr is required for two-point measurements.") from e
+
+    config = dict(
+        min_sep=min_sep,
+        max_sep=max_sep,
+        nbins=nbins,
+        sep_units=sep_units,
+        metric=metric,
+    )
+    if bin_slop is not None:
+        config["bin_slop"] = bin_slop
+
+    cat1 = treecorr.Catalog(ra=ra1, dec=dec1, w=w1, ra_units="degrees", dec_units="degrees")
+    cat2 = treecorr.Catalog(ra=ra2, dec=dec2, w=w2, ra_units="degrees", dec_units="degrees")
+    cat_rand = treecorr.Catalog(ra=ra_rand, dec=dec_rand, ra_units="degrees", dec_units="degrees")
+
+    d1d2 = treecorr.NNCorrelation(**config)
+    rd = treecorr.NNCorrelation(**config)
+    d1d2.process(cat1, cat2)   # D1 D2  (depends on sample 2)
+    rd.process(cat_rand, cat2)  # R  D2  (depends on sample 2)
+
+    if dr is None:
+        dr = treecorr.NNCorrelation(**config)
+        dr.process(cat1, cat_rand)   # D1 R  (independent of sample 2)
+    if rr is None:
+        rr = treecorr.NNCorrelation(**config)
+        rr.process(cat_rand)         # R  R  (independent of sample 2)
+
+    w, varxi = d1d2.calculateXi(rr=rr, dr=dr, rd=rd)
+    theta = np.exp(d1d2.meanlogr)
+    return theta, w, varxi, dr, rr
+
+
 # ---------------------------------------------------------------------------
 # Corrfunc implementations
 # ---------------------------------------------------------------------------
