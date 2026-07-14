@@ -28,6 +28,7 @@ class LikelihoodRatioResult:
     reject_null: bool
     null_model: str
     alt_model: str
+    calibration: str = "chi2"
 
 
 def likelihood_ratio_test(
@@ -39,12 +40,21 @@ def likelihood_ratio_test(
     alt_model: str,
     use_skewed: bool = False,
     significance: float = 0.05,
+    null_lambda: np.ndarray | None = None,
 ) -> LikelihoodRatioResult:
     """Perform a likelihood ratio test comparing null vs. alternative model (Eq. 19).
 
     Computes ``λ_LR = 2 [ln L(θ̂_alt) − ln L(θ̂_null)]``, which under the null
     hypothesis is asymptotically ``χ²(r)`` where
     ``r = dim(alt) − dim(null)`` is the extra degrees of freedom.
+
+    .. warning::
+       The asymptotic ``χ²(r)`` null (Wilks) assumes the log-likelihood is built from
+       **independent** observations.  The pixel likelihood is not — it uses the ``σ²I`` model on a
+       spatially-**correlated** clustering field — so under the null ``λ_LR`` is *inflated* relative
+       to ``χ²(r)`` and the default p-value is **too small** (overconfident detection).  Pass
+       ``null_lambda`` (an ensemble of ``λ_LR`` values from *uncontaminated* mocks fit the same way)
+       to read a **mock-calibrated** p-value from the empirical null tail instead.
 
     .. note::
        Each call creates new JIT-compiled likelihood functions internally.
@@ -61,15 +71,22 @@ def likelihood_ratio_test(
     alt_model  : str  ``'combined'`` (must have more free parameters than null_model)
     use_skewed : bool
     significance : float  p-value threshold for rejecting the null; default 0.05
+    null_lambda : (n_mock,) array or None
+        Empirical null distribution of ``λ_LR`` — the statistic evaluated on an ensemble of
+        *uncontaminated* mock reconstructions fit with the same two models.  When given, the p-value
+        is the Monte-Carlo tail ``(1 + #{λ_null ≥ λ_LR}) / (1 + n_mock)`` (Davison & Hinkley) and
+        ``calibration='mock'``; when ``None`` (default) the asymptotic ``χ²(r)`` is used
+        (``calibration='chi2'``).
 
     Returns
     -------
     LikelihoodRatioResult
         ``lambda_lr`` : test statistic (≥ 0 only when both theta are at their MLEs)
         ``n_dof``     : degrees of freedom ``r = n_free_params(alt) − n_free_params(null)``
-        ``p_value``   : ``Pr(χ²(r) > λ_LR)`` under the null
+        ``p_value``   : null-tail probability (``χ²`` or mock-calibrated per ``null_lambda``)
         ``reject_null``: True when ``p_value < significance``
         ``null_model``, ``alt_model``: model names
+        ``calibration``: ``'chi2'`` or ``'mock'``
 
     Performance
     -----------
@@ -127,7 +144,17 @@ def likelihood_ratio_test(
             f"Got r={r}."
         )
 
-    p_value = float(chi2.sf(lambda_lr, df=r))
+    if null_lambda is not None:
+        null = np.asarray(null_lambda, dtype=float)
+        null = null[np.isfinite(null)]
+        if null.size == 0:
+            raise ValueError("null_lambda has no finite values")
+        # Monte-Carlo p-value with the +1 correction (Davison & Hinkley 1997): unbiased and never 0.
+        p_value = float((1.0 + np.sum(null >= lambda_lr)) / (1.0 + null.size))
+        calibration = "mock"
+    else:
+        p_value = float(chi2.sf(lambda_lr, df=r))
+        calibration = "chi2"
     reject_null = p_value < significance
 
     return LikelihoodRatioResult(
@@ -137,7 +164,55 @@ def likelihood_ratio_test(
         reject_null=reject_null,
         null_model=null_model,
         alt_model=alt_model,
+        calibration=calibration,
     )
+
+
+def lrt_null_distribution(
+    mock_delta_g: np.ndarray,
+    delta_t: np.ndarray,
+    fit_theta,
+    null_model: str = "additive",
+    alt_model: str = "combined",
+    use_skewed: bool = False,
+) -> np.ndarray:
+    """Empirical null distribution of :math:`\\lambda_{\\rm LR}` from *uncontaminated* mock fields.
+
+    Feed the resulting array to :func:`likelihood_ratio_test` as ``null_lambda`` to obtain a
+    **mock-calibrated** p-value instead of the (overconfident on a correlated field) Wilks
+    :math:`\\chi^2`. Each mock is fit with the same two models the data uses, so the null captures
+    the correlated-field inflation of :math:`\\lambda_{\\rm LR}`.
+
+    Parameters
+    ----------
+    mock_delta_g : (n_pix, n_mock)
+        Column-stacked *uncontaminated* overdensity reconstructions on the fit pixels.
+    delta_t : (n_sys, n_pix)
+        Templates on the fit pixels (same basis as the data fit; rotate first if the data used a
+        rotated basis).
+    fit_theta : callable(model, delta_g, delta_t) -> theta
+        Returns the MLE/posterior-median flat parameter vector for ``model`` on one mock — e.g. a
+        wrapper around :func:`~sys_mapping.regression.run_decontamination` (matching how the data
+        were fit) or an OLS surrogate.
+    null_model, alt_model, use_skewed :
+        Passed through to :func:`likelihood_ratio_test`.
+
+    Returns
+    -------
+    (n_mock,) array of :math:`\\lambda_{\\rm LR}` values under the null.
+    """
+    mock_delta_g = np.asarray(mock_delta_g, dtype=float)
+    if mock_delta_g.ndim != 2:
+        raise ValueError(f"mock_delta_g must be 2-D (n_pix, n_mock); got {mock_delta_g.shape}")
+    lam = np.empty(mock_delta_g.shape[1])
+    for k in range(mock_delta_g.shape[1]):
+        dg = mock_delta_g[:, k]
+        theta_null = fit_theta(null_model, dg, delta_t)
+        theta_alt = fit_theta(alt_model, dg, delta_t)
+        res = likelihood_ratio_test(dg, delta_t, theta_null, theta_alt,
+                                    null_model, alt_model, use_skewed=use_skewed)
+        lam[k] = res.lambda_lr
+    return lam
 
 
 # ── Greedy forward template selection ────────────────────────────────────────

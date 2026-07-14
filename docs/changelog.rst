@@ -1,6 +1,48 @@
 Changelog
 =========
 
+1.3.0 (unreleased)
+------------------
+
+**Correlated-noise error models — calibrated uncertainties**
+
+The pixel Gaussian likelihood assumes independent pixels (:math:`\sigma^2 I`); on the
+spatially-correlated galaxy field this makes single-fit parameter errors ~2× too tight and the
+Wilks-:math:`\chi^2` LRT p-values too small. Point estimates and field-recovery correlations are
+unaffected. New:
+
+* **New module** :mod:`sys_mapping.covariance`:
+
+  * :func:`~sys_mapping.covariance.mock_sandwich_covariance` — the additive-parameter covariance
+    :math:`(TT^\top)^{-1}(TCT^\top)(TT^\top)^{-1}` from an ensemble of uncontaminated mock
+    reconstructions (exact for the linear estimator; no :math:`N\times N` inverse). This is the
+    calibrated error now shown on :doc:`results_validation`.
+  * :class:`~sys_mapping.covariance.LowRankPrecision` /
+    :func:`~sys_mapping.covariance.build_lowrank_precision` — low-rank + diagonal (Woodbury) pixel
+    precision for the opt-in correlated-noise (GLS) likelihood.
+  * :func:`~sys_mapping.covariance.build_harmonic_precision` — stub for the full-rank theory-\
+    :math:`C_\ell` harmonic precision (documented follow-up).
+
+* :func:`~sys_mapping.likelihood.make_log_likelihood` gains an optional ``precision=`` (GLS quadratic
+  form + log-determinant); ``None`` keeps the exact white behaviour. Threaded through
+  :func:`~sys_mapping.nuts.run_nuts` and exposed as ``pixel_precision=`` in
+  :func:`~sys_mapping.regression.run_decontamination` (forces the NUTS backend).
+
+* :func:`~sys_mapping.model_selection.likelihood_ratio_test` gains a **mock-calibrated null**
+  (``null_lambda=``): read the p-value from the empirical :math:`\lambda_{\rm LR}` distribution of
+  uncontaminated mocks instead of assuming :math:`\chi^2(r)`. Default remains Wilks :math:`\chi^2`.
+
+* :func:`~sys_mapping.bootstrap.jackknife_covariance` /
+  :func:`~sys_mapping.bootstrap.block_bootstrap_variance` gain a footprint-aware ``nside_patch`` so
+  the auto patch-resolution no longer collapses to a single patch at high ``nside`` over a small
+  footprint.
+
+* **Docs / validation:** :doc:`results_validation` amplitude recovery now shows the calibrated
+  sandwich 1σ (the previous "posterior std" caption was stale); the SNR pre-selection pages
+  (:doc:`results_snr_preselection`, :doc:`results_progressive_contamination`,
+  :doc:`results_real_template_validation`) and the LRT / LS10 detections are re-stated with the
+  correlated-field-calibrated uncertainties. See :doc:`methods` for the caveat.
+
 0.9.5 (2026-05-29)
 ------------------
 

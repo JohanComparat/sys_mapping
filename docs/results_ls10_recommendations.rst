@@ -20,6 +20,14 @@ The Likelihood Ratio Test (LRT) rejects the additive-only null hypothesis at all
 map resolutions (NSIDE 32–256) and all nine stellar-mass thresholds, with
 :math:`p < 10^{-9}` in every case.  This confirms a statistically significant
 *multiplicative* component on top of the additive systematic.
+
+.. note::
+   These :math:`p` are the **Wilks** :math:`\chi^2` values, which are **overconfident** on a
+   spatially-correlated field (the null statistic is inflated).  The **mock-calibrated** p-values
+   (``--lrt-null-mocks``; see :doc:`results_ls10` and :ref:`lrt-methods`) will be larger — the
+   detections are expected to remain significant but by a smaller margin.  The calibrated re-run is
+   a heavy remote job.
+
 ``MCMC-comb`` (stored as ``WEIGHT_COMB = WEIGHT_SYS`` in the FITS files) is the only
 method that models both components jointly.  The other methods are ranked as follows:
 

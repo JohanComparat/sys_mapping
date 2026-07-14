@@ -128,6 +128,15 @@ OLS *t*-statistic method
    ratio is generally sharper than the Pearson correlation because the
    template standard deviation is factored into the denominator.
 
+   The bars use the **independent-pixel** :math:`\sigma_{\hat\alpha}`, which is overconfident on
+   the correlated GLASS field.  The black ticks (``calibrated``) show the **correlated-noise**
+   SNR — the per-template mock-covariance *sandwich* error
+   (:func:`~sys_mapping.covariance.mock_sandwich_covariance`, estimated from an ensemble of
+   uncontaminated reconstructions); it is roughly **2× lower** across templates.  The template
+   *ranking* is preserved (the inflation is ~uniform), but a fixed detection cut (dotted line at
+   SNR = 3) admits fewer templates under the honest error.  See :ref:`lrt-methods` and
+   :doc:`methods` for the general caveat.
+
 ISD :math:`\Delta\chi^2` method
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 

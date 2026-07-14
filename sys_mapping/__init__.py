@@ -38,6 +38,7 @@ from .correction import (
 )
 from .model_selection import (
     likelihood_ratio_test,
+    lrt_null_distribution,
     greedy_forward_select,
     GreedyForwardSelectionResult,
     ForwardSelectionRound,
@@ -150,6 +151,7 @@ __all__ = [
     "correct_power_spectrum_harmonic",
     # model_selection
     "likelihood_ratio_test",
+    "lrt_null_distribution",
     "greedy_forward_select",
     "GreedyForwardSelectionResult",
     "ForwardSelectionRound",

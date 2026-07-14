@@ -71,6 +71,16 @@ vertical line separates contaminated (left) from uncontaminated (right)
 templates.  Bars to the left of the line should exceed the dashed S/N = 2
 threshold; bars to the right should stay below it.
 
+.. note::
+   The :math:`\mathrm{Var}[\hat\theta]` here is the **MCMC posterior** variance.  The
+   independent-pixel likelihood makes single-fit errors overconfident *in general* (see
+   :doc:`methods` and the OLS :math:`|\hat\alpha|/\sigma` case on :doc:`results_snr_preselection`,
+   which is ~2× too tight), but for the short emcee chains used here the posterior is actually
+   *wide* — wider than the mock-covariance sandwich, so this particular S/N is **not** overconfident
+   (checked with :func:`~sys_mapping.covariance.mock_sandwich_covariance`).  The **LRT** below is a
+   different matter: its :math:`\chi^2` p-values *are* overconfident on the correlated field
+   (:ref:`lrt-methods`); the calibrated null is ``--lrt-null-mocks``.
+
 .. figure:: _static/results_progressive_contamination/progressive_snr_grid.png
    :width: 95%
    :align: center

@@ -182,7 +182,13 @@ def analyse_one(nside, templates, k, mode, mock_id,
 # ── Figures ───────────────────────────────────────────────────────────────────
 
 def plot_snr_grid(df, n_sys, template_names, k_values, modes, snr_threshold, outdir):
-    """Figure A: grid of S/N bar charts (rows=k, cols=mode)."""
+    """Figure A: grid of S/N bar charts (rows=k, cols=mode).
+
+    S/N uses the per-fit **MCMC posterior** width (``snr_a = |â_i|/σ_{a_i}``).  Note this is a
+    different error model from the OLS analytic σ of the SNR pre-selection page: for the short
+    emcee chains here the posterior is *wide* (wider than the mock-covariance sandwich, verified),
+    so — unlike the OLS-σ pages — this S/N is **not** overconfident; see the page caveat.
+    """
     nrows, ncols = len(k_values), len(modes)
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows),
                               sharey=False, sharex=True)
@@ -325,46 +331,53 @@ def main():
     parser.add_argument("--sigma", type=float, default=0.15,
                         help="Injection amplitude std (N(0, sigma))")
     parser.add_argument("--output-dir", default="results/mock_analysis_progressive/")
+    parser.add_argument("--from-cache", action="store_true",
+                        help="Reprocess the per-cell JSONs already in --output-dir (no MCMC re-fit) "
+                             "— used to regenerate figures with the calibrated sandwich S/N overlay.")
     args = parser.parse_args()
 
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
-    n_sys = args.n_sys
+    if args.from_cache:
+        results = [json.loads(p.read_text()) for p in sorted(outdir.glob("progressive_k*_mock*.json"))]
+        print(f"[--from-cache] loaded {len(results)} cached cells from {outdir}")
+        n_sys = len(results[0]["snr_a"])            # match the cached template count
+    else:
+        n_sys = args.n_sys
     templates = sm.generate_systematic_maps(args.nside, families=list(range(min(n_sys, 5))), seed=0)
     n_sys = templates.shape[0]
     template_names = [f"synth_{i}" for i in range(n_sys)]
 
-    total = len(K_VALUES) * len(MODES) * args.n_mocks_per_case
-    print(f"Progressive study: {len(K_VALUES)} k-values × {len(MODES)} modes × "
-          f"{args.n_mocks_per_case} mocks = {total} MCMC runs")
+    if not args.from_cache:
+        total = len(K_VALUES) * len(MODES) * args.n_mocks_per_case
+        print(f"Progressive study: {len(K_VALUES)} k-values × {len(MODES)} modes × "
+              f"{args.n_mocks_per_case} mocks = {total} MCMC runs")
+        results = []
+        run_no = 0
+        for k, mode in product(K_VALUES, MODES):
+            print(f"\n--- k={k}  mode={mode} ---")
+            for mock_id in range(args.n_mocks_per_case):
+                run_no += 1
+                print(f"  [{run_no}/{total}] mock {mock_id} ...", flush=True)
+                res = analyse_one(
+                    args.nside, templates, k, mode, mock_id,
+                    args.n_walkers, args.n_steps, args.n_burn,
+                    args.snr_threshold, args.sigma,
+                )
+                results.append(res)
+                (outdir / f"progressive_k{k}_{mode}_mock{mock_id:03d}.json").write_text(
+                    json.dumps(res, indent=2)
+                )
 
-    results = []
-    run_no = 0
-    for k, mode in product(K_VALUES, MODES):
-        print(f"\n--- k={k}  mode={mode} ---")
-        for mock_id in range(args.n_mocks_per_case):
-            run_no += 1
-            print(f"  [{run_no}/{total}] mock {mock_id} ...", flush=True)
-            res = analyse_one(
-                args.nside, templates, k, mode, mock_id,
-                args.n_walkers, args.n_steps, args.n_burn,
-                args.snr_threshold, args.sigma,
-            )
-            results.append(res)
-            (outdir / f"progressive_k{k}_{mode}_mock{mock_id:03d}.json").write_text(
-                json.dumps(res, indent=2)
-            )
-
-    # Save CSV (list columns as JSON strings)
-    df_raw = pd.DataFrame(results)
-    df_csv = df_raw.copy()
-    for col in ["snr_a", "snr_b", "a_true", "b_true", "a_hat", "b_hat"]:
-        df_csv[col] = df_csv[col].apply(json.dumps)
-    df_csv.to_csv(outdir / "progressive_results.csv", index=False)
+        # Save CSV (list columns as JSON strings)
+        df_csv = pd.DataFrame(results).copy()
+        for col in ["snr_a", "snr_b", "a_true", "b_true", "a_hat", "b_hat"]:
+            df_csv[col] = df_csv[col].apply(json.dumps)
+        df_csv.to_csv(outdir / "progressive_results.csv", index=False)
 
     # Expand list columns for plotting
-    df = df_raw.copy()
+    df = pd.DataFrame(results)
     df["snr_a"] = df["snr_a"].apply(np.asarray)
     df["snr_b"] = df["snr_b"].apply(np.asarray)
 

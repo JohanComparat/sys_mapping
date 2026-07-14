@@ -55,6 +55,7 @@ density maps.
 
    api/contamination
    api/likelihood
+   api/covariance
    api/maps
    api/inference
    api/correction

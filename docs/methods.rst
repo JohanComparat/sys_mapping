@@ -260,6 +260,30 @@ Here :math:`\boldsymbol\Theta = (a_1,\ldots,a_{n_s},b_1,\ldots,b_{n_s},\sigma)`,
 accounts for the change of variable from :math:`\hat\delta_g` to :math:`\delta_g`.
 For the additive model (:math:`b_i=0`) the Jacobian term vanishes.
 
+.. admonition:: Independent-pixel assumption ⇒ overconfident error bars
+   :class: important
+
+   The :math:`\sigma^2 I` covariance treats every pixel as an **independent** draw. That is fine for
+   the *point* estimates (they stay unbiased), but the galaxy field :math:`\delta_g` is a
+   **spatially-correlated** clustering field, and smooth systematic templates project onto it with
+   far more variance than white noise predicts. The parameter errors read off this likelihood — the
+   MCMC posterior width, the OLS analytic :math:`\sigma_{\hat a}` behind any per-template
+   "SNR" :math:`|\hat a_i|/\sigma_{\hat a_i}`, and the Wilks-:math:`\chi^2` calibration of the
+   :ref:`likelihood-ratio test <lrt-methods>` — are therefore **overconfident (typically ~2× too
+   tight)**. The calibrated alternatives:
+
+   * **Additive parameter error** — the mock-covariance *sandwich*
+     :func:`~sys_mapping.covariance.mock_sandwich_covariance`,
+     :math:`\mathrm{Cov}(\hat a)=(TT^\top)^{-1}(TCT^\top)(TT^\top)^{-1}` with :math:`C` the covariance
+     of an ensemble of *uncontaminated* mock reconstructions. See :mod:`sys_mapping.covariance` and
+     :doc:`results_validation`.
+   * **Correlated-noise likelihood** — the opt-in GLS path
+     (:class:`~sys_mapping.covariance.LowRankPrecision`, ``precision=`` in
+     :func:`~sys_mapping.likelihood.make_log_likelihood`); the full-rank theory-\ :math:`C_\ell`
+     version is a documented follow-up (:func:`~sys_mapping.covariance.build_harmonic_precision`).
+   * **Detection significance** — calibrate the LRT null on mocks rather than assuming
+     :math:`\chi^2` (see the LRT section below).
+
 **Skew-normal likelihood.** For a lognormal galaxy field,
 :math:`\delta_g = e^{G-\sigma_G^2/2}-1` has positive skewness
 :math:`s \approx 3\sigma_G + \sigma_G^3 > 0`.
@@ -762,6 +786,8 @@ measured with the same angular binning as the galaxy :math:`w(\theta)`.
 
 ----
 
+.. _lrt-methods:
+
 Likelihood ratio test (model selection)
 -----------------------------------------
 
@@ -825,6 +851,22 @@ but may not be exactly at the likelihood maximum, so
 :math:`\lambda_{\rm LR}` may be slightly underestimated.  In practice,
 for well-sampled posteriors (``n_steps >= 1500``) the bias is
 negligible.
+
+.. admonition:: The Wilks :math:`\chi^2` null is overconfident on a correlated field
+   :class: important
+
+   The asymptotic :math:`\lambda_{\rm LR}\to\chi^2(r)` result (Wilks) assumes the log-likelihood is
+   built from **independent** observations. The pixel likelihood above is not — it uses the
+   :math:`\sigma^2 I` model on a spatially-**correlated** clustering field — so under the null the
+   test statistic is **inflated** relative to :math:`\chi^2(r)`, and ``chi2.sf(lrt, df=r)`` returns a
+   **p-value that is too small** (a detection reported at, say, :math:`p<10^{-9}` is more significant
+   than the data warrant). The **calibrated** approach is to estimate the null distribution of
+   :math:`\lambda_{\rm LR}` **empirically from an ensemble of uncontaminated mocks** and read the
+   p-value from that tail — exactly as :func:`~sys_mapping.diagnostics.isd_template_significance`
+   already does for the ISD :math:`\Delta\chi^2`. :func:`~sys_mapping.model_selection.likelihood_ratio_test`
+   accepts a mock null for this (``null_lambda=`` / calibrated mode); the default remains the Wilks
+   :math:`\chi^2`. This is why detections on real data (e.g. the LS10 pages) should quote the
+   mock-calibrated p-value.
 
 **Function:**
 :func:`~sys_mapping.model_selection.likelihood_ratio_test`
