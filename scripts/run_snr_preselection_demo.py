@@ -36,7 +36,7 @@ import healpy as hp
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from sys_mapping.diagnostics import isd_template_significance, snr_template_ranking
-from sys_mapping.glass_mocks import generate_glass_fullsky_mock
+from sys_mapping.glass_mocks import generate_glass_fullsky_mock, generate_glass_delta_map
 from sys_mapping.maps import (
     assign_template_values,
     compute_overdensity,
@@ -95,6 +95,29 @@ def _bar_colors(n):
     for i in CONTAM_IDX:
         colors[i] = CONTAM_COLOR
     return colors
+
+
+def _calibrated_template_snr(dg, delta_t, good, mean_count, n_mock=60, seed=SEED + 500):
+    """Correlated-field-calibrated OLS |t|-stat SNR per template.
+
+    The nominal ``template`` SNR ``|α̂_i|/σ_iid`` uses an **independent-pixel** σ, which is ~2× too
+    tight on the correlated GLASS field.  Here σ is the univariate correlated-noise error
+    ``Var(α̂_i)=Var(⟨t_i,ε⟩)/⟨t_i,t_i⟩²`` (the per-template sandwich), with the noise covariance
+    estimated from a cheap ensemble of **uncontaminated** GLASS reconstructions (field-only +
+    Poisson shot — no 15 M catalogue). Returns ``snr_cal`` (n_templates,).
+    """
+    rng = np.random.default_rng(seed)
+    fields = np.empty((n_mock, delta_t.shape[1]))
+    for i in range(n_mock):
+        delta = generate_glass_delta_map(NSIDE, float(Z_EDGES[-1]), seed=seed + i)
+        lam = mean_count * (1.0 + np.clip(delta[good], -0.999, None))
+        counts = rng.poisson(lam).astype(float)
+        fields[i] = counts / max(counts.mean(), 1e-9) - 1.0
+    tt = np.einsum("ij,ij->i", delta_t, delta_t)              # ⟨t_i,t_i⟩
+    a_hat = (delta_t @ dg) / tt                               # univariate OLS per template
+    proj = delta_t @ (fields - fields.mean(0)).T             # (n_t, n_mock) = ⟨t_i, ε⟩
+    sigma_cal = np.sqrt(proj.var(1, ddof=1)) / np.where(tt > 0, tt, np.nan)
+    return np.abs(a_hat) / np.where(sigma_cal > 0, sigma_cal, np.nan)
 
 
 def _savefig(fig, name):
@@ -208,6 +231,7 @@ def main():
     # ------------------------------------------------------------------
     # Figures 02: SNR bar charts per method
     # ------------------------------------------------------------------
+    mean_count = float(n_gal[good].mean())   # for the correlated-noise (sandwich) calibration
     for method in ["data", "template", "isd"]:
         print(f"Figure 02: SNR bar chart — method={method} …")
         fig, axes = plt.subplots(1, 3, figsize=(16, 4), sharey=False)
@@ -216,6 +240,13 @@ def main():
             dg = _contaminate(delta_g_clean, delta_t, amp)
             snr = snr_template_ranking(dg, delta_t, method=method)
             ax.bar(range(N_TEMPLATES), snr, color=bar_colors, edgecolor="white", linewidth=0.4)
+            # For the OLS t-stat, overlay the correlated-field-CALIBRATED SNR (sandwich σ): the
+            # nominal bars use an independent-pixel σ and are ~2× overconfident on this field.
+            if method == "template":
+                snr_cal = _calibrated_template_snr(dg, delta_t, good, mean_count)
+                ax.plot(range(N_TEMPLATES), snr_cal, "k_", markersize=11, markeredgewidth=2.0,
+                        label="calibrated (sandwich σ)")
+                ax.axhline(3.0, color="0.4", ls=":", lw=0.8)
             ax.set_xticks(range(N_TEMPLATES))
             ax.set_xticklabels(template_labels, rotation=60, ha="right", fontsize=7)
             ax.set_title(f"Level: {level}  (a = {amp:.2f})")
@@ -226,10 +257,15 @@ def main():
                 ax.set_ylabel(ylabel)
 
         from matplotlib.patches import Patch
+        from matplotlib.lines import Line2D
         legend_handles = [
             Patch(color=CONTAM_COLOR, label="Injected (contaminating)"),
             Patch(color=NOISE_COLOR,  label="Noise template"),
         ]
+        if method == "template":
+            legend_handles.append(
+                Line2D([0], [0], color="k", marker="_", ls="", markersize=11, markeredgewidth=2.0,
+                       label="calibrated SNR (sandwich σ)"))
         fig.legend(handles=legend_handles, loc="upper right", fontsize=9,
                    bbox_to_anchor=(0.99, 0.99))
         method_title = {"data": "Data cross-correlation", "template": "OLS t-statistic",
@@ -244,17 +280,21 @@ def main():
     print("Figure 03: detection vs amplitude …")
     amplitudes = np.array([0.0, 0.01, 0.02, 0.03, 0.05, 0.07, 0.10, 0.13, 0.15])
     snr_vs_amp = {m: [] for m in ["data", "template", "isd"]}
+    snr_vs_amp_cal = []   # calibrated (sandwich σ) OLS t-stat for the injected template
     for amp in amplitudes:
         dg = _contaminate(delta_g_clean, delta_t, amp)
         for method in ["data", "template", "isd"]:
             s = snr_template_ranking(dg, delta_t, method=method)
             snr_vs_amp[method].append(s[CONTAM_IDX[0]])
+        snr_vs_amp_cal.append(_calibrated_template_snr(dg, delta_t, good, mean_count)[CONTAM_IDX[0]])
 
     fig, ax = plt.subplots(figsize=(7, 4))
     for method, snr_list in snr_vs_amp.items():
-        label = {"data": "Data cross-corr.", "template": "OLS t-stat",
+        label = {"data": "Data cross-corr.", "template": "OLS t-stat (iid σ)",
                  "isd": r"ISD $\Delta\chi^2$"}[method]
         ax.plot(amplitudes, snr_list, color=METHOD_COLORS[method], marker="o", label=label)
+    ax.plot(amplitudes, snr_vs_amp_cal, color=METHOD_COLORS["template"], marker="s", ls="--",
+            label="OLS t-stat (calibrated σ)")
     for level, amp in LEVELS.items():
         ax.axvline(amp, linestyle=":", color="grey", alpha=0.6)
         ax.text(amp, ax.get_ylim()[1] * 0.97, level, ha="center", fontsize=8, color="grey")

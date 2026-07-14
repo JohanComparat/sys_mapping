@@ -125,6 +125,87 @@ class TestLikelihoodRatioTest:
                                        significance=0.05)
         assert result.reject_null == (result.p_value < 0.05)
 
+    def test_default_is_chi2(self):
+        """null_lambda=None keeps the exact Wilks χ² behaviour and labels it."""
+        from scipy.stats import chi2
+        dg, dt = _make_data()
+        theta_null = pack_params(np.zeros(N_SYS), None, 0.1, model="additive")
+        theta_alt = pack_params(np.full(N_SYS, 0.05), np.full(N_SYS, 0.05), 0.1, model="combined")
+        r = likelihood_ratio_test(dg, dt, theta_null, theta_alt, "additive", "combined")
+        assert r.calibration == "chi2"
+        np.testing.assert_allclose(r.p_value, float(chi2.sf(r.lambda_lr, df=r.n_dof)), rtol=1e-12)
+
+    def test_mock_calibration_widens_overconfident_p(self):
+        """A correlated-null ensemble whose λ dwarfs the χ² expectation gives a much larger
+        (honest) p-value than the χ² tail — the overconfidence fix.  Uses a genuine detection
+        (contaminated data + true combined params → λ_LR > 0, tiny χ² p-value)."""
+        from sys_mapping.contamination import apply_contamination
+        import jax.numpy as jnp
+        rng = np.random.default_rng(1)
+        a_true = np.array([0.15, -0.1, 0.12]); b_true = np.array([0.2, -0.15, 0.1])
+        delta_t = rng.standard_normal((N_SYS, N_PIX)); delta_t -= delta_t.mean(1, keepdims=True)
+        dg_obs = np.asarray(apply_contamination(
+            jnp.asarray(rng.standard_normal(N_PIX) * 0.02), jnp.asarray(delta_t),
+            jnp.asarray(a_true), jnp.asarray(b_true)))
+        theta_null = pack_params(a_true, None, 0.05, model="additive")
+        theta_alt = pack_params(a_true, b_true, 0.05, model="combined")
+        chi2_res = likelihood_ratio_test(dg_obs, delta_t, theta_null, theta_alt, "additive", "combined")
+        assert chi2_res.lambda_lr > 0 and chi2_res.p_value < 1e-3   # χ² says "highly significant"
+        # Correlated-null ensemble: λ under H0 inflated well past the observed value.
+        null_lambda = chi2_res.lambda_lr + 5.0 + rng.standard_normal(500) * 2.0
+        mock_res = likelihood_ratio_test(dg_obs, delta_t, theta_null, theta_alt, "additive", "combined",
+                                         null_lambda=null_lambda)
+        assert mock_res.calibration == "mock"
+        assert mock_res.p_value > chi2_res.p_value            # calibrated p is far less significant
+        assert mock_res.lambda_lr == chi2_res.lambda_lr       # statistic unchanged
+
+    def test_mock_calibration_montecarlo_value(self):
+        """Empirical p-value = (1 + #{null >= λ}) / (1 + n)."""
+        dg, dt = _make_data()
+        theta_null = pack_params(np.zeros(N_SYS), None, 0.1, model="additive")
+        theta_alt = pack_params(np.zeros(N_SYS), np.zeros(N_SYS), 0.1, model="combined")
+        res = likelihood_ratio_test(dg, dt, theta_null, theta_alt, "additive", "combined")
+        lam = res.lambda_lr
+        null = np.array([lam - 1, lam - 1, lam + 1, lam + 1, lam + 1])  # 3 of 5 >= lam
+        r = likelihood_ratio_test(dg, dt, theta_null, theta_alt, "additive", "combined",
+                                  null_lambda=null)
+        np.testing.assert_allclose(r.p_value, (1 + 3) / (1 + 5))
+
+    def test_mock_calibration_empty_null_raises(self):
+        dg, dt = _make_data()
+        theta_null = pack_params(np.zeros(N_SYS), None, 0.1, model="additive")
+        theta_alt = pack_params(np.zeros(N_SYS), np.zeros(N_SYS), 0.1, model="combined")
+        with pytest.raises(ValueError, match="no finite"):
+            likelihood_ratio_test(dg, dt, theta_null, theta_alt, "additive", "combined",
+                                  null_lambda=np.array([np.nan, np.inf]))
+
+    def test_lrt_null_distribution_shape_and_use(self):
+        """lrt_null_distribution returns one λ per mock and round-trips into a mock-calibrated p."""
+        from sys_mapping.model_selection import lrt_null_distribution
+        _, dt = _make_data()
+        rng = np.random.default_rng(5)
+        n_mock = 8
+        mocks = rng.standard_normal((N_PIX, n_mock)) * 0.1   # uncontaminated null fields
+
+        def fit_theta(model, dg, delta_t):
+            # OLS additive MLE surrogate; combined adds b=0 (null-consistent)
+            n = delta_t.shape[0]
+            a = np.linalg.lstsq(delta_t.T, dg, rcond=None)[0]
+            sigma = max(float(np.std(dg - a @ delta_t)), 1e-9)
+            if model == "additive":
+                return pack_params(a, None, sigma, model="additive")
+            return pack_params(a, np.zeros(n), sigma, model="combined")
+
+        lam = lrt_null_distribution(mocks, dt, fit_theta)
+        assert lam.shape == (n_mock,)
+        assert np.all(np.isfinite(lam))
+        # use as the calibrated null for a data fit
+        res = likelihood_ratio_test(mocks[:, 0], dt,
+                                    fit_theta("additive", mocks[:, 0], dt),
+                                    fit_theta("combined", mocks[:, 0], dt),
+                                    "additive", "combined", null_lambda=lam)
+        assert res.calibration == "mock" and 0.0 < res.p_value <= 1.0
+
 
 class TestGreedyForwardSelect:
     """Tests for greedy_forward_select."""

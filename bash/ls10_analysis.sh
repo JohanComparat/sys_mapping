@@ -7,6 +7,10 @@
 #   bash/ls10_analysis.sh --sample LS10_VLIM_ANY_...  # single sample
 #   CATALOG_DIR=/path/to/BGS bash/ls10_analysis.sh
 #
+# Mock-calibrated LRT p-values (the Wilks chi^2 is overconfident on the correlated field):
+#   bash/ls10_analysis.sh --lrt-null-mocks 200   # passed through to run_ls10_analysis.py
+#   HEAVY (a full additive+combined fit per mock; remote job); the default (0) keeps chi^2.
+#
 # Monitor:
 #   tail -f logs/ls10_analysis_<timestamp>.log
 

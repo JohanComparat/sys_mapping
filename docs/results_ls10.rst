@@ -199,6 +199,17 @@ The test statistic
 follows a :math:`\chi^2(11)` distribution under :math:`H_0`.
 Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
 
+.. warning::
+   The :math:`\chi^2(11)` null (Wilks) assumes the pixel likelihood is built from **independent**
+   pixels.  It is not — the field is spatially **correlated** — so under :math:`H_0` the statistic
+   is *inflated* and the reported p-values are **too small** (the detections below are
+   over-stated).  The calibrated test compares :math:`\lambda_{\rm LR}` against its **empirical
+   null from uncontaminated mocks** (``run_ls10_analysis.py --lrt-null-mocks N``, using
+   :func:`~sys_mapping.model_selection.lrt_null_distribution`); see the caveat under
+   :ref:`the LRT in the methods page <lrt-methods>`.  The mock-calibrated re-run is a heavy remote
+   job; the p-values quoted here are still the (overconfident) :math:`\chi^2` values and should be
+   read as *upper bounds on the significance*.
+
 **NSIDE 32:**
 
 .. csv-table::

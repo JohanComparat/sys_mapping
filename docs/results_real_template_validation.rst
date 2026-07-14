@@ -129,6 +129,15 @@ Model selection and diagnostics
 * **SNR ranking** — real GAIA and LS10 templates carry detectable systematic
   signal (at least one template SNR :math:`> 0.01`).
 
+.. note::
+   The per-template SNR uses the **MCMC posterior** variance (the chain covariance).  Single-fit
+   pixel-likelihood errors are overconfident on a correlated field *in general* (see :doc:`methods`;
+   the OLS-:math:`\sigma` case on :doc:`results_snr_preselection` is ~2× too tight), so the honest
+   per-template error is the mock-covariance sandwich
+   (:func:`~sys_mapping.covariance.mock_sandwich_covariance`).  The weak
+   :math:`\mathrm{SNR}>0.01` "signal present" check here is unaffected, but a quantitative detection
+   threshold should use the calibrated σ.
+
 Running the validation
 ----------------------
 

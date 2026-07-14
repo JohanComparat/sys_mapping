@@ -81,6 +81,42 @@ def synthetic_templates(nside, n_families=5, seed=0):
     return tmpl, names
 
 
+def build_lrt_null(n_mocks, nside, good_pix, delta_t_rot, z_edges, nz, n_total_footprint,
+                   seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2):
+    """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
+    sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
+
+    **HEAVY / remote job:** runs a full additive *and* combined fit per mock via
+    :func:`~sys_mapping.regression.run_decontamination`, then differences the log-likelihoods with
+    the tested primitive :func:`sys_mapping.lrt_null_distribution`. Returns an ``(n_mocks,)`` array.
+
+    NOTE (verify on the remote): the mock surface density is matched to the data footprint via
+    ``n_total_footprint``; confirm it reproduces the shot level that
+    :func:`~sys_mapping.diagnostics.isd_template_significance` uses for the same sample.
+    """
+    from sys_mapping.glass_mocks import generate_glass_fullsky_mock
+    npix = hp.nside2npix(nside)
+    good_idx = np.where(good_pix)[0]
+    mock_fields = np.empty((good_idx.size, n_mocks))
+    for k in range(n_mocks):
+        cat = generate_glass_fullsky_mock(nside, n_total_footprint, z_edges, nz,
+                                          seed=seed + k, rand_factor=rand_factor)
+        gc = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)
+        rc = sm.pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)
+        dg_full, good_m = sm.compute_overdensity(gc, rc)
+        full = np.zeros(npix); full[good_m] = dg_full
+        mock_fields[:, k] = full[good_idx]        # reconstruct on the data footprint
+
+    def fit_theta(model, dg, dt):
+        method = "MCMC-add" if model == "additive" else "MCMC-comb"
+        res = sm.run_decontamination(method, dg, dt, sampler=sampler,
+                                     nuts_n_warmup=nuts_warmup, nuts_n_samples=nuts_samples,
+                                     n_chains=n_chains)
+        return sm.get_mle_params(res["flat_chain"])
+
+    return sm.lrt_null_distribution(mock_fields, delta_t_rot, fit_theta)
+
+
 # ── Per-sample pipeline ────────────────────────────────────────────────────
 
 _DOCS_STATIC_LS10 = Path(__file__).resolve().parent.parent / "docs" / "_static" / "results_ls10"
@@ -578,11 +614,22 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     if res_add.get("flat_chain") is not None and res_comb.get("flat_chain") is not None:
         theta_add  = sm.get_mle_params(res_add["flat_chain"])
         theta_comb = sm.get_mle_params(res_comb["flat_chain"])
+        # Mock-calibrated null (opt-in): the Wilks χ² is overconfident on the correlated field.
+        _null_lambda = None
+        if getattr(args, "lrt_null_mocks", 0) > 0:
+            print(f"\nBuilding LRT mock null ({args.lrt_null_mocks} uncontaminated fits) …", flush=True)
+            _null_lambda = build_lrt_null(
+                args.lrt_null_mocks, nside, good_pix, delta_t_rot, _z_edges, _nz,
+                int(len(ra_gal)), args.lrt_null_seed, args.sampler,
+                args.nuts_warmup, args.nuts_samples, args.n_chains,
+            )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
             null_model="additive", alt_model="combined", significance=0.05,
+            null_lambda=_null_lambda,
         )
-        print(f"\nLRT  λ_LR={lrt.lambda_lr:.2f}  p={lrt.p_value:.4f}  reject_null={lrt.reject_null}")
+        print(f"\nLRT  λ_LR={lrt.lambda_lr:.2f}  p={lrt.p_value:.4f}  "
+              f"reject_null={lrt.reject_null}  [{lrt.calibration}]")
     else:
         from collections import namedtuple
         _LRTResult = namedtuple("LRTResult", ["lambda_lr", "p_value", "n_dof", "reject_null"])
@@ -663,6 +710,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     _hdr["LRT_LAM"] = _safe_float(lrt.lambda_lr)
     _hdr["LRT_P"]   = _safe_float(lrt.p_value)
     _hdr["LRT_REJ"] = bool(lrt.reject_null)
+    _hdr["LRT_CAL"] = getattr(lrt, "calibration", "chi2")
     _hdr["W_SYS"]   = "alias for WEIGHT_COMB - recommended default"
     fits.BinTableHDU.from_columns(fits_cols, header=_hdr).writeto(str(fits_path), overwrite=True)
     print(f"All-method weights saved: {fits_path}")
@@ -683,6 +731,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             "p_value": float(lrt.p_value),
             "n_dof": int(lrt.n_dof),
             "reject_null": bool(lrt.reject_null),
+            "calibration": getattr(lrt, "calibration", "chi2"),
         },
         "acceptance_fraction_add": float(acc_add),
         "acceptance_fraction_comb": float(acc_comb),
@@ -1195,6 +1244,13 @@ def main():
                         help="NUTS window-adaptation steps.")
     parser.add_argument("--nuts-samples", type=int, default=1000,
                         help="NUTS post-warmup draws per chain.")
+    parser.add_argument("--lrt-null-mocks", type=int, default=0,
+                        help="If >0, calibrate the LRT p-value on this many uncontaminated GLASS "
+                             "mocks (fit additive+combined per mock) instead of the Wilks chi^2 — "
+                             "the correlated field inflates the chi^2 statistic, so the default "
+                             "p-value is overconfident. HEAVY (a full fit per mock): remote job.")
+    parser.add_argument("--lrt-null-seed", type=int, default=90000,
+                        help="Base seed for the --lrt-null-mocks ensemble.")
     parser.add_argument("--output-dir", default="data/sys_weights/",
                         help="Output directory for weights, params, and plots.")
     parser.add_argument("--only-methods", nargs="+", metavar="METHOD", default=None,

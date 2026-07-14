@@ -53,15 +53,10 @@ class LowRankPrecision:
 
     * :meth:`apply` — ``R^{-1} v`` for a vector (or column-stacked matrix) ``v``.
     * :meth:`quad` — the quadratic form ``v^T R^{-1} v``.
-    * ``logdet`` — the scalar ``ln|R|``.
 
-    Attributes
-    ----------
-    d_inv : (n_pix,)          inverse diagonal ``1 / D``
-    u : (n_pix, n_modes)      normalized mode matrix ``U``
-    m_inv : (n_modes, n_modes)  ``(I_M + U^T D^{-1} U)^{-1}``
-    logdet : float            ``ln|R|``
-    n_pix, n_modes : int
+    The stored Woodbury pieces are ``d_inv`` (inverse diagonal ``1/D``, shape ``(n_pix,)``), ``u``
+    (normalized mode matrix ``U``, ``(n_pix, n_modes)``), ``m_inv`` (``(I_M + U^T D^{-1} U)^{-1}``,
+    ``(n_modes, n_modes)``), the scalar ``logdet`` (``ln|R|``), and the sizes ``n_pix`` / ``n_modes``.
     """
 
     d_inv: Array
