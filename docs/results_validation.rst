@@ -464,23 +464,27 @@ across the scenarios where those parameters are non-zero.
    :width: 85%
    :align: center
 
-   Estimated vs. true amplitudes.  Error bars show the posterior standard
-   deviation.  Points on the dashed identity line indicate unbiased recovery.
+   Recovered-minus-true amplitude :math:`\hat\theta_i-\theta_i^{\rm true}` per template.
+   **Additive** bars (top) carry a **calibrated 1σ error bar** — the mock-covariance *sandwich*
+   (:func:`sys_mapping.mock_sandwich_covariance`), estimated from an ensemble of uncontaminated
+   mock reconstructions.  This is the correlated-noise error: the single-fit MCMC posterior std is
+   **~2× too tight** because the clean field is spatially correlated, so it is *not* used here.
+   **Multiplicative** bars (bottom) have no error bar — :math:`b` is only weakly identified by a
+   single field and has no trustworthy single-fit uncertainty (see the *slow-methods* validation in
+   the Euclid pipeline for the full variance-vs-bias decomposition).
 
 **Key observations:**
 
-* Additive amplitudes :math:`a_i` are recovered to within ≈ 0.02 in all
-  scenarios where they are non-zero.  The largest template (t₂,
-  :math:`a_2 = -0.104`) is recovered with a relative error < 10%.
+* Additive amplitudes :math:`a_i` are recovered essentially **unbiased within the calibrated 1σ**:
+  the recovered-minus-true bars sit inside the sandwich error bar in every scenario.  (The bias
+  itself is small, :math:`\lesssim 0.02`; what changed is that its significance is now judged
+  against the *correlated-noise* error, not the overconfident iid posterior.)
 
-* Multiplicative amplitudes :math:`b_i` are recovered with somewhat larger
-  residuals (≈ 0.02–0.03), consistent with the weaker leverage that linear
-  likelihoods have on non-linear contamination.
-
-* In the combined scenario, the additive posterior is essentially unbiased;
-  the multiplicative posterior shows a mild bias (≈ 15%) for the largest
-  amplitude :math:`b_2 = -0.195`, attributable to parameter degeneracy
-  between :math:`a_i` and :math:`b_i` at moderate signal-to-noise.
+* Multiplicative amplitudes :math:`b_i` show larger residuals and a mild bias (≈ 15 % for the
+  largest amplitude in the combined scenario), consistent with the weak leverage a single field has
+  on the non-linear multiplicative term and the :math:`a`–:math:`b` degeneracy at moderate S/N.
+  Because :math:`b` is weakly identified its single-fit posterior width is not reported; a
+  calibrated :math:`b` error needs the ensemble / full-rank :math:`C_\ell` treatment.
 
 ----
 

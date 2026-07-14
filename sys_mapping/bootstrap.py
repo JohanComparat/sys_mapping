@@ -13,21 +13,42 @@ import numpy as np
 import healpy as hp
 
 
+def _auto_nside_patch(good_pixels: np.ndarray, nside: int, n_patches: int) -> int:
+    """Coarse HEALPix NSIDE that splits the *footprint* into ~``n_patches`` patches.
+
+    The patch resolution is chosen from the footprint sky fraction, not the full sky, so it
+    stays usable for small footprints at high ``nside``.  The number of coarse pixels
+    overlapping a footprint of sky fraction ``f`` is ``~ f * 12 * nside_patch**2``; setting that
+    equal to ``n_patches`` gives ``nside_patch = sqrt(n_patches / (12 f))``, rounded to the
+    nearest valid power-of-two NSIDE in ``[1, nside]``.
+    """
+    n_good = int(np.count_nonzero(good_pixels))
+    fsky = max(n_good / hp.nside2npix(nside), 1.0 / hp.nside2npix(nside))
+    target = np.sqrt(n_patches / (12.0 * fsky))
+    exp = int(np.clip(round(np.log2(max(target, 1.0))), 0, np.log2(nside)))
+    return int(2 ** exp)
+
+
 def _assign_patches(
     good_pixels: np.ndarray,
     nside: int,
     n_patches: int,
+    nside_patch: int | None = None,
 ) -> np.ndarray:
     """Assign unmasked pixels to spatial patches using HEALPix coarsening.
 
-    Coarsens to a lower NSIDE so that the sky is divided into roughly
-    ``n_patches`` equal-area regions, then relabels to compact integers.
+    Coarsens to a lower NSIDE so that the *footprint* is divided into roughly ``n_patches``
+    equal-area regions, then relabels to compact integers.
 
     Parameters
     ----------
     good_pixels : (n_pix,) boolean mask (True = unmasked)
     nside : int  full-resolution HEALPix NSIDE
     n_patches : int  desired number of patches (approximate)
+    nside_patch : int, optional
+        Coarse HEALPix NSIDE for the patch boundaries.  ``None`` (default) auto-selects a
+        footprint-aware value via :func:`_auto_nside_patch`.  Pass an explicit value for small
+        footprints at high ``nside`` where a specific patch count is wanted.
 
     Returns
     -------
@@ -47,8 +68,8 @@ def _assign_patches(
     True
     """
     pixel_indices = np.where(good_pixels)[0]
-    # Coarsen to lower NSIDE to define patch boundaries
-    nside_patch = max(1, nside // int(np.sqrt(hp.nside2npix(nside) / n_patches)))
+    if nside_patch is None:
+        nside_patch = _auto_nside_patch(good_pixels, nside, n_patches)
     # Use the ring-scheme pixel index at the coarser resolution
     theta, phi = hp.pix2ang(nside, pixel_indices)
     coarse_pix = hp.ang2pix(nside_patch, theta, phi)
@@ -67,6 +88,7 @@ def block_bootstrap_variance(
     n_bootstrap: int = 100,
     n_patches: int = 10,
     seed: int = 0,
+    nside_patch: int | None = None,
 ) -> np.ndarray:
     """Estimate variance of an estimator via spatial block bootstrap.
 
@@ -86,6 +108,7 @@ def block_bootstrap_variance(
     n_bootstrap : int  number of bootstrap resamples (default 100)
     n_patches : int  approximate number of spatial blocks (default 10)
     seed : int  random seed for reproducibility
+    nside_patch : int, optional  explicit coarse patch NSIDE (``None`` = footprint-aware auto)
 
     Returns
     -------
@@ -123,7 +146,7 @@ def block_bootstrap_variance(
     True
     """
     rng = np.random.default_rng(seed)
-    patch_ids = _assign_patches(good_pixels, nside, n_patches)
+    patch_ids = _assign_patches(good_pixels, nside, n_patches, nside_patch=nside_patch)
     unique_patches = np.unique(patch_ids)
     K = len(unique_patches)
 
@@ -150,6 +173,7 @@ def jackknife_covariance(
     nside: int,
     estimator: Callable[[np.ndarray, np.ndarray], np.ndarray],
     n_patches: int = 10,
+    nside_patch: int | None = None,
 ) -> np.ndarray:
     """Estimate the covariance matrix of an estimator via spatial jack-knife.
 
@@ -168,6 +192,10 @@ def jackknife_covariance(
         The quantity whose covariance is to be estimated.  Called ``K``
         times (once per patch dropped).
     n_patches : int  approximate number of spatial patches (default 10)
+    nside_patch : int, optional  explicit coarse patch NSIDE (``None`` = footprint-aware auto).
+        The auto value scales the patch resolution to the footprint sky fraction, so the
+        jack-knife stays usable at high ``nside`` over a small footprint (the old full-sky
+        heuristic could collapse to a single patch there).
 
     Returns
     -------
@@ -234,7 +262,7 @@ def jackknife_covariance(
             stacklevel=2,
         )
 
-    patch_ids = _assign_patches(good_pixels, nside, n_patches)
+    patch_ids = _assign_patches(good_pixels, nside, n_patches, nside_patch=nside_patch)
     unique_patches = np.unique(patch_ids)
     K = len(unique_patches)
 

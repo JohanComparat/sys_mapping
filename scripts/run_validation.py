@@ -53,7 +53,8 @@ import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 
 import sys_mapping as sm
-from sys_mapping.mocks import make_mock_suite, MockCatalog
+from sys_mapping.mocks import make_mock_suite, MockCatalog, make_mock_catalog
+from sys_mapping.covariance import mock_sandwich_covariance
 
 warnings.filterwarnings("ignore")
 
@@ -397,8 +398,41 @@ def plot_summary_metrics(all_results, outdir):
         plt.close()
 
 
-def plot_amplitude_recovery(all_results, outdir):
-    """Bar charts of amplitude bias per method (MCMC methods only)."""
+def sandwich_sigma_a(nside, n_sys, n_mean, sigma, seed, ref_good, ref_delta_t, n_mock=100):
+    """Per-template additive 1σ from the mock-covariance sandwich (correlated-noise error).
+
+    The single-fit MCMC posterior std underestimates the additive error because the clean field is
+    spatially correlated (see :doc:`results_validation`).  Instead, estimate ``Cov(â)`` directly from
+    an ensemble of *uncontaminated* mock reconstructions (the fit noise ε) with
+    :func:`sys_mapping.mock_sandwich_covariance` — exact for the linear estimator and calibrated.
+
+    Returns ``(sigma_a (n_sys,), n_pix_used)`` on the reference footprint ``ref_good``.
+    """
+    npix = hp.nside2npix(nside)
+    fields = []
+    for i in range(n_mock):
+        m = make_mock_catalog(nside, n_sys, scenario="none",
+                              n_mean=n_mean, sigma=sigma, seed=seed + 5000 + i)
+        gc = sm.pixelize_catalog(m.ra_gal, m.dec_gal, nside)
+        rc = sm.pixelize_catalog(m.ra_rand, m.dec_rand, nside)
+        dobs, good = sm.compute_overdensity(gc, rc)
+        full = np.full(npix, np.nan)
+        full[good] = dobs
+        fields.append(full[ref_good])
+    fields = np.asarray(fields)                       # (n_mock, n_ref)
+    ok = np.all(np.isfinite(fields), axis=0)          # pixels populated in every mock
+    cov = mock_sandwich_covariance(ref_delta_t[:, ok], fields[:, ok])
+    return np.sqrt(np.clip(np.diag(cov), 0.0, None)), int(ok.sum())
+
+
+def plot_amplitude_recovery(all_results, outdir, sigma_a=None):
+    """Bar charts of amplitude bias per method (MCMC methods only).
+
+    ``sigma_a`` (n_sys,) is the mock-covariance sandwich 1σ for the additive parameter — the
+    correlated-noise-calibrated error, drawn as error bars on the additive-bias bars so recovery can
+    be read as "unbiased within the calibrated uncertainty".  ``b`` has no calibrated single-fit
+    error (weakly identified); its bars are shown without error bars.
+    """
     mcmc_methods = ["mcmc_add", "mcmc_comb"]
     scenarios_with_a = ["additive", "combined"]
     scenarios_with_b = ["multiplicative", "combined"]
@@ -419,12 +453,15 @@ def plot_amplitude_recovery(all_results, outdir):
             x = np.arange(n_sys)
             width = 0.35
 
+            # Calibrated 1σ band: sandwich for additive a; b has no calibrated single-fit error.
+            yerr = sigma_a if (amp == "a" and sigma_a is not None) else None
             for mi, mk in enumerate(mcmc_methods):
                 if mk not in res["methods"]:
                     continue
                 bias = res["methods"][mk][f"{amp}_bias"]
-                ax.bar(x + mi * width, bias, width=width,
+                ax.bar(x + mi * width, bias, width=width, yerr=yerr,
                        color=METHOD_COLORS[mk], alpha=0.8,
+                       error_kw=dict(ecolor="0.25", capsize=3, lw=1.0),
                        label=METHOD_LABELS[mk])
 
             ax.axhline(0, color="k", lw=0.8, ls="--")
@@ -605,10 +642,20 @@ def main():
             json.dumps(save_res, indent=2)
         )
 
+    # Mock-covariance sandwich 1σ for the additive parameter (correlated-noise-calibrated error
+    # bars on the amplitude-recovery figure; the iid MCMC posterior std would be ~2× too tight).
+    sigma_a = None
+    ref = next((r for r in all_results if r["scenario"] in ("additive", "combined", "none")), None)
+    if ref is not None:
+        print("\nBuilding mock-covariance sandwich (uncontaminated ensemble)…")
+        sigma_a, npx = sandwich_sigma_a(args.nside, args.n_sys, args.n_mean, args.sigma,
+                                        args.seed, ref["good_pix"], ref["delta_t"])
+        print(f"  sandwich σ_a = {np.round(sigma_a, 4)}  ({npx} px)")
+
     # Cross-scenario summary plots
     print("\nGenerating summary plots...")
     plot_summary_metrics(all_results, outdir)
-    plot_amplitude_recovery(all_results, outdir)
+    plot_amplitude_recovery(all_results, outdir, sigma_a=sigma_a)
     plot_null_tests(all_results, outdir)
     plot_snr_ranking(results_by_scenario, suite, outdir)
 
