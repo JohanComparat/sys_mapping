@@ -184,11 +184,19 @@ def correct_two_point_function(
     var_a: np.ndarray,
     var_b: np.ndarray,
     template_correlations: np.ndarray,
-) -> np.ndarray:
+    *,
+    return_cov: bool = False,
+    cov_a: np.ndarray | None = None,
+    cov_b: np.ndarray | None = None,
+    cov_w_obs: np.ndarray | None = None,
+    n_mc: int = 4000,
+    random_state: int | np.random.Generator | None = None,
+):
     """Full pipeline: debias parameters, then correct two-point function.
 
     Convenience wrapper that chains :func:`debias_params` →
-    :func:`~contamination.compute_two_point_correction`.
+    :func:`~contamination.compute_two_point_correction`.  Optionally also propagates the amplitude
+    and measurement uncertainties into a covariance of the *corrected* :math:`w(\\theta)`.
 
     Parameters
     ----------
@@ -198,19 +206,42 @@ def correct_two_point_function(
     var_a : (n_sys,) posterior variance of a_hat (from :func:`~inference.get_param_variance_from_chain`)
     var_b : (n_sys,) posterior variance of b_hat
     template_correlations : (n_sys, n_bins) ⟨δ_{t,i}(θ) δ_{t,i}(θ)⟩ per template per bin
+    return_cov : bool
+        If True, return ``(w_corr, cov_w_corr)`` — the corrected function AND its ``(n_bins, n_bins)``
+        covariance, propagated by parametric bootstrap (see Notes).  Default False (returns only
+        ``w_corr``, unchanged behaviour).
+    cov_a, cov_b : (n_sys, n_sys), optional
+        Full amplitude covariances for the Monte-Carlo draws (e.g. the calibrated
+        :func:`~sys_mapping.mock_sandwich_covariance` sandwich).  ``None`` falls back to the diagonal
+        ``diag(var_a)`` / ``diag(var_b)``.  Ignored unless ``return_cov``.
+    cov_w_obs : (n_bins, n_bins), optional
+        Covariance of the *observed* :math:`w(\\theta)` (e.g. the jack-knife / mock covariance from
+        :func:`~sys_mapping.measure_kk_covariance_treecorr` or
+        :func:`~sys_mapping.sample_covariance`).  Folded into the propagation.  ``None`` propagates
+        only the amplitude uncertainty.  Ignored unless ``return_cov``.
+    n_mc : int  Monte-Carlo draws for the covariance (default 4000).
+    random_state : int | Generator | None  seed/Generator for reproducible draws.
 
     Returns
     -------
-    (n_bins,) corrected angular correlation function
+    (n_bins,) corrected angular correlation function, or ``(w_corr, cov_w_corr)`` if ``return_cov``.
+
+    Notes
+    -----
+    The correction :math:`w_{\\rm corr} = (w_{\\rm obs} - \\sum_i a_i^2 \\xi_i)/(1 + \\sum_i b_i^2 \\xi_i)`
+    is non-linear in the amplitudes (squared, noise-debiased with a clip at 0, then a ratio), so the
+    covariance is propagated by **parametric bootstrap**: draw ``n_mc`` samples of ``a`` and ``b``
+    from their (Gaussian) covariances, debias each draw with the fixed ``var_a``/``var_b``, optionally
+    draw ``w_obs`` from ``cov_w_obs``, evaluate the correction per draw, and take the sample
+    covariance (:func:`~sys_mapping.sample_covariance`).  This handles the squaring, the clip and the
+    ratio exactly and adds the (independent) amplitude-estimation and measurement contributions in
+    one pass.  The point estimate ``w_corr`` is the deterministic correction from ``a_hat``/``b_hat``,
+    identical to the ``return_cov=False`` result.
 
     Performance
     -----------
-    Measured on CPU (n_sys=5, n_bins=15): **~1084 μs/call** (JAX dispatch + debias).
-
-    Precision
-    ---------
-    Propagates float64 NumPy arithmetic; limited by the precision of the
-    input estimates ``a_hat``, ``b_hat``, ``var_a``, ``var_b``.
+    Point estimate: ~1 ms/call.  With ``return_cov`` the cost is ``n_mc`` vectorised evaluations
+    (~tens of ms for ``n_mc=4000``).
 
     Examples
     --------
@@ -227,15 +258,44 @@ def correct_two_point_function(
     >>> w_corr = correct_two_point_function(w_obs, a_hat, b_hat, var_a, var_b, tcorr)
     >>> w_corr.shape
     (15,)
+    >>> w_corr2, cov = correct_two_point_function(
+    ...     w_obs, a_hat, b_hat, var_a, var_b, tcorr, return_cov=True, random_state=0)
+    >>> cov.shape
+    (15, 15)
+    >>> np.allclose(w_corr2, w_corr)   # point estimate unchanged
+    True
     """
     a_sq, b_sq = debias_params(a_hat, b_hat, var_a, var_b)
-    w_corr = compute_two_point_correction(
-        jnp.asarray(w_obs),
-        jnp.asarray(a_sq),
-        jnp.asarray(b_sq),
-        jnp.asarray(template_correlations),
-    )
-    return np.asarray(w_corr)
+    tcorr = np.asarray(template_correlations)
+    w_corr = np.asarray(compute_two_point_correction(
+        jnp.asarray(w_obs), jnp.asarray(a_sq), jnp.asarray(b_sq), jnp.asarray(tcorr)))
+    if not return_cov:
+        return w_corr
+
+    from .covariance import sample_covariance
+
+    rng = random_state if isinstance(random_state, np.random.Generator) \
+        else np.random.default_rng(random_state)
+    a_hat = np.asarray(a_hat, float); b_hat = np.asarray(b_hat, float)
+    var_a = np.asarray(var_a, float); var_b = np.asarray(var_b, float)
+    n_sys = a_hat.size
+    Ca = np.asarray(cov_a, float) if cov_a is not None else np.diag(var_a)
+    Cb = np.asarray(cov_b, float) if cov_b is not None else np.diag(var_b)
+
+    a_draws = rng.multivariate_normal(a_hat, Ca, size=n_mc)                # (n_mc, n_sys)
+    b_draws = rng.multivariate_normal(b_hat, Cb, size=n_mc)
+    a_sq_k = np.maximum(a_draws**2 - var_a, 0.0)                           # debias each draw
+    b_sq_k = np.maximum(b_draws**2 - var_b, 0.0)
+    if cov_w_obs is not None:
+        w_obs_k = rng.multivariate_normal(np.asarray(w_obs, float), np.asarray(cov_w_obs, float),
+                                          size=n_mc)                       # (n_mc, n_bins)
+    else:
+        w_obs_k = np.asarray(w_obs, float)[None, :]
+    add_k = a_sq_k @ tcorr                                                 # (n_mc, n_bins)
+    mult_k = b_sq_k @ tcorr
+    w_corr_k = (w_obs_k - add_k) / (1.0 + mult_k)
+    cov_w_corr = sample_covariance(w_corr_k)
+    return w_corr, cov_w_corr
 
 
 def correct_power_spectrum_harmonic(
