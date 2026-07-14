@@ -12,6 +12,8 @@ from sys_mapping.covariance import (
     build_lowrank_precision,
     LowRankPrecision,
     mock_sandwich_covariance,
+    sample_covariance,
+    hartlap_factor,
     build_harmonic_precision,
 )
 
@@ -133,6 +135,44 @@ class TestMockSandwich:
             mock_sandwich_covariance(T, rng.standard_normal((10, 99)))
         with pytest.raises(ValueError, match=">= 2"):
             mock_sandwich_covariance(T, rng.standard_normal((1, 100)))
+
+
+class TestSampleCovariance:
+    def test_matches_numpy_cov(self):
+        """Unbiased (ddof=1) sample covariance of an estimator ensemble."""
+        rng = np.random.default_rng(30)
+        samples = rng.standard_normal((80, 6)) * 0.1
+        got = sample_covariance(samples)
+        want = np.cov(samples, rowvar=False, ddof=1)
+        np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-14)
+
+    def test_symmetric_psd(self):
+        rng = np.random.default_rng(31)
+        cov = sample_covariance(rng.standard_normal((50, 5)))
+        np.testing.assert_allclose(cov, cov.T, atol=1e-14)
+        assert np.all(np.linalg.eigvalsh(cov) >= -1e-12)
+
+    def test_shape_and_validation(self):
+        rng = np.random.default_rng(32)
+        assert sample_covariance(rng.standard_normal((40, 7))).shape == (7, 7)
+        with pytest.raises(ValueError, match="2-D"):
+            sample_covariance(np.zeros(10))
+        with pytest.raises(ValueError, match=">= 2"):
+            sample_covariance(np.zeros((1, 7)))
+
+
+class TestHartlapFactor:
+    def test_value(self):
+        # (n_real - n_bins - 2) / (n_real - 1)
+        assert hartlap_factor(100, 20) == (100 - 20 - 2) / (100 - 1)
+
+    def test_in_unit_interval(self):
+        f = hartlap_factor(300, 20)
+        assert 0.0 < f < 1.0
+
+    def test_requires_enough_realizations(self):
+        with pytest.raises(ValueError, match="n_real > n_bins \\+ 2"):
+            hartlap_factor(21, 20)  # 21 <= 20 + 2
 
 
 class TestHarmonicStub:

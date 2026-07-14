@@ -15,6 +15,8 @@ from .covariance import (
     LowRankPrecision,
     build_lowrank_precision,
     mock_sandwich_covariance,
+    sample_covariance,
+    hartlap_factor,
     build_harmonic_precision,
 )
 from .maps import (
@@ -78,6 +80,7 @@ from .utils import (
     measure_cross_two_point_function,
     measure_two_point_function_corrfunc,
     measure_kk_correlation_treecorr,
+    measure_kk_covariance_treecorr,
     measure_kk_correlation_corrfunc,
 )
 from .plotting import (
@@ -122,6 +125,8 @@ __all__ = [
     "LowRankPrecision",
     "build_lowrank_precision",
     "mock_sandwich_covariance",
+    "sample_covariance",
+    "hartlap_factor",
     "build_harmonic_precision",
     # maps
     "systematic_power_spectrum",
@@ -167,6 +172,7 @@ __all__ = [
     "measure_cross_two_point_function",
     "measure_two_point_function_corrfunc",
     "measure_kk_correlation_treecorr",
+    "measure_kk_covariance_treecorr",
     "measure_kk_correlation_corrfunc",
     # power_spectrum
     "measure_pseudo_cl",
