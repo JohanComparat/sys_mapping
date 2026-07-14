@@ -136,6 +136,62 @@ class TestCorrectTwoPoint:
         np.testing.assert_allclose(w_corr, w_obs, atol=1e-12)
 
 
+class TestCorrectTwoPointCovariance:
+    def test_point_estimate_unchanged_and_shapes(self):
+        n_bins, n_sys = 6, 3
+        rng = np.random.default_rng(1)
+        w_obs = rng.standard_normal(n_bins) * 0.01
+        a_hat = np.array([0.05, -0.03, 0.02])
+        b_hat = np.array([0.04, 0.01, -0.02])
+        var_a = np.full(n_sys, 5e-4)
+        var_b = np.full(n_sys, 3e-4)
+        tcorr = np.abs(rng.standard_normal((n_sys, n_bins))) * 1e-3
+
+        w_ref = correct_two_point_function(w_obs, a_hat, b_hat, var_a, var_b, tcorr)
+        w_corr, cov = correct_two_point_function(
+            w_obs, a_hat, b_hat, var_a, var_b, tcorr, return_cov=True, random_state=0)
+        np.testing.assert_allclose(w_corr, w_ref, atol=1e-12)     # point estimate identical
+        assert cov.shape == (n_bins, n_bins)
+        np.testing.assert_allclose(cov, cov.T, atol=1e-14)
+        assert np.all(np.linalg.eigvalsh(cov) >= -1e-12)
+
+    def test_zero_uncertainty_gives_zero_cov(self):
+        n_bins, n_sys = 5, 2
+        w_obs = np.ones(n_bins)
+        a_hat = np.array([0.1, -0.2]); b_hat = np.zeros(n_sys)
+        var_a = np.zeros(n_sys); var_b = np.zeros(n_sys)
+        tcorr = np.ones((n_sys, n_bins))
+        _, cov = correct_two_point_function(
+            w_obs, a_hat, b_hat, var_a, var_b, tcorr, return_cov=True, random_state=0)
+        np.testing.assert_allclose(cov, 0.0, atol=1e-12)          # no inputs vary → no output var
+
+    def test_w_obs_covariance_passes_through_at_null(self):
+        """With a=b=0 (no correction) the corrected cov equals the input w_obs covariance."""
+        n_bins, n_sys = 6, 2
+        rng = np.random.default_rng(2)
+        w_obs = rng.standard_normal(n_bins) * 0.01
+        a_hat = np.zeros(n_sys); b_hat = np.zeros(n_sys)
+        var_a = np.zeros(n_sys); var_b = np.zeros(n_sys)
+        tcorr = np.abs(rng.standard_normal((n_sys, n_bins))) * 1e-3
+        L = rng.standard_normal((n_bins, n_bins)) * 0.02
+        cov_w_obs = L @ L.T
+        _, cov = correct_two_point_function(
+            w_obs, a_hat, b_hat, var_a, var_b, tcorr, return_cov=True,
+            cov_w_obs=cov_w_obs, n_mc=40000, random_state=0)
+        # w_corr_k = w_obs_k exactly here → sample cov ≈ cov_w_obs (MC-limited)
+        np.testing.assert_allclose(cov, cov_w_obs, rtol=0.1, atol=1e-5)
+
+    def test_reproducible(self):
+        n_bins, n_sys = 5, 2
+        rng = np.random.default_rng(3)
+        args = (rng.standard_normal(n_bins) * 0.01, np.array([0.05, -0.02]),
+                np.array([0.03, 0.01]), np.full(n_sys, 4e-4), np.full(n_sys, 2e-4),
+                np.abs(rng.standard_normal((n_sys, n_bins))) * 1e-3)
+        _, c1 = correct_two_point_function(*args, return_cov=True, random_state=7)
+        _, c2 = correct_two_point_function(*args, return_cov=True, random_state=7)
+        np.testing.assert_allclose(c1, c2, atol=1e-15)
+
+
 class TestCorrectPowerSpectrumHarmonic:
     def test_output_shape(self):
         from sys_mapping.correction import correct_power_spectrum_harmonic
