@@ -33,6 +33,7 @@ import healpy as hp
 import numpy as np
 import yaml
 from astropy.io import fits
+from scipy.stats import chi2 as _chi2
 
 import sys_mapping as sm
 from sys_mapping.plotting import METHOD_COLORS, METHOD_LINESTYLES, METHOD_LABELS
@@ -134,6 +135,14 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
 _DOCS_STATIC_LS10 = Path(__file__).resolve().parent.parent / "docs" / "_static" / "results_ls10"
 
 
+def _copy_to_docs(src, docs_dir):
+    """Copy a figure into the docs tree, skipping the no-op when src == dst (``--no-rst`` sets
+    ``docs_dir`` to the run's output dir, so the figure is already there)."""
+    dst = Path(docs_dir) / Path(src).name
+    if Path(src).resolve() != dst.resolve():
+        _shutil.copy(src, dst)
+
+
 def _regen_weight_figures(sample_id, nside, templates, good_pix,
                           all_method_results, n_sys, n_pix, outdir, docs_dir):
     """Regenerate weight-map and weight-histogram figures from saved a_hat/b_hat."""
@@ -174,7 +183,7 @@ def _regen_weight_figures(sample_id, nside, templates, good_pix,
     plt.suptitle(f"Systematic weight maps — {sample_id}\nNSIDE={nside}", fontsize=11)
     wmap_path = outdir / f"{sample_id}_NSIDE{nside:04d}_weight_map.png"
     plt.savefig(str(wmap_path), dpi=110, bbox_inches="tight")
-    _shutil.copy(wmap_path, docs_dir / wmap_path.name)
+    _copy_to_docs(wmap_path, docs_dir)
     plt.close()
     print(f"Plot saved: {wmap_path}")
 
@@ -197,7 +206,7 @@ def _regen_weight_figures(sample_id, nside, templates, good_pix,
     plt.tight_layout()
     whist_path = outdir / f"{sample_id}_NSIDE{nside:04d}_weight_hist.png"
     plt.savefig(str(whist_path), dpi=130, bbox_inches="tight")
-    _shutil.copy(whist_path, docs_dir / whist_path.name)
+    _copy_to_docs(whist_path, docs_dir)
     plt.close()
     print(f"Plot saved: {whist_path}")
 
@@ -255,7 +264,7 @@ def _plot_wtheta_figure(theta_arcmin, w_obs, all_w_corr, sample_id, nside, n_gal
     plt.tight_layout()
     fig_path = Path(outdir) / f"{sample_id}_NSIDE{nside:04d}_wtheta.png"
     plt.savefig(str(fig_path), dpi=130, bbox_inches="tight")
-    _shutil.copy(fig_path, Path(docs_dir) / fig_path.name)
+    _copy_to_docs(fig_path, docs_dir)
     plt.close()
     print(f"Plot saved: {fig_path}")
 
@@ -748,6 +757,13 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             "n_dof": int(lrt.n_dof),
             "reject_null": bool(lrt.reject_null),
             "calibration": getattr(lrt, "calibration", "chi2"),
+            # χ² p for comparison + the empirical null summary (present when mock-calibrated)
+            "p_chi2": float(_chi2.sf(lrt.lambda_lr, df=lrt.n_dof)),
+            "n_null": (int(np.size(_null_lambda)) if _null_lambda is not None else 0),
+            "null_lambda_mean": (float(np.mean(_null_lambda)) if _null_lambda is not None else None),
+            "null_lambda_max": (float(np.max(_null_lambda)) if _null_lambda is not None else None),
+            "null_lambda": ([float(x) for x in np.asarray(_null_lambda)]
+                            if _null_lambda is not None else None),
         },
         "acceptance_fraction_add": float(acc_add),
         "acceptance_fraction_comb": float(acc_comb),
