@@ -139,3 +139,84 @@ class TestGradient:
 
         np.testing.assert_allclose(grad[:N_SYS], 0.0, atol=1e-5)   # ∂lnL/∂a = 0
         np.testing.assert_allclose(grad[N_SYS], 0.0, atol=1e-5)    # ∂lnL/∂σ = 0
+
+
+class TestGLSPrecision:
+    """Correlated-noise (GLS) likelihood: precision replaces σ²I with σ²R."""
+
+    def _dense_R(self, mock, shot):
+        m = mock.shape[1]
+        delta = mock - mock.mean(1, keepdims=True)
+        u_raw = delta / np.sqrt(m - 1.0)
+        shot = np.broadcast_to(np.asarray(shot, float), (mock.shape[0],))
+        d_raw = shot + np.einsum("ij,ij->i", u_raw, u_raw)
+        s = 1.0 / np.sqrt(d_raw)
+        return np.diag(shot * s**2) + (u_raw * s[:, None]) @ (u_raw * s[:, None]).T
+
+    def _gls_ll_dense(self, dg, dt, a, b, sigma, R):
+        """Reference combined-model GLS log-likelihood using a dense R."""
+        mult = b @ dt
+        add = a @ dt
+        r = (dg - add) / (1.0 + mult)
+        n = dg.size
+        quad = float(r @ np.linalg.solve(R, r))
+        logdet = float(np.linalg.slogdet(R)[1])
+        log_gauss = -0.5 * n * np.log(2 * np.pi * sigma**2) - 0.5 * logdet - 0.5 / sigma**2 * quad
+        log_jac = float(np.sum(np.log(np.abs(1.0 + mult))))
+        return log_gauss - log_jac
+
+    def test_precision_none_matches_white(self):
+        """precision=None is byte-for-byte the existing white likelihood."""
+        from sys_mapping.covariance import build_lowrank_precision
+        dg, dt = _make_data()
+        theta = pack_params(np.zeros(N_SYS), np.zeros(N_SYS), 0.1, model="combined")
+        white = make_log_likelihood(N_SYS, "combined")
+        also_white = make_log_likelihood(N_SYS, "combined", precision=None)
+        v0 = float(white(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        v1 = float(also_white(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        np.testing.assert_allclose(v0, v1, rtol=0, atol=0)
+
+    def test_identity_R_equals_white(self):
+        """R ≈ I (negligible modes) reproduces the white likelihood."""
+        from sys_mapping.covariance import build_lowrank_precision
+        rng = np.random.default_rng(11)
+        dg, dt = _make_data()
+        tiny = rng.standard_normal((N_PIX, 30)) * 1e-6
+        P = build_lowrank_precision(tiny, 1.0)
+        a = rng.standard_normal(N_SYS) * 0.05
+        b = rng.standard_normal(N_SYS) * 0.05
+        theta = pack_params(a, b, 0.1, model="combined")
+        white = make_log_likelihood(N_SYS, "combined")
+        gls = make_log_likelihood(N_SYS, "combined", precision=P)
+        v0 = float(white(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        v1 = float(gls(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        np.testing.assert_allclose(v1, v0, atol=1e-6)
+
+    def test_correlated_R_matches_dense_reference(self):
+        """GLS likelihood equals the dense-R hand computation for a nontrivial R and theta."""
+        from sys_mapping.covariance import build_lowrank_precision
+        rng = np.random.default_rng(12)
+        dg, dt = _make_data()
+        mock = rng.standard_normal((N_PIX, 40)) * 0.3
+        shot = 0.05
+        P = build_lowrank_precision(mock, shot)
+        R = self._dense_R(mock, shot)
+        a = rng.standard_normal(N_SYS) * 0.05
+        b = rng.standard_normal(N_SYS) * 0.05
+        sigma = 0.12
+        theta = pack_params(a, b, sigma, model="combined")
+        gls = make_log_likelihood(N_SYS, "combined", precision=P)
+        got = float(gls(jnp.asarray(theta), jnp.asarray(dg), jnp.asarray(dt)))
+        want = self._gls_ll_dense(dg, dt, a, b, sigma, R)
+        np.testing.assert_allclose(got, want, rtol=1e-8)
+
+    def test_gls_gradient_finite(self):
+        from sys_mapping.covariance import build_lowrank_precision
+        rng = np.random.default_rng(13)
+        dg, dt = _make_data()
+        mock = rng.standard_normal((N_PIX, 30)) * 0.3
+        P = build_lowrank_precision(mock, 0.05)
+        theta = jnp.asarray(pack_params(np.zeros(N_SYS), np.zeros(N_SYS), 0.1, model="combined"))
+        gls = make_log_likelihood(N_SYS, "combined", precision=P)
+        grad = jax.grad(lambda t: gls(t, jnp.asarray(dg), jnp.asarray(dt)))(theta)
+        assert np.all(np.isfinite(np.asarray(grad)))

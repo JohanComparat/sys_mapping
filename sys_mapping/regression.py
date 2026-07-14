@@ -591,6 +591,7 @@ def run_decontamination(
     n_chains: int | None = None,
     nuts_n_warmup: int = 1000,
     nuts_n_samples: int = 1000,
+    pixel_precision=None,
     cv_folds: int = 5,
     isd_max_iter: int = 50,
     isd_lambda_poly: float = 0.0,
@@ -652,6 +653,13 @@ def run_decontamination(
         (CPU: 4, GPU: 8).  Ignored for analytic / emcee.
     nuts_n_warmup, nuts_n_samples:
         NUTS window-adaptation steps and post-warmup draws per chain.
+    pixel_precision:
+        Optional :class:`~covariance.LowRankPrecision` correlated-noise (GLS) pixel
+        correlation ``R`` (``C = σ² R``) for ``MCMC-add`` / ``MCMC-comb``.  The pixel
+        likelihood otherwise assumes independent pixels (``σ² I``), which underestimates
+        the posterior width when the clean field is spatially correlated.  ``None``
+        (default) keeps the white likelihood.  Supplying it forces the NUTS sampler
+        (the exact analytic additive posterior exists only for white noise).
     cv_folds:
         Cross-validation folds for ElasticNet (when ``alpha_reg`` is auto).
     isd_max_iter:
@@ -897,6 +905,8 @@ def run_decontamination(
             _sampler = "analytic" if (mcmc_model == "additive" and not _use_skewed) else "nuts"
         elif _sampler == "analytic" and (mcmc_model != "additive" or _use_skewed):
             _sampler = "nuts"  # analytic posterior only exists for additive Gaussian
+        if pixel_precision is not None and _sampler != "nuts":
+            _sampler = "nuts"  # GLS correlated-noise likelihood is only wired through NUTS
 
         if _sampler == "analytic":
             from .inference import run_additive_analytic
@@ -910,7 +920,7 @@ def run_decontamination(
                 delta_g_obs=delta_g_obs, delta_t=delta_t_rot,
                 use_skewed=_use_skewed,
                 n_chains=n_chains, n_warmup=nuts_n_warmup, n_samples=nuts_n_samples,
-                seed=seed, progress=progress,
+                seed=seed, progress=progress, precision=pixel_precision,
             )
         else:  # "emcee" — legacy gradient-free baseline
             from .inference import run_mcmc

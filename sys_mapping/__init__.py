@@ -11,6 +11,12 @@ from .contamination import (
     n_free_params,
 )
 from .likelihood import make_log_likelihood
+from .covariance import (
+    LowRankPrecision,
+    build_lowrank_precision,
+    mock_sandwich_covariance,
+    build_harmonic_precision,
+)
 from .maps import (
     systematic_power_spectrum,
     generate_systematic_map,
@@ -111,6 +117,11 @@ __all__ = [
     "n_free_params",
     # likelihood
     "make_log_likelihood",
+    # covariance
+    "LowRankPrecision",
+    "build_lowrank_precision",
+    "mock_sandwich_covariance",
+    "build_harmonic_precision",
     # maps
     "systematic_power_spectrum",
     "generate_systematic_map",

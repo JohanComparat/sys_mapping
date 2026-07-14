@@ -67,6 +67,7 @@ def build_logdensity(
     use_skewed: bool = False,
     prior_scale_a: float | None = None,
     prior_scale_b: float | None = None,
+    precision=None,
 ):
     """Return ``(logdensity_fn, n_dim, idx_sigma)`` for NUTS in unconstrained space.
 
@@ -75,8 +76,12 @@ def build_logdensity(
     the ``exp`` transform Jacobian.  Optional wide Gaussian priors on ``a`` / ``b``
     (``prior_scale_*``) regularize the fit and guard the ``ln|1+b·t|`` singularity;
     ``None`` leaves them flat (matching emcee).
+
+    ``precision`` (a :class:`sys_mapping.covariance.LowRankPrecision`) switches the
+    Gaussian likelihood to the correlated-noise (GLS) form :math:`C = \\sigma^2 R`;
+    ``None`` keeps the white :math:`\\sigma^2 I` likelihood.
     """
-    log_likelihood = make_log_likelihood(n_sys, model, use_skewed)
+    log_likelihood = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
     _delta_g = jnp.asarray(delta_g_obs, dtype=jnp.float64)
     _delta_t = jnp.asarray(delta_t, dtype=jnp.float64)
     n_cont = n_free_params(n_sys, model)
@@ -115,6 +120,7 @@ def run_nuts(
     target_acceptance_rate: float = 0.8,
     prior_scale_a: float | None = None,
     prior_scale_b: float | None = None,
+    precision=None,
     progress: bool = False,
 ) -> tuple[np.ndarray, _NutsSampler]:
     """Run BlackJAX NUTS to infer contamination parameters.
@@ -136,6 +142,8 @@ def run_nuts(
     seed : int
     target_acceptance_rate : float  NUTS dual-averaging target (default 0.8)
     prior_scale_a, prior_scale_b : float or None  optional wide Gaussian prior scales
+    precision : LowRankPrecision or None  correlated-noise (GLS) pixel correlation ``R``
+        (``C = σ² R``); ``None`` keeps the white ``σ² I`` likelihood
     progress : bool  accepted for signature parity with :func:`run_mcmc` (unused)
 
     Returns
@@ -151,6 +159,7 @@ def run_nuts(
     logdensity_fn, n_dim, idx_sigma = build_logdensity(
         n_sys, model, delta_g_obs, delta_t, use_skewed,
         prior_scale_a=prior_scale_a, prior_scale_b=prior_scale_b,
+        precision=precision,
     )
     n_cont = n_free_params(n_sys, model)
 

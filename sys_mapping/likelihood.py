@@ -29,6 +29,7 @@ def make_log_likelihood(
     n_sys: int,
     model: str,
     use_skewed: bool = False,
+    precision=None,
 ) -> Callable[[Array, Array, Array], Array]:
     """Return a JIT-compiled log-likelihood function for the given model.
 
@@ -43,6 +44,15 @@ def make_log_likelihood(
         One of ``'additive'``, ``'multiplicative'``, or ``'combined'``.
     use_skewed : bool
         If True, use skew-normal likelihood (Eq. 18); otherwise Gaussian (Eq. 17).
+    precision : LowRankPrecision, optional
+        Fixed unit-diagonal pixel **correlation** operator ``R`` (see
+        :mod:`sys_mapping.covariance`).  When given, the white quadratic form
+        :math:`\\sum_j r_j^2` is replaced by the generalized (GLS) form
+        :math:`r^\\top R^{-1} r` and the constant :math:`-\\tfrac12 \\ln|R|` is
+        added, i.e. the covariance is :math:`C = \\sigma^2 R` instead of
+        :math:`\\sigma^2 I`.  ``None`` (default) keeps the exact white behavior.
+        ``R`` must not depend on the sampled parameters, so gradients w.r.t.
+        ``(a, b, sigma, gamma)`` are unchanged in cost.
 
     Returns
     -------
@@ -82,6 +92,13 @@ def make_log_likelihood(
     _model = model
     _n_sys = n_sys
     _use_skewed = use_skewed
+    _precision = precision
+
+    def _quad_and_logdet(residual: Array) -> tuple[Array, Array]:
+        """Return ``(r^T R^{-1} r, ln|R|)``.  White (``R = I``) unless a precision is given."""
+        if _precision is None:
+            return jnp.sum(residual**2), 0.0
+        return _precision.quad(residual), _precision.logdet
 
     @jax.jit
     def log_likelihood(
@@ -108,10 +125,13 @@ def make_log_likelihood(
             delta_param = gamma / jnp.sqrt(1.0 + gamma**2)
             xi = -sigma * delta_param * jnp.sqrt(2.0 / jnp.pi)
             residual = delta_g_clean - xi
-            # Gaussian part
+            # Gaussian part.  With a correlated-noise precision R (C = sigma^2 R) the white
+            # sum-of-squares becomes r^T R^{-1} r and the -0.5*ln|R| constant is added.
+            quad, logdet_R = _quad_and_logdet(residual)
             log_gauss = (
                 -0.5 * n_pix * jnp.log(2.0 * jnp.pi * sigma**2)
-                - 0.5 / sigma**2 * jnp.sum(residual**2)
+                - 0.5 * logdet_R
+                - 0.5 / sigma**2 * quad
             )
             # Skewness correction: Σ log Φ(γ·r/σ) = Σ log_ndtr(z)
             # The 2/σ in the PDF contributes N·log(2); Φ contributes Σ log_ndtr(z).
@@ -123,9 +143,11 @@ def make_log_likelihood(
             return log_gauss + log_skew - log_jac
         else:
             residual = delta_g_clean
+            quad, logdet_R = _quad_and_logdet(residual)
             log_gauss = (
                 -0.5 * n_pix * jnp.log(2.0 * jnp.pi * sigma**2)
-                - 0.5 / sigma**2 * jnp.sum(residual**2)
+                - 0.5 * logdet_R
+                - 0.5 / sigma**2 * quad
             )
             return log_gauss - log_jac
 
