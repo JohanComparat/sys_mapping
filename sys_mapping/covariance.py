@@ -230,6 +230,69 @@ def mock_sandwich_covariance(
     return Minv @ c_proj @ Minv
 
 
+def sample_covariance(samples: np.ndarray) -> np.ndarray:
+    """Unbiased sample covariance of an ensemble of estimator realizations.
+
+    For ``n_real`` independent realizations of a length-``n_bins`` estimator (e.g. :math:`w(\\theta)`
+    measured on ``n_real`` mock skies), returns the ``(n_bins, n_bins)`` sample covariance with the
+    ``ddof=1`` (Bessel) normalization, so the covariance estimate itself is unbiased.
+
+    This is the **mock-ensemble** route to the :math:`w(\\theta)` covariance (the GLASS-mock primary
+    in the Euclid validation): build ``samples`` by measuring the same estimator on an ensemble of
+    *uncontaminated* mock realizations of the survey footprint.  When the covariance is to be
+    *inverted* (for a :math:`\\chi^2` / GLS fit) multiply the inverse by :func:`hartlap_factor` to
+    debias the precision.  For the parameter-level (template amplitude) analogue see
+    :func:`mock_sandwich_covariance`.
+
+    Parameters
+    ----------
+    samples : (n_real, n_bins)
+        Ensemble of estimator vectors; ``n_real`` realizations along axis 0.  ``n_real`` should
+        comfortably exceed ``n_bins`` for the covariance to be well conditioned.
+
+    Returns
+    -------
+    cov : (n_bins, n_bins) unbiased sample covariance.
+    """
+    x = np.asarray(samples, dtype=np.float64)
+    if x.ndim != 2:
+        raise ValueError(f"samples must be 2-D (n_real, n_bins); got shape {x.shape}")
+    if x.shape[0] < 2:
+        raise ValueError(f"need >= 2 realizations; got {x.shape[0]}")
+    return np.atleast_2d(np.cov(x, rowvar=False, ddof=1))
+
+
+def hartlap_factor(n_real: int, n_bins: int) -> float:
+    """Hartlap (2007) debias factor for an *inverted* sample covariance.
+
+    A precision matrix formed by inverting a sample covariance from ``n_real`` realizations is
+    biased high; the unbiased precision is ``hartlap_factor(n_real, n_bins) * inv(cov)`` with
+
+    .. math::
+
+        \\text{factor} = \\frac{n_\\text{real} - n_\\text{bins} - 2}{n_\\text{real} - 1}.
+
+    This requires ``n_real > n_bins + 2`` for a positive factor (and ``n_real > n_bins`` merely
+    for the sample covariance to be invertible) — the concrete reason the GLASS-mock ensemble
+    must carry comfortably more realizations than there are :math:`w(\\theta)` bins.  Pairs with
+    :func:`sample_covariance`.
+
+    Parameters
+    ----------
+    n_real : int  number of ensemble realizations.
+    n_bins : int  length of the estimator vector (covariance dimension).
+
+    Returns
+    -------
+    factor : float  Hartlap correction in ``(0, 1)``.
+    """
+    if n_real <= n_bins + 2:
+        raise ValueError(
+            f"Hartlap factor needs n_real > n_bins + 2; got n_real={n_real}, n_bins={n_bins}"
+        )
+    return (n_real - n_bins - 2) / (n_real - 1)
+
+
 def build_harmonic_precision(*args, **kwargs):
     """Full-rank correlated-noise precision from a fiducial angular power spectrum (NOT IMPLEMENTED).
 

@@ -433,6 +433,74 @@ def measure_kk_correlation_treecorr(
     return np.exp(kk.meanlogr), kk.xi
 
 
+def measure_kk_covariance_treecorr(
+    ra: np.ndarray,
+    dec: np.ndarray,
+    k: np.ndarray,
+    w: np.ndarray | None = None,
+    *,
+    npatch: int = 50,
+    patch_centers=None,
+    min_sep: float = 10.0,
+    max_sep: float = 250.0,
+    nbins: int = 20,
+    sep_units: str = "arcmin",
+    bin_slop: float = 0.01,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Angular scalar-field :math:`w(\\theta)` (KK) with a spatial jack-knife covariance.
+
+    Same estimator as :func:`measure_kk_correlation_treecorr` — the pixel-overdensity KK the
+    Euclid real-data pipeline uses — but the catalog is split into ``npatch`` spatial patches so
+    TreeCorr's leave-one-patch-out jack-knife returns the **full** ``(nbins, nbins)`` covariance
+    from a *single* realization.  This is the data-internal route to a :math:`w(\\theta)`
+    covariance (no mocks needed); cross-check it against the mock-ensemble
+    :func:`~sys_mapping.covariance.sample_covariance` and, in the validation, against the sim-to-sim
+    ensemble scatter.
+
+    Parameters
+    ----------
+    ra, dec : (n,) positions in degrees (e.g. footprint pixel centres)
+    k : (n,) scalar field values (e.g. galaxy overdensity :math:`\\delta_g`)
+    w : (n,) optional weights (e.g. coverage); ones if None
+    npatch : int  number of spatial jack-knife patches (TreeCorr k-means on positions)
+    patch_centers : optional  fixed patch centres (array or file) to reuse the *same* patches
+        across catalogs (so data and mocks share a jack-knife geometry); overrides ``npatch``
+    min_sep, max_sep, nbins, sep_units, bin_slop : TreeCorr KK binning (match the pipeline)
+
+    Returns
+    -------
+    theta : (nbins,) bin centres in ``sep_units``
+    xi : (nbins,) KK correlation
+    cov : (nbins, nbins) jack-knife covariance
+    patch_centers : (npatch, 3) the patch centres used — pass back in to match another catalog.
+
+    Notes
+    -----
+    The jack-knife needs ``npatch`` comfortably larger than ``nbins`` for a well-conditioned,
+    invertible covariance; ``npatch`` also sets the largest reliable scale (patches must be larger
+    than ``max_sep``).
+    """
+    try:
+        import treecorr
+    except ImportError as e:
+        raise ImportError("treecorr is required for measure_kk_covariance_treecorr.") from e
+
+    cfg = dict(min_sep=min_sep, max_sep=max_sep, nbins=nbins,
+               sep_units=sep_units, bin_slop=bin_slop, var_method="jackknife")
+    cat_kwargs = dict(ra=ra, dec=dec, ra_units="degrees", dec_units="degrees", k=k, w=w)
+    if patch_centers is not None:
+        cat_kwargs["patch_centers"] = patch_centers
+    else:
+        cat_kwargs["npatch"] = npatch
+    cat = treecorr.Catalog(**cat_kwargs)
+
+    kk = treecorr.KKCorrelation(**cfg)
+    kk.process(cat)
+    theta = np.exp(kk.meanlogr)
+    cov = np.asarray(kk.estimate_cov("jackknife"), dtype=np.float64)
+    return theta, kk.xi, cov, cat.patch_centers
+
+
 def measure_kk_correlation_corrfunc(
     ra: np.ndarray,
     dec: np.ndarray,

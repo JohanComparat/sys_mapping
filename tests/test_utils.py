@@ -7,6 +7,7 @@ from sys_mapping.utils import (
     measure_two_point_function,
     measure_two_point_function_corrfunc,
     measure_kk_correlation_treecorr,
+    measure_kk_covariance_treecorr,
     measure_kk_correlation_corrfunc,
 )
 
@@ -100,6 +101,45 @@ class TestMeasureKKTreecorr:
         )
         assert theta.shape == (5,)
         assert xi.shape == (5,)
+
+
+@pytest.fixture(scope="module")
+def kk_field():
+    """Denser scalar field with a wider area, for the patch jack-knife."""
+    rng = np.random.default_rng(11)
+    n = 2000
+    ra = rng.uniform(20.0, 70.0, n)
+    dec = rng.uniform(-15.0, 15.0, n)
+    k = rng.standard_normal(n)
+    return ra, dec, k
+
+
+class TestMeasureKKCovarianceTreecorr:
+    def test_shapes_and_symmetry(self, kk_field):
+        ra, dec, k = kk_field
+        theta, xi, cov, centers = measure_kk_covariance_treecorr(
+            ra, dec, k, npatch=16, min_sep=6, max_sep=60, nbins=5,
+        )
+        assert theta.shape == (5,)
+        assert xi.shape == (5,)
+        assert cov.shape == (5, 5)
+        assert centers.shape == (16, 3)
+        np.testing.assert_allclose(cov, cov.T, atol=1e-14)
+        # jack-knife variances are positive
+        assert np.all(np.diag(cov) > 0)
+
+    def test_patch_centers_reuse(self, kk_field):
+        """Passing the returned centres back reproduces the same geometry (and xi)."""
+        ra, dec, k = kk_field
+        theta1, xi1, _, centers = measure_kk_covariance_treecorr(
+            ra, dec, k, npatch=16, min_sep=6, max_sep=60, nbins=5,
+        )
+        theta2, xi2, cov2, centers2 = measure_kk_covariance_treecorr(
+            ra, dec, k, patch_centers=centers, min_sep=6, max_sep=60, nbins=5,
+        )
+        assert centers2.shape == centers.shape
+        np.testing.assert_allclose(xi2, xi1, rtol=1e-10, atol=1e-12)
+        assert cov2.shape == (5, 5)
 
 
 @corrfunc_available
