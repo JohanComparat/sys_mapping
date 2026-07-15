@@ -13,6 +13,8 @@
 #   bash/ls10_mocklrt.sh                 # nside "32 64", N=50  (all 9 samples)
 #   bash/ls10_mocklrt.sh "32"  20        # nside 32 only, N=20
 #   bash/ls10_mocklrt.sh "32 64 128" 50
+#   RESUME=1 bash/ls10_mocklrt.sh "32" 80   # top up an existing N=50 null to N=80 (adds only
+#                                           # the 30 missing mocks; no data re-fit). Same NUTS/NCHAINS.
 #
 # Env overrides:
 #   CATALOG_DIR  BGS VLIM catalogs  (default ~/…/sweep/BGS_VLIM_Mstar)
@@ -46,7 +48,12 @@ NUTS=${NUTS:-1000}
 NCHAINS=${NCHAINS:-4}
 ONLY_METHODS=${ONLY_METHODS:-"MCMC-add MCMC-comb"}
 PY=${PY:-python}
+# RESUME=1 → top-up mode: add mocks to an existing null up to $NMOCK (only runs the missing
+# ones, no data re-fit). Re-run with a larger NMOCK to tighten the mock-p floor 1/(N+1).
+# Use the SAME NUTS/NCHAINS as the original run.
+RESUME=${RESUME:-0}
 mkdir -p "$OUTBASE"
+resume_args=(); logsfx=""; [ "$RESUME" = 1 ] && { resume_args=(--resume-null); logsfx=".resume"; }
 
 # All *_DATA.fits samples in the catalog dir (base sample ids).
 mapfile -t SAMPLES < <(ls "$CATALOG_DIR"/*_DATA.fits 2>/dev/null | sed 's#.*/##; s/_DATA.fits//' | sort)
@@ -66,8 +73,8 @@ for ns in $NSIDES; do
       --catalog-dir "$CATALOG_DIR" --template-dir "$tdir" \
       --sample "$s" --nside "$ns" "${only_args[@]}" \
       --nuts-warmup "$NUTS" --nuts-samples "$NUTS" --n-chains "$NCHAINS" \
-      --lrt-null-mocks "$NMOCK" --lrt-null-seed 90000 --force --no-rst \
-      --output-dir "$OUTBASE/${s}_ns${ns}" > "$OUTBASE/${s}_ns${ns}.log" 2>&1
+      --lrt-null-mocks "$NMOCK" --lrt-null-seed 90000 --force --no-rst "${resume_args[@]}" \
+      --output-dir "$OUTBASE/${s}_ns${ns}" > "$OUTBASE/${s}_ns${ns}${logsfx}.log" 2>&1
     echo "    done (rc=$?)"
   done
 done

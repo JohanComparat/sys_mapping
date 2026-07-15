@@ -214,9 +214,15 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
    :download:`bash/ls10_mocklrt.sh <../bash/ls10_mocklrt.sh>`::
 
        bash bash/ls10_mocklrt.sh "32 64" 50        # all samples, nside 32 & 64, 50 null mocks
+       RESUME=1 bash/ls10_mocklrt.sh "32 64" 80    # top up an existing N=50 null to N=80
 
    Each ``*_params.json`` then carries ``lrt.p_value`` (mock-calibrated), ``lrt.p_chi2`` (Wilks),
-   and the empirical ``lrt.null_lambda`` array.  **Note:** the real systematics maps live in the
+   and the empirical ``lrt.null_lambda`` array.  The mock-p floor is :math:`1/(N{+}1)`, so a strong
+   detection (``λ_LR`` far above ``null_lambda.max``) rejects only once :math:`N` is large enough
+   (:math:`N\ge20` for 5 %); **add statistics incrementally** with ``--resume-null`` (``RESUME=1``
+   above), which runs only the mocks missing to reach the new :math:`N` (deterministic seeds
+   ``seed+k``), merges them into ``lrt.null_lambda`` and recomputes the p-value **without a data
+   re-fit**.  **Note:** the real systematics maps live in the
    **per-NSIDE subdir** (``…/systematics/0032``, ``…/0064``); pointing ``--template-dir`` at the
    parent makes the pipeline silently fall back to *synthetic* templates (the script handles this).
    ``MCMC-comb`` on the 11 near-degenerate LS10 templates is ~5–7 min/fit, so the full run is heavy
