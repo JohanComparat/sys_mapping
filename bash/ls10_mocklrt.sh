@@ -31,6 +31,10 @@
 # ==============================================================================
 set -uo pipefail
 export JAX_PLATFORMS=${JAX_PLATFORMS:-cpu}
+# float64 is REQUIRED: the combined model NUTS returns NaN acceptance ("comb: nan")
+# under float32 (log of a non-positive 1+Σb·t on near-degenerate templates). A stale
+# site-packages sys_mapping can shadow the repo's x64 call, so force it at the env level.
+export JAX_ENABLE_X64=${JAX_ENABLE_X64:-1}
 cd "$(dirname "$0")/.."
 
 NSIDES=${1:-"32 64"}
