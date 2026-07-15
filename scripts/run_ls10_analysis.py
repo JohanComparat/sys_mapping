@@ -91,7 +91,8 @@ def synthetic_templates(nside, n_families=5, seed=0):
 
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
-                   seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2):
+                   seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
+                   k_start=0):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -111,8 +112,10 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     n_full = hp.nside2npix(nside)
     n_good = int(good_pix.sum())
     n_total = int(n_total_footprint * n_full / n_good)      # full-sky count matching footprint density
+    # Mock k always uses seed+k, so a top-up runs only the missing indices
+    # [k_start, k_start+n_mocks) and merges exactly onto an existing null.
     mock_fields = np.empty((n_good, n_mocks))
-    for k in range(n_mocks):
+    for i, k in enumerate(range(k_start, k_start + n_mocks)):
         cat = generate_glass_fullsky_mock(nside, n_total, z_edges, nz,
                                           seed=seed + k, rand_factor=rand_factor)
         ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good_pix].astype(float)
@@ -121,7 +124,7 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
         with np.errstate(divide="ignore", invalid="ignore"):
             dg = ng / (nr * norm) - 1.0
         dg[~np.isfinite(dg)] = 0.0
-        mock_fields[:, k] = dg
+        mock_fields[:, i] = dg
 
     def fit_theta(model, dg, dt):
         method = "MCMC-add" if model == "additive" else "MCMC-comb"
@@ -136,6 +139,61 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
                               float(res["sigma_hat"]), model="combined")
 
     return sm.lrt_null_distribution(mock_fields, delta_t, fit_theta)
+
+
+def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, outdir, args):
+    """Top up an existing mock-calibrated LRT null **in place**, without a data re-fit.
+
+    Reads the sample's ``params.json``, runs only the mocks missing to reach
+    ``args.lrt_null_mocks`` (deterministic seeds ``seed+k`` via ``build_lrt_null(k_start=…)``),
+    merges them into ``lrt.null_lambda`` and recomputes the empirical p-value against the
+    **stored** ``lrt.lambda_lr`` — then rewrites only the ``lrt`` block and returns.  Everything
+    downstream (weights, w(θ)) is left untouched.  Idempotent: re-running with the same or a
+    smaller ``--lrt-null-mocks`` is a no-op.  Use the **same** ``--nuts-* / --sampler`` as the
+    original run so the added mocks are statistically identical to the existing ones.
+    """
+    json_path = outdir / f"{sample_id}_NSIDE{nside:04d}_params.json"
+    if not json_path.exists():
+        print(f"[resume-null] no params.json at {json_path} — run without --resume-null first.")
+        return {"sample_id": sample_id}
+    params = json.loads(json_path.read_text())
+    lrt = params.get("lrt", {})
+    old_null, lam = lrt.get("null_lambda"), lrt.get("lambda_lr")
+    if lrt.get("calibration") != "mock" or old_null is None or lam is None or not np.isfinite(lam):
+        print(f"[resume-null] {json_path.name} has no usable mock null "
+              f"(calibration={lrt.get('calibration')!r}, λ_LR={lam}) — run the full LRT first.")
+        return params
+    old_null = np.asarray([float(x) for x in old_null], dtype=float)
+    m, target = old_null.size, int(args.lrt_null_mocks)
+    if target <= m:
+        print(f"[resume-null] {sample_id}: already have {m} mocks ≥ target {target}; nothing to add.")
+        return params
+    print(f"[resume-null] {sample_id}: null {m} → {target} "
+          f"({target - m} new mocks, seeds {args.lrt_null_seed}+[{m}..{target - 1}]) …", flush=True)
+    _z_min, _z_max = _parse_z_range(sample_id)
+    new_null = build_lrt_null(
+        target - m, nside, good_pix, delta_t,
+        np.array([_z_min, _z_max]), np.array([float(n_total_footprint)]), n_total_footprint,
+        args.lrt_null_seed, args.sampler, args.nuts_warmup, args.nuts_samples, args.n_chains,
+        k_start=m,
+    )
+    merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
+    n_ge = int(np.sum(merged >= lam))
+    p_mock = (1.0 + n_ge) / (1.0 + merged.size)
+    lrt.update({
+        "p_value": float(p_mock),
+        "reject_null": bool(p_mock < 0.05),
+        "n_null": int(merged.size),
+        "null_lambda_mean": float(np.mean(merged)),
+        "null_lambda_max": float(np.max(merged)),
+        "null_lambda": [float(x) for x in merged],
+    })
+    params["lrt"] = lrt
+    json_path.write_text(json.dumps(params, indent=2))
+    print(f"[resume-null] λ_LR={lam:.1f}  N={merged.size}  #{{null≥λ}}={n_ge}  "
+          f"p_mock={p_mock:.4f} (floor {1.0 / (merged.size + 1):.4f})  reject={p_mock < 0.05}"
+          f"  → {json_path.name}")
+    return params
 
 
 # ── Per-sample pipeline ────────────────────────────────────────────────────
@@ -486,6 +544,11 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
 
     # Template values at good pixels
     delta_t = sm.assign_template_values(templates, good_pix)
+
+    # ── Optional: top up the mock-calibrated LRT null in place (no data re-fit) ──
+    if getattr(args, "resume_null", False):
+        return _resume_lrt_null(sample_id, nside, good_pix, delta_t,
+                                int(len(ra_gal)), outdir, args)
 
     # ── All-methods inference (fastest → slowest) ─────────────────────────
     _METHOD_ORDER = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
@@ -1301,6 +1364,13 @@ def main():
                              "p-value is overconfident. HEAVY (a full fit per mock): remote job.")
     parser.add_argument("--lrt-null-seed", type=int, default=90000,
                         help="Base seed for the --lrt-null-mocks ensemble.")
+    parser.add_argument("--resume-null", action="store_true",
+                        help="Add statistics to an EXISTING mock-calibrated LRT: read the sample's "
+                             "params.json and run only the mocks missing to reach --lrt-null-mocks "
+                             "(deterministic seeds seed+k), merge into lrt.null_lambda and recompute "
+                             "the mock p-value against the stored λ_LR. Skips the data re-fit and "
+                             "w(θ); rewrites only the lrt block. Idempotent. Pass the SAME "
+                             "--nuts-*/--sampler as the original run.")
     parser.add_argument("--no-rst", action="store_true",
                         help="Do not touch the committed docs (results_ls10.rst + docs/_static figures); "
                              "keep all outputs in --output-dir. Use for single-sample / scratch runs.")
