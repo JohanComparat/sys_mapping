@@ -210,6 +210,18 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
    job; the p-values quoted here are still the (overconfident) :math:`\chi^2` values and should be
    read as *upper bounds on the significance*.
 
+   **Regenerate the calibrated LRT** for all VLIM samples with
+   :download:`bash/ls10_mocklrt.sh <../bash/ls10_mocklrt.sh>`::
+
+       bash bash/ls10_mocklrt.sh "32 64" 50        # all samples, nside 32 & 64, 50 null mocks
+
+   Each ``*_params.json`` then carries ``lrt.p_value`` (mock-calibrated), ``lrt.p_chi2`` (Wilks),
+   and the empirical ``lrt.null_lambda`` array.  **Note:** the real systematics maps live in the
+   **per-NSIDE subdir** (``…/systematics/0032``, ``…/0064``); pointing ``--template-dir`` at the
+   parent makes the pipeline silently fall back to *synthetic* templates (the script handles this).
+   ``MCMC-comb`` on the 11 near-degenerate LS10 templates is ~5–7 min/fit, so the full run is heavy
+   (a day+ serially) — run it on the remote / under ``tmux``.
+
 **NSIDE 32:**
 
 .. csv-table::
