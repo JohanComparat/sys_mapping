@@ -23,6 +23,14 @@ python scripts/run_ls10_analysis.py \\
     --template-dir /path/to/systematics/ \\
     --nside 64 --output-dir results/ls10/
 """
+import os
+# Force JAX float64 BEFORE any (possibly stale/site-packages) sys_mapping/jax import.
+# The combined model's 1+Σ bᵢtᵢ on near-degenerate templates goes non-positive under
+# float32 → log(≤0) → NaN at NUTS init → "comb: nan" acceptance and no chain. jax reads
+# this env var at startup independent of which sys_mapping is installed, so it fixes the
+# remote comb:nan even when the repo's __init__ x64 call is shadowed by a stale install.
+os.environ.setdefault("JAX_ENABLE_X64", "1")
+
 import argparse
 import json
 import re
