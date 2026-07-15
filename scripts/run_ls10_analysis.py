@@ -633,11 +633,14 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         delta_t_rot, _R, _ = _rt(delta_t)
 
     # ── LRT ───────────────────────────────────────────────────────────────
+    # Empirical LRT null (set only when --lrt-null-mocks>0 AND both chains sampled).
+    # Bind it up-front so the params dict below is safe even when MCMC-comb fails
+    # (e.g. NaN acceptance on a stale/float32 env → no flat_chain → the else branch).
+    _null_lambda = None
     if res_add.get("flat_chain") is not None and res_comb.get("flat_chain") is not None:
         theta_add  = sm.get_mle_params(res_add["flat_chain"])
         theta_comb = sm.get_mle_params(res_comb["flat_chain"])
         # Mock-calibrated null (opt-in): the Wilks χ² is overconfident on the correlated field.
-        _null_lambda = None
         if getattr(args, "lrt_null_mocks", 0) > 0:
             print(f"\nBuilding LRT mock null ({args.lrt_null_mocks} uncontaminated fits) …", flush=True)
             _lz_min, _lz_max = _parse_z_range(sample_id)     # local — independent of pre-selection
@@ -657,8 +660,15 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
               f"reject_null={lrt.reject_null}  [{lrt.calibration}]")
     else:
         from collections import namedtuple
-        _LRTResult = namedtuple("LRTResult", ["lambda_lr", "p_value", "n_dof", "reject_null"])
-        lrt = _LRTResult(lambda_lr=float("nan"), p_value=float("nan"), n_dof=0, reject_null=False)
+        _LRTResult = namedtuple("LRTResult",
+                                ["lambda_lr", "p_value", "n_dof", "reject_null", "calibration"])
+        lrt = _LRTResult(lambda_lr=float("nan"), p_value=float("nan"), n_dof=0,
+                         reject_null=False, calibration="failed")
+        _miss = "MCMC-add" if res_add.get("flat_chain") is None else "MCMC-comb"
+        print(f"\nLRT SKIPPED — {_miss} produced no chain "
+              f"(acc add={acc_add:.3f} comb={acc_comb:.3f}). "
+              f"NaN acceptance usually means float64 is off / a stale sys_mapping on this env.",
+              flush=True)
 
     # ── w(θ) ──────────────────────────────────────────────────────────────
     print("\nMeasuring w(θ) …")
