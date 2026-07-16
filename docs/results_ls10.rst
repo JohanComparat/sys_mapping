@@ -207,8 +207,10 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
    null from uncontaminated mocks** (``run_ls10_analysis.py --lrt-null-mocks N``, using
    :func:`~sys_mapping.model_selection.lrt_null_distribution`); see the caveat under
    :ref:`the LRT in the methods page <lrt-methods>`.  The mock-calibrated re-run is a heavy remote
-   job; the p-values quoted here are still the (overconfident) :math:`\chi^2` values and should be
-   read as *upper bounds on the significance*.
+   job; the p-values in the **per-NSIDE tables further down are still the (overconfident)**
+   :math:`\chi^2` **values** and should be read as *upper bounds on the significance*.  The
+   **first mock-calibrated results** (3 samples, NSIDE 32, :math:`N=30` mocks) are in
+   :ref:`the next subsection <lrt-mock-calibrated>` — the detections **survive** calibration.
 
    **Regenerate the calibrated LRT** for all VLIM samples with
    :download:`bash/ls10_mocklrt.sh <../bash/ls10_mocklrt.sh>`::
@@ -227,6 +229,44 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
    parent makes the pipeline silently fall back to *synthetic* templates (the script handles this).
    ``MCMC-comb`` on the 11 near-degenerate LS10 templates is ~5–7 min/fit, so the full run is heavy
    (a day+ serially) — run it on the remote / under ``tmux``.
+
+.. _lrt-mock-calibrated:
+
+Mock-calibrated LRT — first results
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+First pass of the calibrated test (real 11-template basis, NSIDE 32, :math:`N=30` uncontaminated
+mocks per sample).  For each sample :math:`\lambda_{\rm LR}` is compared against the **empirical
+null** :math:`\{\lambda_{\rm LR}^{\rm mock}\}` (its mean/max are shown), and the p-value is the
+Monte-Carlo tail :math:`p=(1+\#\{{\rm null}\ge\lambda_{\rm LR}\})/(1+N)`.
+
+.. csv-table::
+   :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "p (Wilks χ²)", "p (mock, N=30)", "null mean / max", "Reject H\ :sub:`0`"
+   :widths: 22, 10, 14, 14, 16, 10
+
+   "M*≥10.0, z<0.18", "684.0", "1.5e-139", "0.032", "-15.8 / 19.9", "**Yes**"
+   "M*≥10.25, z<0.22", "835.0", "5.9e-172", "0.032", "11.9 / 25.0", "**Yes**"
+   "M*≥10.5, z<0.26", "983.1", "8.4e-204", "0.032", "13.8 / 33.8", "**Yes**"
+
+**Reading these.**  The empirical null tops out near :math:`\lambda_{\rm LR}\approx20\text{–}34` —
+already **inflated** relative to the Wilks :math:`\chi^2(11)` 95th percentile (:math:`\approx19.7`),
+which is exactly why the :math:`\chi^2` p-values are meaningless (:math:`10^{-139}\text{–}10^{-204}`).
+But the data :math:`\lambda_{\rm LR}` (684–983) sits **~20–30× above the null maximum**, so
+:math:`\#\{{\rm null}\ge\lambda_{\rm LR}\}=0` and the mock p-value is pinned at its floor
+:math:`1/(N{+}1)=0.032`.  The detections are therefore **real and survive calibration**, but the
+honest significance is "\ :math:`p\le0.032` at :math:`N=30`", not :math:`p<10^{-100}`.  To push the
+p-value below 0.02 add mocks with ``RESUME=1`` (:math:`N=50\Rightarrow` floor 0.0196).
+
+.. note::
+   The remaining six NSIDE-32 samples and all NSIDE-64 runs are still computing on the remote (the
+   placeholder ``params.json`` there carry ``calibration = "failed"`` from the earlier
+   version-mismatch run and are **not** shown).  This table is refreshed as those ``params.json``
+   arrive — re-run :download:`the collation <../bash/ls10_mocklrt.sh>` reader over
+   ``results/ls10_mocklrt/``.
+
+.. _lrt-wilks-tables:
+
+Per-NSIDE tables below quote the **uncalibrated** Wilks :math:`\chi^2` p-values (see the warning above).
 
 **NSIDE 32:**
 
