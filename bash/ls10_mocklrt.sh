@@ -46,7 +46,9 @@ SYST_BASE=${SYST_BASE:-$HOME/data/legacysurvey/dr10/systematics}
 OUTBASE=${OUTBASE:-results/ls10_mocklrt}
 NUTS=${NUTS:-1000}
 NCHAINS=${NCHAINS:-4}
-ONLY_METHODS=${ONLY_METHODS:-"MCMC-add MCMC-comb"}
+# NB: '-' not ':-' so ONLY_METHODS="" (explicitly empty) means "run ALL methods";
+# unset still defaults to the two the LRT needs.
+ONLY_METHODS=${ONLY_METHODS-"MCMC-add MCMC-comb"}
 PY=${PY:-python}
 # RESUME=1 → top-up mode: add mocks to an existing null up to $NMOCK (only runs the missing
 # ones, no data re-fit). Re-run with a larger NMOCK to tighten the mock-p floor 1/(N+1).
