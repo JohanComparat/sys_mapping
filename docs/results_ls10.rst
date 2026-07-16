@@ -181,6 +181,77 @@ and worse than OLS in virtually every case.  **Do not use ISD-3 weights.**
   log M* ≥ 11.25).  The intermediate dense samples (log M* 10.0–11.0) remain
   below 1 at both NSIDEs.  **NSIDE 64 is the recommended analysis resolution.**
 
+.. _recovered-amplitudes:
+
+Recovered amplitudes — which methods actually correct
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+How hard each scheme pulls, measured by :math:`{\rm rms}|\hat a|` over the 11 templates (the
+quantity that drives the weight :math:`w=1/(1+\sum_i\hat a_i t_i)`; :math:`{\rm rms}|\hat a|=0`
+means **no correction**, i.e. the weight column is exactly 1).  The ``MCMC-comb`` column is
+:math:`{\rm rms}|\hat b|` — the *multiplicative* amplitudes that drive ``WEIGHT_COMB`` — so it is
+**not** on the same footing as the additive :math:`\hat a` of the other five.
+
+.. csv-table:: NSIDE 32
+   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb (\|b̂\|)"
+   :widths: 18, 11, 13, 11, 11, 13, 15
+
+   "9.0",   "0.197", "0.014", "0.198", "5.467", "0.197", "0.966"
+   "9.5",   "0.217", "0.000", "0.207", "7.586", "0.217", "0.880"
+   "10.0",  "0.154", "0.000", "0.155", "1.141", "0.154", "0.864"
+   "10.25", "0.133", "0.001", "0.133", "1.192", "0.134", "0.856"
+   "10.5",  "0.155", "0.008", "0.149", "0.897", "0.155", "0.617"
+   "10.75", "0.133", "0.008", "0.131", "0.674", "0.133", "1.008"
+   "11.0",  "0.155", "0.007", "0.154", "1.023", "0.155", "0.885"
+   "11.25", "0.113", "0.006", "0.112", "0.336", "0.113", "0.680"
+   "11.5",  "0.060", "0.009", "0.061", "2.161", "0.060", "0.755"
+
+.. csv-table:: NSIDE 64
+   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3"
+   :widths: 18, 12, 14, 12, 12
+
+   "9.0",   "0.171", "0.019", "0.174", "5.085"
+   "9.5",   "0.208", "0.173", "0.200", "0.750"
+   "10.0",  "0.138", "0.000", "0.146", "1.096"
+   "10.25", "0.119", "0.115", "0.119", "1.444"
+   "10.5",  "0.133", "0.118", "0.124", "1.607"
+   "10.75", "0.121", "0.104", "0.121", "0.603"
+   "11.0",  "0.134", "0.117", "0.136", "0.553"
+   "11.25", "0.106", "0.007", "0.108", "0.741"
+   "11.5",  "0.050", "0.014", "0.051", "0.882"
+
+**What this shows.**
+
+* **OLS ≈ ISD-1 ≈ MCMC-add** agree to ~1 % at every sample and both NSIDEs (e.g. 0.154 / 0.155 /
+  0.154 at log M* ≥ 10.0) — all three are effectively the *additive least-squares* solution.  A
+  useful internal consistency check: three independent code paths land on the same amplitudes.
+* **ElasticNet under-corrects — often to zero.**  At NSIDE 32 it shrinks *every* coefficient to
+  :math:`\approx0` for all nine samples, so ``WEIGHT_ENET`` is **1 (no correction at all)**.  At
+  NSIDE 64 it is erratic: :math:`\approx0` for four samples but :math:`0.10\text{–}0.17` for the
+  others.  Its penalty is mis-scaled for this near-degenerate basis — **do not use
+  ``WEIGHT_ENET`` for science** without re-tuning :math:`\alpha`.
+* **ISD-3 overfits hard.**  :math:`{\rm rms}|\hat a|` reaches **7.6** (log M* ≥ 9.5, NSIDE 32) —
+  ~35× the OLS solution on the same data — and swings erratically from 0.34 to 7.6 across samples.
+  This is the collinear basis (condition number :math:`\sim10^8`) being inverted without adequate
+  regularisation, and is why ISD-3 is excluded from the goodness-of-fit comparison above and is
+  **not recommended for science**.
+* ``WEIGHT_COMB`` remains the recommended column (see the LRT below).
+
+.. admonition:: Why a weight column can be exactly 1
+   :class: note
+
+   ``run_ls10_analysis.py`` writes **all six** weight columns on every run, but only fills the
+   methods it actually fits.  A method not in ``--only-methods`` has no result, so its amplitudes
+   default to :math:`\hat a=0` and its column becomes :math:`w=1/(1+0)=1` — *not* a recording
+   failure.  The mock-calibrated LRT runs use ``--only-methods MCMC-add MCMC-comb`` (the LRT needs
+   only those two), so their ``WEIGHT_OLS/ENET/ISD1/ISD3`` are uniformly 1 **by construction**.
+   To populate all six, run with ``ONLY_METHODS=""`` (all methods) and ``--lrt-null-mocks 0``::
+
+       ONLY_METHODS="" OUTBASE=results/ls10_weights bash bash/ls10_mocklrt.sh "32 64" 0
+
+   A separately-fitted ``WEIGHT_ENET`` of 1 is a *genuine* ElasticNet null result (see above), which
+   is why the two cases must not be confused.
+
 ----
 
 Systematics are detected: Likelihood Ratio Test
