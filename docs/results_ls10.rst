@@ -207,18 +207,18 @@ means **no correction**, i.e. the weight column is exactly 1).  The ``MCMC-comb`
    "11.5",  "0.060", "0.009", "0.061", "2.161", "0.060", "0.755"
 
 .. csv-table:: NSIDE 64
-   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3"
-   :widths: 18, 12, 14, 12, 12
+   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb (\|b̂\|)"
+   :widths: 18, 11, 13, 11, 11, 13, 15
 
-   "9.0",   "0.171", "0.019", "0.174", "5.085"
-   "9.5",   "0.208", "0.173", "0.200", "0.750"
-   "10.0",  "0.138", "0.000", "0.146", "1.096"
-   "10.25", "0.119", "0.115", "0.119", "1.444"
-   "10.5",  "0.133", "0.118", "0.124", "1.607"
-   "10.75", "0.121", "0.104", "0.121", "0.603"
-   "11.0",  "0.134", "0.117", "0.136", "0.553"
-   "11.25", "0.106", "0.007", "0.108", "0.741"
-   "11.5",  "0.050", "0.014", "0.051", "0.882"
+   "9.0",   "0.171", "0.019", "0.174", "5.085", "0.171", "0.492"
+   "9.5",   "0.208", "0.173", "0.200", "0.750", "0.208", "0.456"
+   "10.0",  "0.138", "0.000", "0.146", "1.096", "0.138", "0.153"
+   "10.25", "0.119", "0.115", "0.119", "1.444", "0.119", "0.028"
+   "10.5",  "0.133", "0.118", "0.124", "1.607", "0.133", "0.116"
+   "10.75", "0.121", "0.104", "0.121", "0.603", "0.121", "0.295"
+   "11.0",  "0.134", "0.117", "0.136", "0.553", "0.134", "0.203"
+   "11.25", "0.106", "0.007", "0.108", "0.741", "0.106", "0.216"
+   "11.5",  "0.050", "0.014", "0.051", "0.882", "0.050", "0.109"
 
 **What this shows.**
 
@@ -235,6 +235,12 @@ means **no correction**, i.e. the weight column is exactly 1).  The ``MCMC-comb`
   This is the collinear basis (condition number :math:`\sim10^8`) being inverted without adequate
   regularisation, and is why ISD-3 is excluded from the goodness-of-fit comparison above and is
   **not recommended for science**.
+* **The multiplicative amplitudes confirm the NSIDE-32 overfit independently.**
+  :math:`{\rm rms}|\hat b|` falls from :math:`0.62\text{–}1.01` at NSIDE 32 to
+  :math:`0.03\text{–}0.49` at NSIDE 64 — 5–10× smaller.  Order-unity :math:`\hat b` against only
+  ≈5 600 NSIDE-32 pixels is the combined model absorbing noise (matching
+  :math:`\hat\sigma_{\rm comb}>\hat\sigma_{\rm add}` above); at NSIDE 64 the ≈21 700 pixels rein it
+  in.  Independent support for **NSIDE 64 as the analysis resolution**.
 * ``WEIGHT_COMB`` remains the recommended column (see the LRT below).
 
 .. admonition:: Why a weight column can be exactly 1
