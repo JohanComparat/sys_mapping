@@ -280,8 +280,12 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
    :ref:`the LRT in the methods page <lrt-methods>`.  The mock-calibrated re-run is a heavy remote
    job; the p-values in the **per-NSIDE tables further down are still the (overconfident)**
    :math:`\chi^2` **values** and should be read as *upper bounds on the significance*.  The
-   **first mock-calibrated results** (3 samples, NSIDE 32, :math:`N=30` mocks) are in
+   **mock-calibrated results so far** (6 runs: 5 × NSIDE 32, 1 × NSIDE 64, :math:`N=30` mocks) are in
    :ref:`the next subsection <lrt-mock-calibrated>` — the detections **survive** calibration.
+   Note the :math:`\chi^2` null fails in **both** directions: over-confident at NSIDE 32
+   (:math:`p\sim10^{-139}`) *and* blind at NSIDE 64, where :math:`\lambda_{\rm LR}<0` makes it report
+   :math:`p=1.00` while the calibrated test detects — see
+   :ref:`why λ_LR is not a Wilks LRT <lambda-lr-is-not-wilks>`.
 
    **Regenerate the calibrated LRT** for all VLIM samples with
    :download:`bash/ls10_mocklrt.sh <../bash/ls10_mocklrt.sh>`::
@@ -315,25 +319,59 @@ Monte-Carlo tail :math:`p=(1+\#\{{\rm null}\ge\lambda_{\rm LR}\})/(1+N)`.
    :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "p (Wilks χ²)", "p (mock, N=30)", "null mean / max", "Reject H\ :sub:`0`"
    :widths: 22, 10, 14, 14, 16, 10
 
-   "M*≥10.0, z<0.18", "684.0", "1.5e-139", "0.032", "-15.8 / 19.9", "**Yes**"
-   "M*≥10.25, z<0.22", "835.0", "5.9e-172", "0.032", "11.9 / 25.0", "**Yes**"
-   "M*≥10.5, z<0.26", "983.1", "8.4e-204", "0.032", "13.8 / 33.8", "**Yes**"
+   "M*≥10.0, z<0.18  (ns32)", "684.0", "1.5e-139", "0.032", "-15.8 / 19.9", "**Yes**"
+   "M*≥10.25, z<0.22 (ns32)", "835.0", "5.9e-172", "0.032", "11.9 / 25.0", "**Yes**"
+   "M*≥10.5, z<0.26  (ns32)", "983.1", "8.4e-204", "0.032", "13.8 / 33.8", "**Yes**"
+   "M*≥10.75, z<0.31 (ns32)", "1208.1", "3.0e-252", "0.032", "13.3 / 25.6", "**Yes**"
+   "M*≥11.0, z<0.35  (ns32)", "1016.3", "5.9e-211", "0.032", "-7.1 / 18.2", "**Yes**"
+   "M*≥10.0, z<0.18  (ns64)", "**-79.3**", "**1.00**", "0.032", "-971.9 / -166.0", "**Yes**"
 
-**Reading these.**  The empirical null tops out near :math:`\lambda_{\rm LR}\approx20\text{–}34` —
-already **inflated** relative to the Wilks :math:`\chi^2(11)` 95th percentile (:math:`\approx19.7`),
-which is exactly why the :math:`\chi^2` p-values are meaningless (:math:`10^{-139}\text{–}10^{-204}`).
-But the data :math:`\lambda_{\rm LR}` (684–983) sits **~20–30× above the null maximum**, so
-:math:`\#\{{\rm null}\ge\lambda_{\rm LR}\}=0` and the mock p-value is pinned at its floor
-:math:`1/(N{+}1)=0.032`.  The detections are therefore **real and survive calibration**, but the
-honest significance is "\ :math:`p\le0.032` at :math:`N=30`", not :math:`p<10^{-100}`.  To push the
-p-value below 0.02 add mocks with ``RESUME=1`` (:math:`N=50\Rightarrow` floor 0.0196).
+**Reading these.**  At NSIDE 32 the empirical null tops out near
+:math:`\lambda_{\rm LR}\approx18\text{–}34` — already **inflated** relative to the Wilks
+:math:`\chi^2(11)` 95th percentile (:math:`\approx19.7`) — while the data :math:`\lambda_{\rm LR}`
+(684–1208) sits **~30–60× above the null maximum**.  So
+:math:`\#\{{\rm null}\ge\lambda_{\rm LR}\}=0`, the mock p-value is pinned at its floor
+:math:`1/(N{+}1)=0.032`, and the detections are **real and survive calibration** — but the honest
+significance is "\ :math:`p\le0.032` at :math:`N=30`", not :math:`p<10^{-100}`.  To push below 0.02
+add mocks with ``RESUME=1`` (:math:`N=50\Rightarrow` floor 0.0196).
+
+.. _lambda-lr-is-not-wilks:
+
+.. admonition:: :math:`\lambda_{\rm LR}` here is **not** a Wilks LRT — and can be negative
+   :class: important
+
+   The NSIDE-64 row shows :math:`\lambda_{\rm LR}=-79.3` against a null that is **100 % negative**
+   (mean :math:`-972`, max :math:`-166`).  A textbook LRT on *nested* models cannot be negative: the
+   combined model contains the additive one (:math:`b=0` lies inside its parameter space), so its
+   **maximised** likelihood can never be lower.  The statistic goes negative because it is **not
+   evaluated at the MLE**: both the data and the null use the **posterior median**
+   (:func:`~sys_mapping.inference.get_mle_params` returns the median despite its name), and for the
+   combined model's 23 near-degenerate parameters the median sits well off the likelihood ridge, so
+   :math:`\ln\mathcal{L}` collapses.  The effect grows with pixel count, which is why NSIDE 64 is far
+   more negative than NSIDE 32.
+
+   **This does not invalidate the test.**  The data statistic and the mock null are computed with the
+   *same* estimator (the fit runs on the rotated basis; ``a_hat``/``b_hat`` are that same median
+   mapped back by ``transform_params_from_rotated``, and :math:`\lambda_{\rm LR}` is invariant under
+   the rotation), so the Monte-Carlo comparison is like-for-like.  What it does mean is that **the
+   absolute value of** :math:`\lambda_{\rm LR}` **carries no meaning — only its rank against the
+   empirical null does.**
+
+   That is precisely why the calibration is not optional.  The :math:`\chi^2` p-value fails in
+   *both* directions:
+
+   * **NSIDE 32** — :math:`\chi^2` is wildly **over**-confident (:math:`p\sim10^{-139}`) where the
+     honest answer is :math:`p\le0.032`.
+   * **NSIDE 64** — :math:`\chi^2` returns :math:`p=1.00` (``chi2.sf`` of a negative statistic) and
+     would report **no detection at all**, while the mock-calibrated test *does* detect
+     (:math:`-79.3` lies above **every** null draw, so :math:`p=1/31=0.032`): the combined model
+     gains relative to additive on the real data far more than it ever does on clean mocks.
 
 .. note::
-   The remaining six NSIDE-32 samples and all NSIDE-64 runs are still computing on the remote (the
-   placeholder ``params.json`` there carry ``calibration = "failed"`` from the earlier
-   version-mismatch run and are **not** shown).  This table is refreshed as those ``params.json``
-   arrive — re-run :download:`the collation <../bash/ls10_mocklrt.sh>` reader over
-   ``results/ls10_mocklrt/``.
+   Refreshed as ``params.json`` arrive from the remote.  Currently **6 of 18** runs carry a real
+   combined fit; the rest still hold ``calibration = "failed"`` placeholders from the earlier
+   BlackJAX/JAX version-mismatch run and are **not** shown.  Re-collate over
+   ``results/ls10_mocklrt/`` after each rsync.
 
 .. _lrt-wilks-tables:
 
