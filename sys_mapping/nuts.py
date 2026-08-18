@@ -121,6 +121,7 @@ def run_nuts(
     prior_scale_a: float | None = None,
     prior_scale_b: float | None = None,
     precision=None,
+    chain_method: str = "vmap",
     progress: bool = False,
 ) -> tuple[np.ndarray, _NutsSampler]:
     """Run BlackJAX NUTS to infer contamination parameters.
@@ -134,7 +135,7 @@ def run_nuts(
     n_sys : int
     model : str  ``'combined'`` (default), ``'multiplicative'``, or ``'additive'``
     delta_g_obs : (n_pix,) observed overdensity (keyword-only)
-    delta_t : (n_sys, n_pix) template values (keyword-only)
+    delta_t : ``(n_sys, n_pix)`` template values (keyword-only)
     use_skewed : bool
     n_chains : int or None  parallel chains; defaults to :func:`default_n_chains`
     n_warmup : int  window-adaptation steps (discarded)
@@ -144,6 +145,12 @@ def run_nuts(
     prior_scale_a, prior_scale_b : float or None  optional wide Gaussian prior scales
     precision : LowRankPrecision or None  correlated-noise (GLS) pixel correlation ``R``
         (``C = σ² R``); ``None`` keeps the white ``σ² I`` likelihood
+    chain_method : str  how the chains are executed — ``'vmap'`` (default) runs them
+        all at once (fastest, peak memory ∝ ``n_chains``), ``'sequential'``
+        (:func:`jax.lax.map`) runs one at a time for ~``1/n_chains`` of the peak
+        memory.  Use ``'sequential'`` when a multi-chain ``'vmap'`` run OOMs on a
+        large footprint — it keeps R-hat available (which needs ``n_chains >= 2``)
+        instead of forcing ``n_chains=1``.
     progress : bool  accepted for signature parity with :func:`run_mcmc` (unused)
 
     Returns
@@ -194,7 +201,22 @@ def run_nuts(
 
     chain_keys = jax.random.split(jax.random.PRNGKey(seed + 1), n_chains)
     # positions: (n_chains, n_samples, n_dim); divergent/accept: (n_chains, n_samples)
-    positions, divergent, accept = jax.vmap(run_one_chain)(chain_keys, u0)
+    #
+    # chain_method: "vmap" runs every chain at once — fastest, but it holds all
+    # chains' NUTS trajectories live simultaneously, which OOMs on large-n_pix
+    # footprints (the ~94k-pixel Euclid TR1 combined fit) and forced callers down
+    # to n_chains=1, where R-hat is undefined.  "sequential" (lax.map) runs one
+    # chain at a time for ~1/n_chains of the peak memory at similar total work, so
+    # multi-chain R-hat becomes affordable on the full footprint.
+    if chain_method == "sequential":
+        positions, divergent, accept = jax.lax.map(
+            lambda xs: run_one_chain(*xs), (chain_keys, u0)
+        )
+    elif chain_method == "vmap":
+        positions, divergent, accept = jax.vmap(run_one_chain)(chain_keys, u0)
+    else:
+        raise ValueError("chain_method must be 'vmap' or 'sequential', "
+                         f"got {chain_method!r}")
 
     # Convergence diagnostics across chains (on the unconstrained samples).
     # R-hat needs >= 2 chains; with a single chain it is undefined (nan).

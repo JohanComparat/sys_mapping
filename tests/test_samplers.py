@@ -130,6 +130,53 @@ class TestNuts:
                            get_mle_params(chain_e)[:n_sys], atol=2e-3)
 
 
+class TestChainMethod:
+    """`chain_method='sequential'` is the low-memory route to multi-chain R-hat.
+
+    `vmap` holds every chain's NUTS trajectory live at once, which OOMs on large
+    footprints and forces n_chains=1 (where R-hat is undefined).  `lax.map` runs
+    one chain at a time; same maths, so results must be identical.
+    """
+
+    def test_sequential_matches_vmap_statistically(self, combined_data):
+        """Both routes sample the same posterior (not the same draws).
+
+        Draws are deliberately not compared elementwise: batching the NUTS
+        trajectory ``while_loop`` under ``vmap`` changes XLA's floating-point
+        reduction order, and NUTS is chaotic — an O(1e-16) gradient difference
+        snowballs into a different trajectory within a few hundred leapfrog
+        steps.  The posterior it targets is what must agree.
+        """
+        dg, dt, a_true, _ = combined_data
+        n_sys = dt.shape[0]
+        kw = dict(model="combined", delta_g_obs=dg, delta_t=dt,
+                  n_chains=2, n_warmup=400, n_samples=800, seed=3)
+        chain_v, samp_v = run_nuts(n_sys, chain_method="vmap", **kw)
+        chain_s, samp_s = run_nuts(n_sys, chain_method="sequential", **kw)
+        mle_v, mle_s = get_mle_params(chain_v), get_mle_params(chain_s)
+        # tightly-constrained additive coefficients agree to Monte-Carlo error
+        assert np.allclose(mle_v[:n_sys], mle_s[:n_sys], atol=3e-3)
+        # sigma (last column) is very tightly constrained
+        assert mle_s[-1] == pytest.approx(mle_v[-1], rel=5e-2)
+        assert samp_s.num_divergences == 0 and samp_v.num_divergences == 0
+
+    def test_sequential_gives_multichain_rhat(self, combined_data):
+        dg, dt, _, _ = combined_data
+        n_sys = dt.shape[0]
+        chain, sampler = run_nuts(n_sys, model="combined", delta_g_obs=dg, delta_t=dt,
+                                  n_chains=4, n_warmup=300, n_samples=400, seed=3,
+                                  chain_method="sequential")
+        assert chain.shape == (4 * 400, 2 * n_sys + 1)
+        assert np.isfinite(sampler.rhat) and sampler.rhat < 1.1
+        assert sampler.n_chains == 4
+
+    def test_rejects_unknown_chain_method(self, combined_data):
+        dg, dt, _, _ = combined_data
+        with pytest.raises(ValueError, match="chain_method"):
+            run_nuts(dt.shape[0], model="combined", delta_g_obs=dg, delta_t=dt,
+                     n_chains=1, n_warmup=10, n_samples=10, chain_method="threads")
+
+
 class TestSamplerDispatch:
     def test_auto_additive_is_analytic(self, additive_data):
         dg, dt, _ = additive_data
