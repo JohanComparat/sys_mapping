@@ -230,7 +230,7 @@ def load_systematic_maps(
 
     Returns
     -------
-    templates : (n_sys, 12*nside²) array, zero-mean and unit-std over valid pixels.
+    templates : ``(n_sys, 12*nside²)`` array, zero-mean and unit-std over valid pixels.
     names : list of map name strings.
     footprint : (12*nside²,) bool array — True where *all* loaded maps are valid.
         Use this to restrict mock catalogs to the survey footprint before

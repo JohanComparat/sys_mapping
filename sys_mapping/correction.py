@@ -30,15 +30,15 @@ def debias_params(
 
     Parameters
     ----------
-    a_hat : (n_sys,) MLE / posterior median additive parameters
-    b_hat : (n_sys,) MLE / posterior median multiplicative parameters
-    var_a : (n_sys,) posterior variance of a_hat
-    var_b : (n_sys,) posterior variance of b_hat
+    a_hat : ``(n_sys,)`` MLE / posterior median additive parameters
+    b_hat : ``(n_sys,)`` MLE / posterior median multiplicative parameters
+    var_a : ``(n_sys,)`` posterior variance of a_hat
+    var_b : ``(n_sys,)`` posterior variance of b_hat
 
     Returns
     -------
-    a_sq_debiased : (n_sys,)  clipped to [0, ∞)
-    b_sq_debiased : (n_sys,)  clipped to [0, ∞)
+    a_sq_debiased : ``(n_sys,)``  clipped to [0, ∞)
+    b_sq_debiased : ``(n_sys,)``  clipped to [0, ∞)
 
     Performance
     -----------
@@ -79,13 +79,13 @@ def rotate_templates(
 
     Parameters
     ----------
-    delta_t : (n_sys, n_pix) template values at unmasked pixels
+    delta_t : ``(n_sys, n_pix)`` template values at unmasked pixels
 
     Returns
     -------
-    delta_t_rot : (n_sys, n_pix) rotated (orthogonal) templates
-    rotation_matrix : (n_sys, n_sys) V^T — rows are eigenvectors
-    eigenvalues : (n_sys,) template variances in the rotated basis (descending)
+    delta_t_rot : ``(n_sys, n_pix)`` rotated (orthogonal) templates
+    rotation_matrix : ``(n_sys, n_sys)`` V^T — rows are eigenvectors
+    eigenvalues : ``(n_sys,)`` template variances in the rotated basis (descending)
 
     Performance
     -----------
@@ -138,14 +138,14 @@ def transform_params_from_rotated(
 
     Parameters
     ----------
-    a_rot : (n_sys,) additive parameters in the rotated PCA basis
-    b_rot : (n_sys,) multiplicative parameters in the rotated PCA basis
-    rotation_matrix : (n_sys, n_sys) returned by :func:`rotate_templates`
+    a_rot : ``(n_sys,)`` additive parameters in the rotated PCA basis
+    b_rot : ``(n_sys,)`` multiplicative parameters in the rotated PCA basis
+    rotation_matrix : ``(n_sys, n_sys)`` returned by :func:`rotate_templates`
 
     Returns
     -------
-    a_orig : (n_sys,) additive parameters in the original template basis
-    b_orig : (n_sys,) multiplicative parameters in the original template basis
+    a_orig : ``(n_sys,)`` additive parameters in the original template basis
+    b_orig : ``(n_sys,)`` multiplicative parameters in the original template basis
 
     Performance
     -----------
@@ -201,16 +201,16 @@ def correct_two_point_function(
     Parameters
     ----------
     w_obs : (n_bins,) observed angular correlation function
-    a_hat : (n_sys,) posterior median additive parameters
-    b_hat : (n_sys,) posterior median multiplicative parameters
-    var_a : (n_sys,) posterior variance of a_hat (from :func:`~inference.get_param_variance_from_chain`)
-    var_b : (n_sys,) posterior variance of b_hat
-    template_correlations : (n_sys, n_bins) ⟨δ_{t,i}(θ) δ_{t,i}(θ)⟩ per template per bin
+    a_hat : ``(n_sys,)`` posterior median additive parameters
+    b_hat : ``(n_sys,)`` posterior median multiplicative parameters
+    var_a : ``(n_sys,)`` posterior variance of a_hat (from :func:`~inference.get_param_variance_from_chain`)
+    var_b : ``(n_sys,)`` posterior variance of b_hat
+    template_correlations : ``(n_sys, n_bins)`` ⟨δ_{t,i}(θ) δ_{t,i}(θ)⟩ per template per bin
     return_cov : bool
         If True, return ``(w_corr, cov_w_corr)`` — the corrected function AND its ``(n_bins, n_bins)``
         covariance, propagated by parametric bootstrap (see Notes).  Default False (returns only
         ``w_corr``, unchanged behaviour).
-    cov_a, cov_b : (n_sys, n_sys), optional
+    cov_a, cov_b : ``(n_sys, n_sys)``, optional
         Full amplitude covariances for the Monte-Carlo draws (e.g. the calibrated
         :func:`~sys_mapping.mock_sandwich_covariance` sandwich).  ``None`` falls back to the diagonal
         ``diag(var_a)`` / ``diag(var_b)``.  Ignored unless ``return_cov``.

@@ -25,3 +25,4 @@ Provides the end-to-end infrastructure for simulation-based validation:
 .. automodule:: sys_mapping.simulation
    :members:
    :show-inheritance:
+   :exclude-members: level,scenario,a_true,b_true

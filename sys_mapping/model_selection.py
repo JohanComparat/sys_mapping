@@ -64,7 +64,7 @@ def likelihood_ratio_test(
     Parameters
     ----------
     delta_g_obs : (n_pix,) observed overdensity
-    delta_t : (n_sys, n_pix) template values
+    delta_t : ``(n_sys, n_pix)`` template values
     theta_null : flat parameter vector for the null model (from :func:`~inference.get_mle_params`)
     theta_alt  : flat parameter vector for the alternative model
     null_model : str  ``'additive'`` or ``'multiplicative'`` (must be nested in alt_model)
@@ -187,7 +187,7 @@ def lrt_null_distribution(
     ----------
     mock_delta_g : (n_pix, n_mock)
         Column-stacked *uncontaminated* overdensity reconstructions on the fit pixels.
-    delta_t : (n_sys, n_pix)
+    delta_t : ``(n_sys, n_pix)``
         Templates on the fit pixels (same basis as the data fit; rotate first if the data used a
         rotated basis).
     fit_theta : callable(model, delta_g, delta_t) -> theta

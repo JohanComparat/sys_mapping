@@ -70,8 +70,8 @@ def pack_params(
 
     Parameters
     ----------
-    a : (n_sys,) additive coefficients
-    b : (n_sys,) or None  multiplicative coefficients (required for ``combined``)
+    a : ``(n_sys,)`` additive coefficients
+    b : ``(n_sys,)`` or None  multiplicative coefficients (required for ``combined``)
     sigma : float  noise standard deviation
     gamma : float or None  skewness parameter (appended last when provided)
     model : str  ``'additive'``, ``'multiplicative'``, or ``'combined'``
@@ -124,8 +124,8 @@ def unpack_params(
 
     Returns
     -------
-    a : (n_sys,) additive coefficients (JAX array)
-    b : (n_sys,) multiplicative coefficients; zeros for additive, equals a for multiplicative
+    a : ``(n_sys,)`` additive coefficients (JAX array)
+    b : ``(n_sys,)`` multiplicative coefficients; zeros for additive, equals a for multiplicative
     sigma : scalar noise standard deviation
     gamma : scalar skewness parameter or None
 
@@ -183,9 +183,9 @@ def apply_contamination(
     Parameters
     ----------
     delta_g : (n_pix,) true galaxy overdensity
-    delta_t : (n_sys, n_pix) systematic templates
-    a : (n_sys,) additive coefficients
-    b : (n_sys,) multiplicative coefficients
+    delta_t : ``(n_sys, n_pix)`` systematic templates
+    a : ``(n_sys,)`` additive coefficients
+    b : ``(n_sys,)`` multiplicative coefficients
 
     Returns
     -------
@@ -232,9 +232,9 @@ def invert_contamination(
     Parameters
     ----------
     delta_g_obs : (n_pix,) observed galaxy overdensity
-    delta_t : (n_sys, n_pix) systematic templates
-    a : (n_sys,) additive coefficients
-    b : (n_sys,) multiplicative coefficients
+    delta_t : ``(n_sys, n_pix)`` systematic templates
+    a : ``(n_sys,)`` additive coefficients
+    b : ``(n_sys,)`` multiplicative coefficients
 
     Returns
     -------
@@ -286,9 +286,9 @@ def compute_two_point_correction(
     Parameters
     ----------
     w_obs : (n_bins,) observed angular correlation function
-    a_sq : (n_sys,) debiased squared additive coefficients
-    b_sq : (n_sys,) debiased squared multiplicative coefficients
-    template_correlations : (n_sys, n_bins) template auto-correlations per angular bin
+    a_sq : ``(n_sys,)`` debiased squared additive coefficients
+    b_sq : ``(n_sys,)`` debiased squared multiplicative coefficients
+    template_correlations : ``(n_sys, n_bins)`` template auto-correlations per angular bin
 
     Returns
     -------

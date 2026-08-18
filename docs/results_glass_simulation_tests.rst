@@ -15,6 +15,18 @@ subdirectory so runs never overwrite each other::
     data/simulations_glass/nside0064_N1000000/
     data/simulations_glass/nside0064_N2000000/
 
+.. admonition:: Status — figures and tables not yet generated
+   :class: warning
+
+   The two runs described on this page have **not** been carried to completion
+   in this repository: ``docs/_static/results_glass_simulation_tests/`` does not
+   exist, so none of the figures or metric tables below can be shown.  What
+   follows is the frozen specification of the test — mock, templates,
+   contamination grid, exact reproduction commands — together with the physical
+   expectations stated in *Discussion*.  Every figure and table is marked
+   *(pending)* and names the file it will be rendered from once the commands in
+   *How to reproduce* have been run.
+
 ----
 
 How to reproduce
@@ -134,10 +146,11 @@ and unit standard deviation over valid pixels:
 All maps are loaded at NSIDE = 64 from
 ``~/data/legacysurvey/dr10/systematics/0064/``.
 
-.. figure:: _static/results_glass_simulation_tests/N1000000/templates_overview.png
-   :width: 100%
-   :align: center
-   :alt: Mollweide projections of the 5 LSDR10 systematic template maps at NSIDE=64
+.. admonition:: Figure (pending) — Mollweide projections of the 5 LSDR10 systematic template maps at NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N1000000/templates_overview.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **LSDR10 systematic template maps (NSIDE = 64)** shown in Mollweide
    projection.  Red–blue colour scale: ±2 standard deviations from the mean.
@@ -201,10 +214,11 @@ Nine contamination configurations are tested (3 amplitude levels ×
 w(θ) recovery results — N = 1 000 000
 --------------------------------------
 
-.. figure:: _static/results_glass_simulation_tests/N1000000/wtheta_recovery_grid_glass.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — GLASS mock, N=1e6, NSIDE=64
+.. admonition:: Figure (pending) — w(θ) recovery grid — GLASS mock, N=1e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N1000000/wtheta_recovery_grid_glass.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **w(θ) recovery on the GLASS mock (N = 1 000 000, NSIDE = 64).**  Rows:
    contamination amplitude level (low / medium / high).  Columns:
@@ -215,17 +229,22 @@ w(θ) recovery results — N = 1 000 000
 Recovery metric summary — N = 1 000 000
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. csv-table::
-   :file: _static/results_glass_simulation_tests/N1000000/summary_table.csv
-   :header-rows: 1
+.. admonition:: Table (pending) — recovery metric summary, N = 1 000 000
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N1000000/summary_table.csv``
+   once the run has been executed (see *How to reproduce*).  One row per
+   (method, contamination configuration) with the mean fractional w(θ) bias
+   :math:`\mathcal{B}`.
 
 Heatmap of recovery bias — N = 1 000 000
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. figure:: _static/results_glass_simulation_tests/N1000000/recovery_bias_heatmap.png
-   :width: 100%
-   :align: center
-   :alt: Heatmap of mean fractional w(θ) bias — N=1e6, NSIDE=64
+.. admonition:: Figure (pending) — Heatmap of mean fractional w(θ) bias — N=1e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N1000000/recovery_bias_heatmap.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **Mean fractional bias** :math:`\mathcal{B}` **per method (row) and
    configuration (column), N = 1 000 000, NSIDE = 64.**  Green = low bias;
@@ -236,10 +255,11 @@ Heatmap of recovery bias — N = 1 000 000
 w(θ) recovery results — N = 2 000 000
 --------------------------------------
 
-.. figure:: _static/results_glass_simulation_tests/N2000000/wtheta_recovery_grid_glass.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — GLASS mock, N=2e6, NSIDE=64
+.. admonition:: Figure (pending) — w(θ) recovery grid — GLASS mock, N=2e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N2000000/wtheta_recovery_grid_glass.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **w(θ) recovery on the GLASS mock (N = 2 000 000, NSIDE = 64).**
    Layout as above.  The doubled galaxy count halves the shot-noise variance
@@ -250,17 +270,22 @@ w(θ) recovery results — N = 2 000 000
 Recovery metric summary — N = 2 000 000
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. csv-table::
-   :file: _static/results_glass_simulation_tests/N2000000/summary_table.csv
-   :header-rows: 1
+.. admonition:: Table (pending) — recovery metric summary, N = 2 000 000
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N2000000/summary_table.csv``
+   once the run has been executed (see *How to reproduce*).  One row per
+   (method, contamination configuration) with the mean fractional w(θ) bias
+   :math:`\mathcal{B}`.
 
 Heatmap of recovery bias — N = 2 000 000
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-.. figure:: _static/results_glass_simulation_tests/N2000000/recovery_bias_heatmap.png
-   :width: 100%
-   :align: center
-   :alt: Heatmap of mean fractional w(θ) bias — N=2e6, NSIDE=64
+.. admonition:: Figure (pending) — Heatmap of mean fractional w(θ) bias — N=2e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N2000000/recovery_bias_heatmap.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **Mean fractional bias** :math:`\mathcal{B}` **per method (row) and
    configuration (column), N = 2 000 000, NSIDE = 64.**  Comparing with the
@@ -274,10 +299,11 @@ Bias vs contamination amplitude — comparison
 
 .. rubric:: N = 1 000 000
 
-.. figure:: _static/results_glass_simulation_tests/N1000000/contamination_amplitude_scan.png
-   :width: 100%
-   :align: center
-   :alt: Bias vs amplitude per scenario — N=1e6, NSIDE=64
+.. admonition:: Figure (pending) — Bias vs amplitude per scenario — N=1e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N1000000/contamination_amplitude_scan.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **Recovery bias vs contamination amplitude (N = 1 000 000, NSIDE = 64)**,
    for each scenario.  Dashed black = contaminated baseline.  Coloured lines:
@@ -285,10 +311,11 @@ Bias vs contamination amplitude — comparison
 
 .. rubric:: N = 2 000 000
 
-.. figure:: _static/results_glass_simulation_tests/N2000000/contamination_amplitude_scan.png
-   :width: 100%
-   :align: center
-   :alt: Bias vs amplitude per scenario — N=2e6, NSIDE=64
+.. admonition:: Figure (pending) — Bias vs amplitude per scenario — N=2e6, NSIDE=64
+   :class: note
+
+   Rendered from ``_static/results_glass_simulation_tests/N2000000/contamination_amplitude_scan.png`` once the run has been executed
+   (see *How to reproduce*).
 
    **Same scan at N = 2 000 000.**  Lower shot noise is expected to reduce
    residual bias at medium and high amplitudes, most visibly for the additive

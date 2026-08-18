@@ -321,7 +321,7 @@ all MCMC iterations).
    add_term    = jnp.einsum("i,ij->j", a, delta_t)
    log_jac     = jnp.sum(jnp.log(jnp.abs(1.0 + mult_term)))   # Jacobian
    delta_g_clean = (delta_g_obs - add_term) / (1.0 + mult_term)
-   log_gauss   = -0.5*N*log(2πσ²) - (1/2σ²)*Σ delta_g_clean²
+   log_gauss   = -0.5*N*log(2*π*σ**2) - (1/(2*σ**2))*Σ(delta_g_clean**2)
    return log_gauss - log_jac
 
 Execution time after JIT warm-up: **~284 μs/call** at

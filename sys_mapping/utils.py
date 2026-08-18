@@ -21,7 +21,7 @@ def compute_covariance_matrix(delta_t: np.ndarray) -> np.ndarray:
 
     Parameters
     ----------
-    delta_t : (n_sys, n_pix) template values at unmasked pixels
+    delta_t : ``(n_sys, n_pix)`` template values at unmasked pixels
 
     Returns
     -------
@@ -70,9 +70,9 @@ def compute_amplitude_bias(
 
     Parameters
     ----------
-    a_sq : (n_sys,) debiased squared additive parameters
-    b_sq : (n_sys,) debiased squared multiplicative parameters
-    cov_matrix : (n_sys, n_sys) template covariance from :func:`compute_covariance_matrix`
+    a_sq : ``(n_sys,)`` debiased squared additive parameters
+    b_sq : ``(n_sys,)`` debiased squared multiplicative parameters
+    cov_matrix : ``(n_sys, n_sys)`` template covariance from :func:`compute_covariance_matrix`
 
     Returns
     -------

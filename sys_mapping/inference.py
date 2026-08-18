@@ -46,7 +46,7 @@ def make_log_prob(
     n_sys : int
     model : str  ``'additive'``, ``'multiplicative'``, or ``'combined'``
     delta_g_obs : (n_pix,) observed overdensity
-    delta_t : (n_sys, n_pix) template values
+    delta_t : ``(n_sys, n_pix)`` template values
     use_skewed : bool
     sigma_min : float  lower bound on sigma (hard prior); default ``1e-6``
     vectorize : bool
@@ -140,7 +140,7 @@ def run_mcmc(
     n_sys : int
     model : str  ``'combined'`` (default), ``'additive'``, or ``'multiplicative'``
     delta_g_obs : (n_pix,) observed overdensity (keyword-only)
-    delta_t : (n_sys, n_pix) template values (keyword-only)
+    delta_t : ``(n_sys, n_pix)`` template values (keyword-only)
     use_skewed : bool
     n_walkers : int  number of emcee ensemble walkers (≥ 2 × n_dim)
     n_steps : int   total MCMC steps (burn-in included)
@@ -255,13 +255,13 @@ def run_additive_analytic(
     ----------
     n_sys : int
     delta_g_obs : (n_pix,) observed overdensity (keyword-only)
-    delta_t : (n_sys, n_pix) template values (keyword-only)
+    delta_t : ``(n_sys, n_pix)`` template values (keyword-only)
     n_samples : int  number of independent posterior draws (default 100_000)
     seed : int
 
     Returns
     -------
-    flat_chain : (n_samples, n_sys + 1) posterior draws, layout ``[a_0..a_{n-1}, σ]``
+    flat_chain : ``(n_samples, n_sys + 1)`` posterior draws, layout ``[a_0..a_{n-1}, σ]``
     sampler : :class:`_AnalyticSampler`
 
     Notes
@@ -360,8 +360,8 @@ def get_param_variance_from_chain(
 
     Returns
     -------
-    var_a : (n_sys,) posterior variance of additive parameters
-    var_b : (n_sys,) posterior variance of multiplicative parameters
+    var_a : ``(n_sys,)`` posterior variance of additive parameters
+    var_b : ``(n_sys,)`` posterior variance of multiplicative parameters
               (all zeros for ``'additive'`` model)
 
     Examples
@@ -399,8 +399,8 @@ def get_param_covariance_from_chain(
 
     Returns
     -------
-    cov_a : (n_sys, n_sys) posterior covariance of additive parameters
-    cov_b : (n_sys, n_sys) posterior covariance of multiplicative parameters
+    cov_a : ``(n_sys, n_sys)`` posterior covariance of additive parameters
+    cov_b : ``(n_sys, n_sys)`` posterior covariance of multiplicative parameters
 
     Examples
     --------
