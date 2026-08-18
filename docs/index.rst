@@ -21,6 +21,13 @@ density maps.
 
 .. toctree::
    :maxdepth: 2
+   :caption: Survey design & forecasting
+
+   detectability_law
+   survey_design_synthesis
+
+.. toctree::
+   :maxdepth: 2
    :caption: Validation & tests
 
    testing
@@ -30,6 +37,7 @@ density maps.
    results_progressive_contamination
    results_real_template_validation
    results_simulation_tests
+   results_glass_simulation_tests
    results_snr_preselection
 
 .. toctree::
