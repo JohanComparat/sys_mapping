@@ -1,3 +1,5 @@
+:orphan:
+
 Contaminated vs uncontaminated comparison
 ==========================================
 

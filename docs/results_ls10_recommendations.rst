@@ -61,15 +61,15 @@ Recommended weight and resolution per sample
    :header: "Sample (log M*)", "N_gal", "Method", "NSIDE", ":math:`\hat{\sigma}_{\rm comb}`", "θ corrected", "Key constraint"
    :widths: 12, 12, 12, 8, 10, 14, 50
 
-   "≥ 9.0", "523,486", "MCMC-comb", "64", "0.751", "49–54'", "σ̂_comb N64=0.751 (minimum among valid NSIDEs); N128 overfits (σ=1.029); N256 overfits (σ=1.601); external |δw/w|=7.2% at 30'"
-   "≥ 9.5", "1,432,502", "MCMC-comb", "64", "0.554", "49–54'", "σ̂_comb N64=0.554 (minimum among valid NSIDEs); N256 overfits (σ=1.052); external |δw/w|=4.8% at 30'"
-   "≥ 10.0", "2,759,238", "MCMC-comb", "64", "0.382", "49–54'", "σ̂_comb N64=0.382 (minimum among valid NSIDEs); external |δw/w|=0.4% at 30'"
+   "≥ 9.0", "523,486", "MCMC-comb", "64", "0.751", "49–54'", "σ̂_comb N64=0.751 (minimum among valid NSIDEs); N128 overfits (σ=1.029); N256 overfits (σ=1.601); external \|δw/w\|=7.2% at 30'"
+   "≥ 9.5", "1,432,502", "MCMC-comb", "64", "0.554", "49–54'", "σ̂_comb N64=0.554 (minimum among valid NSIDEs); N256 overfits (σ=1.052); external \|δw/w\|=4.8% at 30'"
+   "≥ 10.0", "2,759,238", "MCMC-comb", "64", "0.382", "49–54'", "σ̂_comb N64=0.382 (minimum among valid NSIDEs); external \|δw/w\|=0.4% at 30'"
    "≥ 10.25", "3,308,841", "MCMC-comb", "64", "0.334", "49–54'", "σ̂_comb N64=0.334 (minimum among valid NSIDEs)"
    "≥ 10.5", "3,263,228", "MCMC-comb", "64", "0.310", "49–54'", "σ̂_comb N64=0.310 (minimum among valid NSIDEs)"
    "≥ 10.75", "2,802,710", "MCMC-comb", "64", "0.301", "49–54'", "σ̂_comb N64=0.301 (minimum among valid NSIDEs)"
-   "≥ 11.0", "1,619,838", "MCMC-comb", "64", "0.305", "49–54'", "σ̂_comb N64=0.305 (minimum among valid NSIDEs); external |δw/w|=0.1% at 30'"
-   "≥ 11.25", "541,855", "MCMC-comb", "64", "0.393", "49–54'", "σ̂_comb N64=0.393 (minimum among valid NSIDEs); N256 overfits (σ=1.212); external |δw/w|=2.2% at 30'"
-   "≥ 11.5", "120,882", "MCMC-comb", "64", "0.710", "49–54'", "σ̂_comb N64=0.710 (minimum among valid NSIDEs); N128 overfits (σ=1.430); N256 overfits (σ=2.021); external |δw/w|=0.7% at 30'"
+   "≥ 11.0", "1,619,838", "MCMC-comb", "64", "0.305", "49–54'", "σ̂_comb N64=0.305 (minimum among valid NSIDEs); external \|δw/w\|=0.1% at 30'"
+   "≥ 11.25", "541,855", "MCMC-comb", "64", "0.393", "49–54'", "σ̂_comb N64=0.393 (minimum among valid NSIDEs); N256 overfits (σ=1.212); external \|δw/w\|=2.2% at 30'"
+   "≥ 11.5", "120,882", "MCMC-comb", "64", "0.710", "49–54'", "σ̂_comb N64=0.710 (minimum among valid NSIDEs); N128 overfits (σ=1.430); N256 overfits (σ=2.021); external \|δw/w\|=0.7% at 30'"
 
 .. note::
 
@@ -108,7 +108,7 @@ Systematic uncertainty budget
 The table below quantifies the systematic correction applied and the residual
 method uncertainty at the recommended NSIDE 64 + MCMC-comb.
 
-* **Max |δw/w|_comb at 42–54'** — the largest fractional correction applied to w(θ)
+* **Max \|δw/w\|_comb at 42–54'** — the largest fractional correction applied to w(θ)
   by the MCMC-comb weights relative to the uncorrected measurement.
   Observed only at the outermost bins because the NSIDE 64 pixel scale (~54')
   sets the lower angular limit of the weight-induced clustering modulation.
@@ -122,7 +122,7 @@ method uncertainty at the recommended NSIDE 64 + MCMC-comb.
   length matches and the weights are most effective.
 
 .. csv-table::
-   :header: "Sample (log M*)", "N_gal", "Recommended NSIDE", "Max |δw/w|\ :sub:`comb` at 42–54'", "θ of first correction", "Method uncertainty >20'", "Regime"
+   :header: "Sample (log M*)", "N_gal", "Recommended NSIDE", "Max \|δw/w\|\ :sub:`comb` at 42–54'", "θ of first correction", "Method uncertainty >20'", "Regime"
    :widths: 12, 12, 14, 18, 16, 18, 22
 
    "≥ 9.0", "523,486", "64", "8.75%", "49–54'", "1.64%", "Strongly contaminated"
@@ -148,7 +148,7 @@ All corrections are expressed as percentages of w_obs.
 M* ≥ 9.0 (z < 0.08, N = 523,486)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ -7.2% at 30', max |δw/w| = 8.4% at 23'.
+External two-point measurement: δw/w ≈ -7.2% at 30', max \|δw/w\| = 8.4% at 23'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.751).  No finer valid NSIDE available (σ̂ ≥ 1 at NSIDE 128+).
 
@@ -192,7 +192,7 @@ Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.751).  No fin
 M* ≥ 9.5 (z < 0.12, N = 1,432,502)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ -4.8% at 30', max |δw/w| = 4.9% at 15'.
+External two-point measurement: δw/w ≈ -4.8% at 30', max \|δw/w\| = 4.9% at 15'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.554).  NSIDE 128 is a valid secondary option (σ̂=0.741).
 
@@ -236,7 +236,7 @@ Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.554).  NSIDE 
 M* ≥ 10.0 (z < 0.18, N = 2,759,238)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ -0.4% at 30', max |δw/w| = 2.0% at 120'.
+External two-point measurement: δw/w ≈ -0.4% at 30', max \|δw/w\| = 2.0% at 120'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.382).  NSIDE 256 is a valid secondary option (σ̂=0.786).
 
@@ -412,7 +412,7 @@ Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.301).  NSIDE 
 M* ≥ 11.0 (z < 0.35, N = 1,619,838)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ -0.1% at 30', max |δw/w| = 11.5% at 181'.
+External two-point measurement: δw/w ≈ -0.1% at 30', max \|δw/w\| = 11.5% at 181'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.305).  NSIDE 256 is a valid secondary option (σ̂=0.726).
 
@@ -456,7 +456,7 @@ Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.305).  NSIDE 
 M* ≥ 11.25 (z < 0.35, N = 541,855)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ +2.2% at 30', max |δw/w| = 17.4% at 181'.
+External two-point measurement: δw/w ≈ +2.2% at 30', max \|δw/w\| = 17.4% at 181'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.393).  NSIDE 128 is a valid secondary option (σ̂=0.633).
 
@@ -500,7 +500,7 @@ Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.393).  NSIDE 
 M* ≥ 11.5 (z < 0.35, N = 120,882)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-External two-point measurement: δw/w ≈ +0.7% at 30', max |δw/w| = 9.7% at 97'.
+External two-point measurement: δw/w ≈ +0.7% at 30', max \|δw/w\| = 9.7% at 97'.
 
 Recommended: ``WEIGHT_COMB`` from NSIDE 64 analysis (σ̂_comb = 0.710).  No finer valid NSIDE available (σ̂ ≥ 1 at NSIDE 128+).
 

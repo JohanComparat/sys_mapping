@@ -194,7 +194,7 @@ def mock_sandwich_covariance(
 
     Parameters
     ----------
-    delta_t : (n_sys, n_pix)
+    delta_t : ``(n_sys, n_pix)``
         Template maps on the fit pixels (the same basis passed to the estimator).
     mock_fields : (n_mock, n_pix)
         Ensemble of uncontaminated overdensity realizations on those pixels.  The ensemble mean is
@@ -202,7 +202,7 @@ def mock_sandwich_covariance(
 
     Returns
     -------
-    cov : (n_sys, n_sys)  additive-parameter covariance ``(T T^T)^{-1} (T C T^T) (T T^T)^{-1}``.
+    cov : ``(n_sys, n_sys)``  additive-parameter covariance ``(T T^T)^{-1} (T C T^T) (T T^T)^{-1}``.
 
     Notes
     -----

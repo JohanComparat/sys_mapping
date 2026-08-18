@@ -99,7 +99,7 @@ def block_bootstrap_variance(
     Parameters
     ----------
     delta_g_obs : (n_good_pix,) observed overdensity at unmasked pixels
-    delta_t : (n_sys, n_good_pix) template values at unmasked pixels
+    delta_t : ``(n_sys, n_good_pix)`` template values at unmasked pixels
     good_pixels : (n_pix,) boolean mask that defines pixel sky positions
     nside : int  full-resolution HEALPix NSIDE
     estimator : callable(delta_g, delta_t) -> (n_out,) array
@@ -185,7 +185,7 @@ def jackknife_covariance(
     Parameters
     ----------
     delta_g_obs : (n_good_pix,) observed overdensity at unmasked pixels
-    delta_t : (n_sys, n_good_pix) template values at unmasked pixels
+    delta_t : ``(n_sys, n_good_pix)`` template values at unmasked pixels
     good_pixels : (n_pix,) boolean mask that defines pixel sky positions
     nside : int  full-resolution HEALPix NSIDE
     estimator : callable(delta_g, delta_t) -> (n_out,) array

@@ -16,3 +16,4 @@ whether multiplicative contamination is significant.
 .. automodule:: sys_mapping.model_selection
    :members:
    :show-inheritance:
+   :exclude-members: selected_indices,rounds,p_threshold,n_initial,snr_values,method,snr_min,n_top

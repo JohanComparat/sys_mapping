@@ -333,7 +333,7 @@ def assign_template_values(
 
     Parameters
     ----------
-    templates : (n_sys, n_pix) full-sky template maps
+    templates : ``(n_sys, n_pix)`` full-sky template maps
     good_pixels : (n_pix,) boolean mask (True = unmasked)
 
     Returns
