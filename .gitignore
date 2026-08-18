@@ -17,3 +17,9 @@ coverage.xml
 # Raw per-mock simulation dumps (generated, not tracked)
 docs/_static/results_*/mock_*.json
 docs/_static/results_progressive_contamination/progressive_k*.json
+
+# This repo is public and carries LS10 results only. Survey scorecards from
+# collaborations with internal data-release policies belong in their own private
+# repositories; never track or vendor a copy here.
+docs/_static/**/euclid*
+*_scorecard_private.csv
