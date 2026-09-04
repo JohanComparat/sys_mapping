@@ -1,11 +1,11 @@
 # sys_mapping
 
-[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.0.0/)
+[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.2.0/)
 [![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/#)
 [![Tests](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml/badge.svg)](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 
-**PyPI:** https://pypi.org/project/sys-mapping/1.0.0/
+**PyPI:** https://pypi.org/project/sys-mapping/1.2.0/
 **Docs:** https://sys-mapping.readthedocs.io/en/latest/#
 
 Joint inference of multiplicative and additive systematics in galaxy
@@ -23,6 +23,7 @@ correction infrastructure.
 | `"data"` | < 1 ms | Pearson \|r\| between δg and each template (JAX-accelerated) |
 | `"template"` | < 1 ms | Per-template OLS \|t\|-statistic (JAX-accelerated) |
 | `"isd"` | ~10 ms | ISD Δχ² with GLASS mock significance (JAX-accelerated) |
+| `"peak"` | ~10 ms | Peak of the cross pseudo-Cℓ Ĉℓᵈᵗⁱ over a noise proxy |
 
 Pre-selection is integrated into `run_decontamination` via `preselect=True`.
 GLASS mocks are footprint-aware: surface density is matched to the data by
@@ -174,6 +175,15 @@ Nested models are compared with the likelihood ratio test:
 
 where r is the number of additional free parameters.
 
+> **The χ² null is overconfident here.** Wilks' theorem assumes independent
+> observations; the pixel likelihood uses σ²I on a spatially *correlated* field, so
+> λ_LR is inflated under H₀ and `chi2.sf` returns a p-value that is too small. Pass
+> `null_lambda=` (an ensemble of λ_LR from uncontaminated mocks, via
+> `lrt_null_distribution`) for a mock-calibrated p-value. On LS10 the χ² null fails
+> in *both* directions — see `docs/results_ls10.rst`. Note also that λ_LR is
+> evaluated at the posterior **median** (`get_mle_params`), not the MLE, so it can be
+> negative and only its rank against the mock null is meaningful.
+
 ---
 
 ## Scripts
@@ -232,11 +242,29 @@ python scripts/compute_sys_weights.py \
 
 **Weighting scheme**
 
-| Column | Model | Formula |
+> **Three weight conventions are in circulation — know which one you are reading.**
+> The library and the scripts do not agree, and the scripts do **not** persist
+> `result["weights"]`; they recompute from the fitted coefficients.
+>
+> | # | Where | Formula | Clip |
+> |---|---|---|---|
+> | W1 | library, linear methods (`regression.py:29`) | `1 / max(1 + Σ_i a_i·t_i(p), 1e-6)` | `[1/20, 20]` |
+> | W2 | library, MCMC methods (`regression.py:951`) | `(1 + δ_g,clean(p)) / max(1 + δ_g,obs(p), 1e-6)` | `[1/20, 20]` |
+> | W3 | **both production scripts** | `1 / max(1 + Σ_i θ_i·t_i(p), 0.01)` | max weight 100 |
+>
+> W2 is the exact inverse of the forward model and cancels the contamination when
+> `(â, b̂) = (a, b)`; W1 is its first-order approximation. The FITS columns below are
+> written with **W3**, and `WEIGHT_COMB` uses `θ = b̂` alone — which equals W2 only
+> when `â ≈ 0`.
+
+| Column | Model | Written as |
 |---|---|---|
 | `WEIGHT_ADD` | Additive | `1 / max(1 + Σ_i a_i · t_i(p), 0.01)` |
 | `WEIGHT_COMB` | Combined | `1 / max(1 + Σ_i b_i · t_i(p), 0.01)` |
 | `WEIGHT_SYS` | Combined (recommended) | identical to `WEIGHT_COMB` |
+
+Note also that `compute_sys_weights.py` fits the **skew-normal** likelihood by
+default (`--no-skewed` to disable) while `run_ls10_analysis.py` is always Gaussian.
 
 ### `scripts/run_ls10_analysis.py`
 
@@ -381,10 +409,10 @@ pip install 'jax[cuda12_pip]' \
 
 ## Installation
 
-Install from [PyPI](https://pypi.org/project/sys-mapping/0.9/):
+Install from [PyPI](https://pypi.org/project/sys-mapping/1.2.0/):
 
 ```bash
-pip install sys-mapping==0.9
+pip install sys-mapping==1.2.0
 ```
 
 Or install from source:
@@ -404,10 +432,49 @@ pip install -e .
 pytest tests/ -v
 ```
 
+Expect **430 passed, 2 failed, 16 skipped**. The two failures are long-standing and
+live in `test_snr_preselection.py::TestMethodComparison` — a numerical edge case in the
+`poly_order=1` ISD path, tracked in `docs/roadmap.rst`.
+
 Test modules: `test_contamination`, `test_correction`, `test_likelihood`,
 `test_maps`, `test_inference`, `test_model_selection`, `test_bootstrap`,
 `test_power_spectrum`, `test_regression`, `test_diagnostics`, `test_mocks`,
-`test_real_templates`, `test_accuracy`, `test_benchmarks`, `test_timing`.
+`test_real_templates`, `test_accuracy`, `test_covariance`, `test_samplers`,
+`test_simulation`, `test_glass_mocks`, `test_snr_preselection`,
+`test_jax_acceleration`, `test_utils`, `test_ls10_script`.
+
+The timing and micro-benchmark modules moved to
+[`sys_mapping_benchmark`](https://github.com/JohanComparat/sys_mapping_benchmark);
+they contributed 259 cases to CI and asserted wall-clock budgets rather than
+correctness.
+
+---
+
+## Related repositories
+
+The paper and the benchmarks live in their own repositories, so this one stays the
+package and pipeline alone.
+
+| Repository | Contents |
+|---|---|
+| [`sys_mapping_benchmark`](https://github.com/JohanComparat/sys_mapping_benchmark) | timing harness, timing tests, and the algorithm-characterisation scripts |
+| `sys_mapping_paper` *(private)* | the LaTeX pipeline document: every equation traced to the code that evaluates it, plus the verification findings |
+
+Their **results** are documented here and render without either checkout:
+
+- [`docs/results_benchmark.rst`](docs/results_benchmark.rst) — how long each stage takes
+- [`docs/results_algorithm_characterisation.rst`](docs/results_algorithm_characterisation.rst) —
+  when correcting is worth it, how wrong the iid error bars are, and why the GLASS
+  calibration mocks are under-clustered
+
+To re-measure, clone the benchmark repository and point it back here:
+
+```bash
+git clone https://github.com/JohanComparat/sys_mapping_benchmark
+cd sys_mapping_benchmark && pip install -e ".[dev]"
+python benchmark/benchmark_pipeline.py --quick
+SYS_MAPPING_ROOT=~/software/sys_mapping python characterisation/run_crossterm_bias.py
+```
 
 ---
 
@@ -430,15 +497,18 @@ cd docs && make html
 |---|---|
 | `contamination` | `apply_contamination`, `invert_contamination`, `compute_two_point_correction`, `pack_params`, `unpack_params`, `n_free_params` |
 | `likelihood` | `make_log_likelihood` — factory returning a `@jax.jit` log-likelihood (Gaussian or skew-normal) |
+| `covariance` | `LowRankPrecision`, `build_lowrank_precision`, `mock_sandwich_covariance`, `sample_covariance`, `hartlap_factor`, `build_harmonic_precision` |
 | `maps` | `systematic_power_spectrum`, `generate_systematic_map`, `generate_systematic_maps`, `load_real_template`, `load_real_templates`, `pixelize_catalog`, `compute_overdensity`, `assign_template_values` |
 | `inference` | `make_log_prob`, `run_mcmc`, `run_additive_analytic`, `get_mle_params`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
 | `nuts` | `run_nuts` (BlackJAX NUTS), `build_logdensity`, `default_n_chains` |
 | `correction` | `debias_params` (Eq. 21), `rotate_templates` (App. A), `transform_params_from_rotated`, `correct_two_point_function`, `correct_power_spectrum_harmonic` |
-| `model_selection` | `likelihood_ratio_test` → `LikelihoodRatioResult` (Eq. 19) |
+| `model_selection` | `likelihood_ratio_test` → `LikelihoodRatioResult` (Eq. 19); `lrt_null_distribution` (mock-calibrated null), `snr_preselect`, `greedy_forward_select` |
 | `bootstrap` | `block_bootstrap_variance` — spatial block bootstrap via HEALPix coarsening (Sec. 6.2); `jackknife_covariance` |
 | `regression` | `elasticnet_contamination_fit`, `iterative_systematics_decontamination`, `method_comparison`, `run_decontamination` |
 | `diagnostics` | `null_test_cross_correlations`, `snr_template_ranking`, `footprint_mask_diagnostics` |
 | `mocks` | `generate_lognormal_field`, `make_galactic_mask`, `make_mock_catalog`, `make_mock_suite`, `MockCatalog` |
+| `glass_mocks` | `measure_nz`, `generate_glass_fullsky_mock`, `generate_glass_delta_map`, `sample_positions_from_delta` |
+| `simulation` | `ContaminationConfig`, `LEVELS`, `make_contamination_grid`, `load_uchuu_mock`, `load_systematic_maps`, `apply_footprint_mask`, `inject_systematics`, `run_wtheta_recovery` |
 | `power_spectrum` | `measure_pseudo_cl`, `subtract_template_cl`, `harmonic_bias`, `mode_projection_bias` |
 | `utils` | `compute_covariance_matrix` (Eq. 24), `compute_amplitude_bias` (Eq. 25-26), `measure_two_point_function` (Landy-Szalay via TreeCorr), `measure_two_point_function_corrfunc`, `measure_kk_correlation_treecorr`, `measure_kk_correlation_corrfunc` |
 | `plotting` | `METHOD_COLORS`, `METHOD_LINESTYLES`, `METHOD_MARKERS`, `METHOD_LABELS`, `METHOD_ORDER` — shared colorblind-safe palette constants |
@@ -498,12 +568,17 @@ Produced by `scripts/compute_sys_weights.py` or `scripts/run_ls10_analysis.py`:
   differs by the second-order term a·t·b·t, which is negligible for |a|, |b| ≪ 1.
 - **Jacobian sign**: the Gaussian likelihood subtracts `Σ ln|1+b·t|` (positive
   Jacobian of the forward map), consistent with Eq. 17.
-- **Skew-normal**: the CDF term is `Σ log Φ(γ·r/σ) = Σ log_ndtr(z)`, which
-  includes the `N·ln 2` from the `2/σ` prefactor. A previous version used
-  `Σ log_ndtr(√2·z)` (off by √2 in the erf argument); this is corrected in
-  commit `10c01d0`.
-- **Variance propagation through PCA**: `Var[a_orig] = Vᵀ · diag(Var[a_rot]) · V`
-  is correct when the rotated parameters are approximately uncorrelated.
+- **Skew-normal**: the residual is shifted by `ξ = −σ·δ·√(2/π)` with
+  `δ = γ/√(1+γ²)`, and that shifted residual `r = δ_g,clean − ξ` enters **both**
+  the Gaussian quadratic form and the CDF argument — not only the CDF, as the
+  short form `ln L_gauss + N ln2 + Σ log Φ(γ δ_g/σ)` suggests. The CDF term is
+  `Σ log Φ(γ·r/σ) = Σ log_ndtr(z)`, and the `N·ln 2` comes from the `2/σ`
+  prefactor. Verified against the SN(ξ, σ, γ) density term by term.
+- **Covariance propagation through PCA**: with `C = VDVᵀ`, `δ'_t = Vᵀ δ_t` and
+  `a = V a'`, the correct propagation is `Cov[a] = V · Cov[a'] · Vᵀ`, i.e.
+  `R.T @ cov_rot @ R` for `R = Vᵀ`. The code implements exactly this
+  (`regression.py:948`) and propagates the **full** covariance matrix, not just
+  its diagonal — no uncorrelated-parameter assumption is needed.
 
 ---
 

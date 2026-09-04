@@ -34,7 +34,8 @@ The single substitution :math:`\sqrt{N_{\rm gal}}\to\sqrt{N_{\rm eff}}` carries
 the shot-noise idealisation :math:`A_{\min}=\nu/\sqrt{N_{\rm gal}}` into the
 correlated-field reality. The field statistic is **VIF-free** (the recovered
 combination is well-constrained even when individual templates are collinear —
-the LS10 basis has condition number :math:`\sim10^8`), whereas the
+the standardised 11-template LS10 basis has second-moment condition number
+:math:`1.4\times10^{3}` at NSIDE 64, :math:`3.9\times10^{3}` at NSIDE 32), whereas the
 per-template amplitude carries a variance-inflation factor
 :math:`{\rm VIF}_i=1/\sqrt{1-R_i^2}`. This is the quantitative form of *judge by
 the field, not the name*.

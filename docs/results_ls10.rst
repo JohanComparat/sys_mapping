@@ -172,8 +172,19 @@ and worse than OLS in virtually every case.  **Do not use ISD-3 weights.**
   for all samples: the LRT strongly rejects the additive-only model and the
   combined correction removes degree-scale power that WEIGHT_ADD leaves behind.
 
-* **NSIDE 128 and 256** — :math:`\hat{\sigma}` rises above its NSIDE 64 minimum
-  because finer pixels contain fewer galaxies per pixel (higher Poisson noise).
+* **NSIDE 128 and 256** — :math:`\hat{\sigma}` rises steeply because finer pixels
+  contain fewer galaxies per pixel (higher Poisson noise).
+
+  .. note::
+     :math:`\hat{\sigma}` is **not** minimised at NSIDE 64.  It falls monotonically
+     toward coarse pixels and is smallest at **NSIDE 32 for seven of the nine
+     samples** (NSIDE 64 for log M* 10.5 and 10.75 only).  That is expected and
+     uninformative — coarser pixels average down Poisson noise, so :math:`\hat\sigma`
+     largely measures shot noise, not fit quality.  What it *does* diagnose is
+     failure: :math:`\hat\sigma > 1` marks a configuration that is absorbing shot
+     noise.  The NSIDE 64 recommendation rests on the three constraints listed under
+     :ref:`ls10-recommendations`, not on :math:`\hat\sigma`.
+
   At NSIDE 128 the combined model overfits for the two sparsest samples
   (:math:`\hat{\sigma}_{\rm comb} > 1` for log M* = 9.0 and 11.5).
   At NSIDE 256 overfitting extends to all sparse samples at both ends of the
@@ -232,7 +243,8 @@ means **no correction**, i.e. the weight column is exactly 1).  The ``MCMC-comb`
   ``WEIGHT_ENET`` for science** without re-tuning :math:`\alpha`.
 * **ISD-3 overfits hard.**  :math:`{\rm rms}|\hat a|` reaches **7.6** (log M* ≥ 9.5, NSIDE 32) —
   ~35× the OLS solution on the same data — and swings erratically from 0.34 to 7.6 across samples.
-  This is the collinear basis (condition number :math:`\sim10^8`) being inverted without adequate
+  This is the collinear basis (second-moment condition number :math:`3.9\times10^{3}` at NSIDE 32,
+  :math:`1.4\times10^{3}` at NSIDE 64) being inverted without adequate
   regularisation, and is why ISD-3 is excluded from the goodness-of-fit comparison above and is
   **not recommended for science**.
 * **The multiplicative amplitudes confirm the NSIDE-32 overfit independently.**

@@ -505,15 +505,36 @@ and :math:`b_i` jointly using the correct forward likelihood, but its
 ability to constrain :math:`b_i` depends on the signal-to-noise of the
 cross-term :math:`\delta_g b_i t_i` in the data.
 
-**Additive scenario.**  All five methods reduce the fractional bias in
-:math:`w(\theta)` substantially.  OLS and ISD-1 achieve the lowest residual
-bias because they fit the model that exactly describes the injected
-contamination and their correction weight
+.. warning::
+
+   **On the Uchuu mock the correction usually makes the** :math:`w(\theta)` **bias
+   worse.**  In ``nside0064/summary_table.csv``, **37 of the 45 Uchuu
+   method-cells have an improvement factor below 1** — i.e. the corrected
+   :math:`w(\theta)` is further from the truth than doing nothing at all — and
+   ``MCMC-comb`` is the worst method in almost every cell.  On the GLASS mocks,
+   where the injected contamination is far larger relative to the signal, only
+   14 of 45 cells degrade.  The prose below describes the *intended* behaviour of
+   each method; read it against the table, not instead of it.
+
+   The pattern is what the detectability law predicts: the Uchuu injections
+   produce a :math:`w(\theta)`-level contamination comparable to or below the
+   noise, and since the :math:`w(\theta)` signal grows as :math:`A^2` while the
+   fitted correction carries the full variance of :math:`\hat a`, "correcting"
+   adds more variance than it removes bias.  The competing explanation is that the
+   ``multiplicative`` *fit* model (which sets :math:`b=a` while retaining
+   :math:`a`) does not match the pure multiplicative form used by the *injector*.
+   Distinguishing the two is an open item; see :doc:`roadmap`.
+
+**Additive scenario.**  Where the injected amplitude is well above the detection
+threshold, OLS and ISD-1 achieve the lowest residual bias: they fit the model that
+exactly describes the injected contamination, and their correction weight
 :math:`w(p) = 1/(1 + \hat{a}\cdot t(p))` cancels the contamination field.
 MCMC-comb uses the exact pixel-level inverse
 :math:`w(p) = (1+\hat{\delta}_g^{\rm clean}(p))/(1+\delta_g^{\rm obs}(p))`
-which is also exact when parameters are correct; any overhead relative to
-OLS reflects residual posterior uncertainty in the MCMC chain.
+which is also exact when the parameters are correct; any overhead relative to
+OLS reflects residual posterior uncertainty in the MCMC chain.  At *low* injected
+amplitude on the Uchuu mock this ordering does not hold and every method degrades
+the measurement (see the warning above).
 
 **Multiplicative scenario.**  The additive-only methods (OLS, ISD-1,
 ElasticNet, MCMC-add) fit :math:`\hat{\alpha}_i \approx 0` for uncorrelated
@@ -531,9 +552,13 @@ additive component but leave the multiplicative term uncorrected.  At
 amplitudes :math:`|b_i| = 0.10` the residual multiplicative bias can
 exceed the original contamination bias, causing the net residual to be
 larger than the contaminated baseline.  MCMC-comb jointly constrains
-:math:`a_i` and :math:`b_i` and applies the exact inverse, providing the
-best available correction; however, at high amplitudes MCMC convergence
-may be incomplete within the default chain length.
+:math:`a_i` and :math:`b_i` and applies the exact inverse, which is the only
+method here that *can* remove the multiplicative term.  In practice, on the Uchuu
+mock it is the **worst** performer in almost every configuration: with
+:math:`2n_s+1` free parameters against a weak cross-term signal, the additional
+posterior variance it injects exceeds the bias it removes.  It is preferred only
+where the multiplicative contamination is strong enough to be constrained — which,
+on these mocks, is the GLASS high-amplitude cells.
 
 **GLASS vs Uchuu.**  The GLASS mock is a full-sky Poisson realisation
 whose true :math:`w(\theta)` is near zero (shot-noise dominated).  Any

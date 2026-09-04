@@ -736,7 +736,7 @@ for the LS10 BGS analysis (11 templates, NSIDE 32–256):
      - 4–73 s
      - Automatic template selection via cross-validated regularisation
    * - ISD-3
-     - 55–90 s
+     - 22–43 s
      - 100–190 s
      - n/a
      - Degree-3 polynomial expansion; **ill-conditioned** with correlated templates

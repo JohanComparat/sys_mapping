@@ -39,6 +39,8 @@ density maps.
    results_simulation_tests
    results_glass_simulation_tests
    results_snr_preselection
+   results_algorithm_characterisation
+   results_benchmark
 
 .. toctree::
    :maxdepth: 2
@@ -66,6 +68,7 @@ density maps.
    api/covariance
    api/maps
    api/inference
+   api/nuts
    api/correction
    api/model_selection
    api/bootstrap
@@ -76,9 +79,11 @@ density maps.
    api/mocks
    api/glass_mocks
    api/simulation
+   api/plotting
 
 .. toctree::
    :maxdepth: 1
    :caption: Development
 
+   roadmap
    changelog

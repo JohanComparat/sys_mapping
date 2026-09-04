@@ -13,6 +13,8 @@ reference see :doc:`bibliography`.
 
 ----
 
+.. _template-preselection:
+
 Template pre-selection (Stage 1)
 ---------------------------------
 
@@ -42,6 +44,12 @@ Three SNR ranking statistics are available
      - Per-template OLS :math:`|\hat\alpha_i|/\sigma_{\hat\alpha_i}` (*t*-statistic).
        Equivalent to :math:`|r|` up to a scaling; useful when template variances
        differ substantially.
+   * - ``"peak"``
+     - ~10 ms
+     - Peak of the cross pseudo-:math:`C_\ell` spectrum
+       :math:`\max_\ell |\hat C_\ell^{d t_i}|` divided by
+       :math:`{\rm median}_\ell |\hat C_\ell^{dd}|` as a noise proxy.  Identifies
+       templates that contaminate specific angular scales.
    * - ``"isd"``
      - ~10 ms (JAX)
      - ISD :math:`\Delta\chi^2` (Rodríguez-Monroy et al. 2025, Sec. IV.A.1):
@@ -305,6 +313,22 @@ standard-normal CDF, :math:`\gamma > 0` is the skewness shape parameter
 :math:`\mathbb{E}[\delta_g]=0` is maintained.
 Setting :math:`\gamma=0` recovers the Gaussian exactly.
 
+.. important::
+
+   The shift :math:`\xi` enters **both** terms: the Gaussian quadratic form is
+   evaluated at the shifted residual :math:`r = \delta_g - \xi` as well, not at
+   :math:`\delta_g`.  Writing the extension as
+   ":math:`\ln\mathcal{L}_{\rm Gauss} + N\ln 2 + \sum_p \ln\Phi(\gamma\delta_g/\sigma)`"
+   is therefore imprecise.  The implemented density is exactly
+   :math:`\prod_p (2/\sigma)\,\phi(r_p/\sigma)\,\Phi(\gamma r_p/\sigma)`, i.e.
+   :math:`{\rm SN}(\xi,\sigma,\gamma)`.  Note that :math:`\sigma` is the *scale*,
+   not the standard deviation:
+   :math:`{\rm Var}[\delta_g] = \sigma^2(1 - 2\delta^2/\pi)`.
+
+   Combining a non-trivial ``precision`` operator with ``use_skewed=True`` is **not**
+   a normalised density (it keeps :math:`2^N` and :math:`N` univariate :math:`\Phi`
+   factors beside a correlated quadratic form) and should be treated as a heuristic.
+
 **Technical implementation.**
 :func:`~sys_mapping.likelihood.make_log_likelihood` is a *factory*: it
 captures ``n_sys``, ``model``, and ``use_skewed`` as closed-over Python
@@ -369,12 +393,25 @@ posterior:
    p(\boldsymbol\Theta \mid \hat{\boldsymbol\delta}_g, \mathbf{T}) \propto
    \mathcal{L}(\boldsymbol\Theta)\,\pi(\boldsymbol\Theta)
 
-The prior on each :math:`a_i` and :math:`b_i` is a zero-mean Gaussian
-with unit variance, :math:`a_i \sim \mathcal{N}(0, 1)`,
-reflecting the expectation that contamination amplitudes are at most
-of order unity.  The noise parameter :math:`\sigma > 0` has a half-normal
-prior.  In the rotated template basis (see :ref:`Template PCA rotation`) the
-prior factorises across parameters, improving MCMC mixing.
+**The implemented prior is flat.**  :func:`~sys_mapping.inference.make_log_prob`
+applies *no* prior on the amplitudes and only a hard positivity floor on
+:math:`\sigma`:
+
+.. math::
+
+   \pi(a, b, \gamma) \propto 1 \quad\text{(improper, unbounded)},
+   \qquad
+   \pi(\sigma) \propto \mathbb{1}\left[\sigma > \sigma_{\min}\right],
+   \quad \sigma_{\min} = 10^{-6}.
+
+Optional zero-mean Gaussian priors on :math:`a` and :math:`b` exist in the NUTS
+log-density (``prior_scale_a`` / ``prior_scale_b`` in
+:func:`~sys_mapping.nuts.build_logdensity`) but default to ``None`` and are not used
+by the production pipeline.  Because the priors are flat, the posterior mode
+coincides with the maximum-likelihood point and the analytic additive posterior
+below is the standard *reference* posterior.  In the rotated template basis (see
+:ref:`Template PCA rotation`) the likelihood factorises across parameters,
+improving MCMC mixing.
 
 ``sys_mapping`` uses the **affine-invariant ensemble sampler**
 (`emcee <https://emcee.readthedocs.io>`_, Foreman-Mackey et al. 2013).
@@ -735,6 +772,23 @@ Solving for :math:`w_g(\theta)` and replacing :math:`a_i^2 \to \tilde{a}_i^2`,
    \hat{w}_{\rm corr}(\theta) =
    \frac{\hat{w}(\theta) - \sum_i \tilde{a}_i^2\,w_{t_i t_i}(\theta)}
         {1 + \sum_i \tilde{b}_i^2\,w_{t_i t_i}(\theta)}
+
+.. warning::
+
+   **Only template auto-correlations enter.**  The cross terms
+   :math:`\sum_{i\neq j} \tilde a_i \tilde a_j\, w_{t_i t_j}(\theta)` are dropped
+   from both this formula and :func:`~sys_mapping.utils.compute_amplitude_bias`
+   (which uses only :math:`C_{ii}`).  The PCA rotation diagonalises the template
+   covariance :math:`C = w_{tt}(0)` at **zero lag** — it does *not* make
+   :math:`w_{t_i t_j}(\theta) = 0` for :math:`\theta > 0`.  On a strongly
+   degenerate basis (the LS10 basis has condition number :math:`\sim 10^8`) this is
+   an uncontrolled approximation at non-zero lag.
+
+   Note also that the harmonic-space path
+   (:func:`~sys_mapping.power_spectrum.subtract_template_cl`) subtracts
+   :math:`\hat\alpha_i C_\ell^{t_i}`, **linear** in the amplitude, whereas this
+   configuration-space correction subtracts the **debiased square**
+   :math:`\tilde a_i^2 w_{t_i t_i}`.  The two are not transforms of one another.
 
 **When to use.** Apply this correction *after* measuring the raw
 :math:`w(\theta)` from the galaxy catalog and the template auto-correlations
@@ -1540,6 +1594,18 @@ adequately corrected.  Permutation p-values are computed by shuffling
 * ``"peak"`` — the peak value of the cross pseudo-:math:`C_\ell`
   :math:`\hat{C}_\ell^{dt_i}` divided by the noise level.  Identifies
   templates that contaminate on specific angular scales.
+
+* ``"isd"`` — the binned :math:`\Delta\chi^2` statistic of
+  Rodríguez-Monroy et al. 2025 described under
+  :ref:`Stage 1 <template-preselection>` above.  This is the only one of the four
+  that comes with a calibrated significance
+  (:func:`~sys_mapping.diagnostics.isd_template_significance`).
+
+.. note::
+
+   :func:`~sys_mapping.diagnostics.snr_template_ranking` implements **four**
+   statistics — ``"template"``, ``"data"``, ``"peak"`` and ``"isd"``.  A ranking is
+   not a detection: only the mock-calibrated ISD path yields a *p*-value.
 
 **Footprint masking sensitivity.** Cutting the survey at different
 mask thresholds (progressively removing pixels with extreme template values)

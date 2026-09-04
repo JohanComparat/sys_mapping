@@ -10,7 +10,7 @@ readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.11"
 authors = [
-    {name = "Johan Comparat", email = "johan.comparat@pm.me"},
+    {name = "Johan Comparat", email = "jcomparat@lpsc.in2p3.fr"},
 ]
 keywords = ["astronomy", "galaxy clustering", "systematic effects", "HEALPix", "MCMC", "decontamination"]
 classifiers = [

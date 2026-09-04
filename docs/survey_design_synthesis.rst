@@ -77,7 +77,8 @@ Generalised rules of thumb
    scale, whichever comes first; finer resolves more modes but buys nothing once
    shot-limited, and coarser than the systematic washes out its signal.
 #. **Detect the field, not the map:** the field statistic is VIF-free; individual
-   collinear templates (cond :math:`\sim10^8` for the LS10 basis) are not
+   collinear templates (cond :math:`\approx1.4\times10^{3}` for the standardised LS10
+   basis at NSIDE 64) are not
    identifiable. Calibrate per-template SNR with the sandwich (iid is
    :math:`\sim2\times` optimistic).
 #. **Use the field regression, not** :math:`w(\theta)`, **to detect:** the

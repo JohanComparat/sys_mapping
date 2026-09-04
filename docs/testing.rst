@@ -25,9 +25,9 @@ Run tests that require scikit-learn (skipped otherwise)::
    pip install scikit-learn
    pytest tests/test_regression.py -v
 
-Run performance benchmarks (slow; uses ``--benchmark`` marker)::
-
-   pytest tests/test_benchmarks.py -v
+Timing benchmarks live in the separate
+`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
+repository; see :doc:`results_benchmark` for the measurements.
 
 ----
 
@@ -88,16 +88,6 @@ Test modules
      - :mod:`~sys_mapping.mocks` — lognormal field properties (skewness,
        positivity, reproducibility), galactic mask geometry, mock catalog
        shapes and physics, suite scenarios, pipeline integration
-   * - ``test_benchmarks.py``
-     - 19
-     - Execution time regression: contamination, maps, likelihood,
-       correction, and utils must complete within set thresholds
-   * - ``test_timing.py``
-     - 240
-     - Wall-clock scaling of all six methods as a function of NSIDE
-       (8, 16, 32, 64) and n_templates (1–10); 40 configs × 4 NSIDE
-       values = 160 tests per fast method; MCMC tests marked
-       ``@pytest.mark.slow`` (skip with ``-m "not slow"``)
    * - ``test_real_templates.py``
      - 28
      - Integration tests using real GAIA and LS DR10 HEALPix maps as
@@ -145,11 +135,14 @@ The test suite is designed to run in the ``sys_map`` conda environment::
 
 Expected output with scikit-learn and real data files present::
 
-   258 passed in ~34 s
+   430 passed, 2 failed, 16 skipped in ~100 s
 
-Without real data files (no GAIA/LS10 FITS)::
+The two failures are long-standing and live in
+``test_snr_preselection.py::TestMethodComparison`` — a numerical edge case in the
+``poly_order=1`` ISD path.  They are tracked in :doc:`roadmap`; a green run today
+means *those two and no others*.
 
-   230 passed in ~21 s
+Without the real data files (no GAIA/LS10 FITS) a further ~10 tests skip.
 
 ----
 
@@ -188,24 +181,11 @@ per method-configuration row, and two timing figures are written to
 Timing scaling tests
 ---------------------
 
-``tests/test_timing.py`` parametrises all six methods over NSIDE ∈ {8, 16, 32, 64}
-and n_templates ∈ {1, …, 10}, measuring actual wall-clock time for each
-(NSIDE, n_templates) pair.  MCMC tests are marked ``@pytest.mark.slow`` and
-can be skipped::
+Timing and micro-benchmark modules have moved to
+`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_,
+where they no longer add 259 cases to this package's CI.  Their results are
+documented in :doc:`results_benchmark`.
 
-   pytest tests/test_timing.py -v -s -m "not slow"   # OLS / ElasticNet / ISD only
-   pytest tests/test_timing.py -v -s                  # all methods (slow)
-
-The ``-s`` flag is required to see the per-test timing printed to stdout.
-Each test asserts that the method completes within a generous wall-clock bound
-(30 s for OLS/ISD, 120 s for ElasticNet/ISD-3, 600 s for MCMC), so the suite
-fails only if a method becomes catastrophically slow.  Use the stdout output for
-the actual scaling data.
-
-Expected test count: 40 (NSIDE × n_templates) per method class × 6 classes = 240 tests
-(excluding MCMC slow tests from the default run: 160 fast tests).
-
-----
 
 Adding new tests
 -----------------
@@ -384,7 +364,8 @@ present) against the current codebase.
 
 **Results:**
 
-* **258 passed, 0 failed, 0 errors** (excluding ``test_timing.py``)
+* **430 passed, 2 failed, 16 skipped** — the two failures are long-standing,
+  in ``test_snr_preselection.py::TestMethodComparison`` (see :doc:`roadmap`)
 * ``test_real_templates.py`` — **28 passed** using real GAIA DR3 and LS10 DR10
   systematic maps; all six methods completed without error on the 5 954-pixel
   LS10 footprint.
