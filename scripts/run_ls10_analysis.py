@@ -59,6 +59,49 @@ def _parse_z_range(sample_id: str) -> tuple[float, float]:
     return 0.05, 0.35  # BGS fallback
 
 
+def expand_preselected_params(
+    params: np.ndarray,
+    n_sys: int,
+    presel_indices: list[int] | None,
+    label: str = "",
+) -> np.ndarray:
+    """Map fitted amplitudes back onto the full template basis.
+
+    With ``--preselect`` only ``delta_t[presel_indices]`` is fitted, so ``a_hat`` /
+    ``b_hat`` come back with length ``len(presel_indices) < n_sys`` while the weight
+    map is built against all ``n_sys`` templates.  The selected amplitudes are
+    scattered into a full-length vector; unselected templates carry amplitude 0.
+
+    Discarding the short vector instead (the previous behaviour) drove the
+    contamination field to 0 and therefore wrote ``w = 1`` — no correction at all —
+    into *every* method column of the weights FITS, silently.
+
+    Parameters
+    ----------
+    params : ``(n_sys,)`` or ``(len(presel_indices),)`` fitted amplitudes.
+    n_sys : number of templates the weight map is built from.
+    presel_indices : indices selected by Stage 1, or ``None`` when not pre-selecting.
+    label : identifier used in the warning message for an unusable shape.
+
+    Returns
+    -------
+    ``(n_sys,)`` amplitude vector.
+    """
+    params = np.asarray(params, dtype=float)
+    if params.shape == (n_sys,):
+        return params
+    if presel_indices is not None and params.shape == (len(presel_indices),):
+        full = np.zeros(n_sys)
+        full[np.asarray(presel_indices, dtype=int)] = params
+        return full
+    warnings.warn(
+        f"{label or 'params'}: shape {params.shape} matches neither the full basis "
+        f"({n_sys},) nor the pre-selected subset; writing unit weights.",
+        stacklevel=2,
+    )
+    return np.zeros(n_sys)
+
+
 # ── Template loading ───────────────────────────────────────────────────────
 
 def load_templates_from_dir(template_dir, nside):
@@ -92,7 +135,7 @@ def synthetic_templates(nside, n_families=5, seed=0):
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
-                   k_start=0):
+                   k_start=0, cl_amplitude=5e-4):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -107,6 +150,12 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     :func:`~sys_mapping.diagnostics.isd_template_significance`
     (``n_total = n_total_footprint × n_full_pix / n_good_pix``), and the overdensity is reconstructed
     on ``good_pix``.
+
+    ``cl_amplitude`` sets the **clustering power** of the null.  The default ``5e-4``
+    matches the data's surface density (hence shot noise) but under-clusters it by a
+    factor ~25 in variance, which makes the null too narrow and the resulting p-value
+    anticonservative.  Fit it per sample to the measured ``sigma_hat`` and pass it via
+    ``--lrt-null-cl-amplitude``.
     """
     from sys_mapping.glass_mocks import generate_glass_fullsky_mock
     n_full = hp.nside2npix(nside)
@@ -117,7 +166,8 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     mock_fields = np.empty((n_good, n_mocks))
     for i, k in enumerate(range(k_start, k_start + n_mocks)):
         cat = generate_glass_fullsky_mock(nside, n_total, z_edges, nz,
-                                          seed=seed + k, rand_factor=rand_factor)
+                                          seed=seed + k, rand_factor=rand_factor,
+                                          cl_amplitude=cl_amplitude)
         ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good_pix].astype(float)
         nr = sm.pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)[good_pix].astype(float)
         norm = ng.sum() / max(nr.sum(), 1e-9)
@@ -175,7 +225,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         target - m, nside, good_pix, delta_t,
         np.array([_z_min, _z_max]), np.array([float(n_total_footprint)]), n_total_footprint,
         args.lrt_null_seed, args.sampler, args.nuts_warmup, args.nuts_samples, args.n_chains,
-        k_start=m,
+        k_start=m, cl_amplitude=args.lrt_null_cl_amplitude,
     )
     merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
     n_ge = int(np.sum(merged >= lam))
@@ -184,6 +234,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         "p_value": float(p_mock),
         "reject_null": bool(p_mock < 0.05),
         "n_null": int(merged.size),
+        "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
         "null_lambda_mean": float(np.mean(merged)),
         "null_lambda_max": float(np.max(merged)),
         "null_lambda": [float(x) for x in merged],
@@ -721,6 +772,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 args.lrt_null_mocks, nside, good_pix, delta_t, _lrt_z_edges, _lrt_nz,
                 int(len(ra_gal)), args.lrt_null_seed, args.sampler,
                 args.nuts_warmup, args.nuts_samples, args.n_chains,
+                cl_amplitude=args.lrt_null_cl_amplitude,
             )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
@@ -793,9 +845,10 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     fits_cols = []
     for _mw, _pk, _cn in _METHOD_COL_W:
         _rw = all_method_results.get(_mw, {})
-        _pw = np.asarray(_rw.get(_pk, np.zeros(n_sys)))
-        if _pw.shape != (n_sys,):
-            _pw = np.zeros(n_sys)
+        _pw = expand_preselected_params(
+            np.asarray(_rw.get(_pk, np.zeros(n_sys))),
+            n_sys, _presel_indices, label=f"{_mw}.{_pk}->{_cn}",
+        )
         _cont = np.einsum("i,ij->j", _pw, templates)
         _wm = np.ones(n_pix)
         _wm[good_pix] = 1.0 / np.maximum(1.0 + _cont[good_pix], 0.01)
@@ -841,6 +894,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             # χ² p for comparison + the empirical null summary (present when mock-calibrated)
             "p_chi2": float(_chi2.sf(lrt.lambda_lr, df=lrt.n_dof)),
             "n_null": (int(np.size(_null_lambda)) if _null_lambda is not None else 0),
+            "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
             "null_lambda_mean": (float(np.mean(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda_max": (float(np.max(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda": ([float(x) for x in np.asarray(_null_lambda)]
@@ -1362,6 +1416,12 @@ def main():
                              "mocks (fit additive+combined per mock) instead of the Wilks chi^2 — "
                              "the correlated field inflates the chi^2 statistic, so the default "
                              "p-value is overconfident. HEAVY (a full fit per mock): remote job.")
+    parser.add_argument("--lrt-null-cl-amplitude", type=float, default=5e-4,
+                        help="C_ell amplitude of the GLASS mocks forming the LRT null. "
+                             "The default 5e-4 matches the data's surface density but "
+                             "under-clusters it ~25x in variance, making the null too "
+                             "narrow and the p-value anticonservative. Fit it per sample "
+                             "to the measured sigma_hat (calibrate_glass_clustering.py).")
     parser.add_argument("--lrt-null-seed", type=int, default=90000,
                         help="Base seed for the --lrt-null-mocks ensemble.")
     parser.add_argument("--resume-null", action="store_true",

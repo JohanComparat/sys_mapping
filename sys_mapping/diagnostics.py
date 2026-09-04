@@ -52,19 +52,38 @@ if _JAX_AVAILABLE:
         return jnp.clip(jnp.searchsorted(edges[1:-1], t_i, side="right").astype(jnp.int32),
                         0, n_bins - 1)
 
+    # Per-bin inverse variance, shared by both ISD kernels.
+    #
+    # The centred (two-pass) form is REQUIRED.  The algebraically equivalent
+    # E[g²] - E[g]² is what this code used to do, and under jit XLA contracts it
+    # into an FMA whose rounding returns ~1.5e-20 instead of exactly 0 for a bin
+    # holding a single pixel.  That squeaked past a `> 1e-20` guard and gave the
+    # bin an inverse variance of ~7e19, which swamped the whole chi²: a pure-noise
+    # template scored 6e17 against 389 for a genuinely contaminated one.  Eagerly
+    # the same expression returns exactly 0.0, so the bug appeared only in the
+    # compiled path and moves with the XLA version.
+    #
+    # Two further conditions make the test mean what it says: a bin holding one
+    # pixel carries no variance information whatever the arithmetic reports, and
+    # the floor is taken relative to the field's own scatter so it is scale-free.
+    # This matches the NumPy fallback in `snr_template_ranking`, which uses
+    # np.std (two-pass) and drops degenerate bins.
+    def _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar):
+        g_var = jnp.zeros(n_bins).at[bin_idx].add((g - g_mean[bin_idx]) ** 2) / n_b
+        g_var_floor = 1e-12 * jnp.mean((g - g_bar) ** 2)
+        valid = (count >= 2) & (g_var > g_var_floor)
+        inv_s2 = jnp.where(valid, n_b / jnp.where(valid, g_var, 1.0), 0.0)
+        return inv_s2, valid
+
     def _isd_core(t_i, g, bin_idx, n_bins):
         g_bar = g.mean()
         count  = jnp.zeros(n_bins).at[bin_idx].add(1)
         g_sum  = jnp.zeros(n_bins).at[bin_idx].add(g)
         t_sum  = jnp.zeros(n_bins).at[bin_idx].add(t_i)
-        g2_sum = jnp.zeros(n_bins).at[bin_idx].add(g ** 2)
-        valid  = count > 0
         n_b    = count.clip(min=1)
         g_mean = g_sum / n_b
         t_mean = t_sum / n_b
-        g_var  = g2_sum / n_b - g_mean ** 2
-        inv_s2 = jnp.where(valid & (g_var > 1e-20),
-                            n_b / jnp.maximum(g_var, 1e-20), 0.0)
+        inv_s2, valid = _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar)
         chi2_null = jnp.sum(inv_s2 * (g_mean - g_bar) ** 2)
         W   = inv_s2
         S   = W.sum();   Ss  = (W * t_mean).sum();  Sn  = (W * g_mean).sum()
@@ -72,7 +91,8 @@ if _JAX_AVAILABLE:
         alpha = (S * Ssn - Ss * Sn) / (S * Sss - Ss ** 2 + 1e-30)
         beta  = (Sn - alpha * Ss) / (S + 1e-30)
         chi2_model = jnp.sum(inv_s2 * (g_mean - (alpha * t_mean + beta)) ** 2)
-        return jnp.maximum(chi2_null - chi2_model, 0.0)
+        return jnp.where(jnp.sum(valid) < 2, 0.0,
+                         jnp.maximum(chi2_null - chi2_model, 0.0))
 
     _jax_isd_cache: dict[tuple[int, bool], object] = {}
 
@@ -104,14 +124,14 @@ if _JAX_AVAILABLE:
         wg_b = jnp.zeros(n_bins).at[bin_idx].add(w * g)      # Σ w g
         cnt  = jnp.zeros(n_bins).at[bin_idx].add(1.0)        # pixel count
         g1   = jnp.zeros(n_bins).at[bin_idx].add(g)          # Σ g   (unweighted)
-        g2   = jnp.zeros(n_bins).at[bin_idx].add(g ** 2)     # Σ g²  (unweighted)
 
         s_arr = wt_b / jnp.maximum(W_b, 1e-30)               # weighted t mean
         n_arr = wg_b / jnp.maximum(W_b, 1e-30)               # weighted g mean
-        g_mean_uw = g1 / jnp.maximum(cnt, 1.0)
-        g_var = g2 / jnp.maximum(cnt, 1.0) - g_mean_uw ** 2
-        valid = (W_b > 1e-30) & (cnt >= 1) & (g_var > 1e-20)
-        inv_s2 = jnp.where(valid, cnt / jnp.maximum(g_var, 1e-20), 0.0)
+        n_b_uw = jnp.maximum(cnt, 1.0)
+        g_mean_uw = g1 / n_b_uw
+        inv_s2, ok = _bin_inv_var(g, bin_idx, n_bins, cnt, n_b_uw, g_mean_uw, g_bar)
+        valid = (W_b > 1e-30) & ok
+        inv_s2 = jnp.where(valid, inv_s2, 0.0)
 
         chi2_null = jnp.sum(inv_s2 * (n_arr - g_bar) ** 2)
 
@@ -600,8 +620,19 @@ def isd_template_significance(
     rand_factor: int = 10,
     n_jobs: int = 1,
     binning: str = "width",
+    cl_amplitude: float = 5e-4,
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
+
+    .. warning::
+       ``cl_amplitude`` sets the clustering power of the null.  The default
+       ``5e-4`` reproduces the data's *surface density* (hence its shot noise) but
+       gives :math:`\\sigma_{\\rm clus} \\approx 0.08` against LS10's
+       :math:`\\approx 0.39` --- 25x too little clustering variance.  A null that
+       under-clusters is too narrow, so the p-values it yields remain
+       anticonservative.  Fit the amplitude to the sample's measured
+       :math:`\\hat\\sigma` (see ``calibrate_glass_clustering.py`` in the
+       sys_mapping_benchmark repository) and pass it here.
 
     For each template map, computes the ISD contamination metric
     :math:`\\Delta\\chi^2 = \\chi^2_{\\rm null} - \\chi^2_{\\rm model}` on the
@@ -726,7 +757,7 @@ def isd_template_significance(
         """Δχ² of a single systematic-free GLASS mock (mock ``k`` uses seed+k)."""
         cat = generate_glass_fullsky_mock(
             nside, n_total, z_edges, nz, seed=seed + k,
-            rand_factor=rand_factor,
+            rand_factor=rand_factor, cl_amplitude=cl_amplitude,
         )
         n_gal_full = pixelize_catalog(cat["ra"], cat["dec"], nside)
         n_rand_full = pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)
