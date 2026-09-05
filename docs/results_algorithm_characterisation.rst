@@ -126,73 +126,81 @@ reports:
    \kappa_i = \frac{\sigma^{\rm emp}[\hat a_i]}{\sigma^{\rm iid}[\hat a_i]}
 
 **Control.**  On pure-Poisson maps — the regime where the iid likelihood is valid —
-:math:`\kappa = 0.95`–:math:`1.05` and FPR(3σ) = 0–3 % across the whole grid.  The
-measurement is sound.
+:math:`\kappa` lands in :math:`[0.987, 1.021]` across **all twenty** cells and the
+per-template FPR(3σ) has median 0.26 % against a nominal 0.27 %.  The measurement is
+sound, which is what licenses the rest of this section.
 
-**Clustered fields** (:math:`\sigma_{\rm clus}=0.4`, matching LS10):
+**Clustered fields**, at the package default spectrum (:math:`\alpha = 2`) and
+:math:`\sigma_{\rm clus} = 0.4`, from 2000 realisations per cell:
 
 .. list-table::
    :header-rows: 1
-   :widths: 12 12 16 16 16
+   :widths: 14 14 14 14 14 14
 
    * - NSIDE
-     - :math:`n_s`
-     - :math:`\kappa` per template
-     - :math:`\kappa` field
-     - FPR (3σ)
+     - :math:`n_s=3`
+     - :math:`n_s=5`
+     - :math:`n_s=7`
+     - :math:`n_s=9`
+     - :math:`n_s=11`
    * - 32
-     - 1
-     - 8.9
-     - 8.9
-     - 73.5 %
-   * - 32
-     - 5
-     - 5.4
-     - 6.3
-     - 99.0 %
-   * - 32
-     - 11
-     - 3.4
-     - 5.2
-     - 100 %
+     - 7.41
+     - 6.53
+     - 6.50
+     - 5.88
+     - 5.30
    * - 64
-     - 1
-     - 18.4
-     - 18.4
-     - 84.0 %
-   * - 64
-     - 5
-     - 9.1
-     - 10.9
-     - 100 %
-   * - 64
-     - 11
-     - 5.3
-     - 8.8
-     - 100 %
+     - 12.94
+     - 11.09
+     - 10.75
+     - 9.80
+     - 8.76
 
-Two trends: the inflation **grows with resolution** (finer pixels resolve more of the
-clustering the iid model calls noise) and **shrinks with template count** (more
-templates absorb more of it into the model).
+(:math:`\kappa` field.)  So the reported error is **5–13× too tight** at the default
+spectrum, and 2–23× across the full range of spectra tested.  Two trends: the
+inflation **grows with resolution** (finer pixels resolve more of the clustering the
+iid model calls noise) and **shrinks with template count** (more templates absorb more
+of it into the model).  The FPR for *any* of the :math:`n_s` templates is 96–100 % at
+NSIDE 32 and 99–100 % at NSIDE 64.
 
-**It depends strongly on the assumed clustering spectrum.**  Scanning
+**It is almost independent of the clustering amplitude.**  Doubling
+:math:`\sigma_{\rm clus}` from 0.2 to 0.4 moves :math:`\kappa` by under 5 % in every
+cell (7.09 → 7.41 at NSIDE 32, :math:`n_s=3`; 10.29 → 10.75 at NSIDE 64,
+:math:`n_s=7`).  What sets the inflation is the *shape* of the clustering, not how
+much of it there is.
+
+**It depends strongly on that shape.**  Scanning
 :math:`C_\ell \propto (\ell+1)^{-\alpha}` at NSIDE 64, :math:`n_s=11`:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 20 20 20
+   :widths: 20 16 16 16 16 16
 
    * - :math:`\alpha`
+     - 1.0
      - 1.5
+     - 2.0
      - 2.5
-     - 4.0
-   * - :math:`\kappa` per template
-     - 3.2
-     - 7.2
-     - 13.1
+     - 3.0
+   * - :math:`\kappa` field
+     - 2.73
+     - 5.10
+     - 8.76
+     - 12.80
+     - 16.10
 
 so :math:`\kappa` must always be quoted with the spectrum it was measured on.  The
-FPR exceeds 99 % at every slope tested, though — that conclusion is robust.
+FPR exceeds 96 % at every slope tested, though — that conclusion is robust.
+
+.. note::
+
+   These numbers supersede an earlier six-cell grid measured at
+   :math:`n_{\rm real} = 150`, whose source data was overwritten before it could be
+   committed.  The present 100-cell run reproduces it where the two overlap
+   (:math:`\alpha = 2`, :math:`\sigma_{\rm clus} = 0.4`) to within 1–4 % at every
+   shared cell.  The earlier grid also quoted :math:`n_s = 1`, which the new grid does
+   not cover, so the old headline of ":math:`\kappa` up to 18.4" is not reproduced
+   here and has been dropped rather than carried forward unverified.
 
 ----
 
@@ -229,7 +237,8 @@ Generating a mock exactly as the pipeline does for the fiducial LS10 sample
      - 0.0777
 
 The shot noise matches to four digits — the footprint matching works exactly as
-designed.  But the **clustering variance is 25× too low** (5× in :math:`\sigma`), and
+designed.  But for this cell at the package default the **clustering variance is 25×
+too low** (5× in :math:`\sigma`), and
 the mock's total scatter is 3.4× smaller than the data's.  The mocks therefore sit
 close to the shot-noise-dominated regime **where the iid likelihood is valid** —
 precisely the regime the real data is not in.
@@ -263,10 +272,83 @@ wide margin) but it does mean the margin is overstated.
      - **0.3864**
      - **1.00×**
 
-``cl_amplitude = 3.8e-2`` — a factor **76** above the package default — reproduces the
-LS10 field to better than 1 %.  The amplitude is sample- and resolution-dependent, so
-it should be fitted per sample from the measured :math:`\hat\sigma` rather than
-hard-coded.
+The scan above is a single cell.  Root-finding the amplitude properly — over all nine
+samples at four resolutions with five seeds each, 180 fits — shows it is **not one
+number to correct once**:
+
+.. list-table:: Fitted ``cl_amplitude`` (median over converged seeds)
+   :header-rows: 1
+   :widths: 20 20 20 20 20
+
+   * - :math:`\log M_\star \ge`
+     - NSIDE 32
+     - NSIDE 64
+     - NSIDE 128
+     - NSIDE 256
+   * - 9.00
+     - 0.1038
+     - 0.0922
+     - 0.0791
+     - —
+   * - 9.50
+     - 0.0813
+     - 0.0603
+     - 0.0692
+     - —
+   * - 10.00
+     - 0.0534
+     - 0.0363
+     - 0.0432
+     - 0.0395
+   * - 10.25
+     - 0.0431
+     - 0.0269
+     - 0.0327
+     - 0.0313
+   * - 10.50
+     - 0.0386
+     - 0.0212
+     - 0.0261
+     - 0.0244
+   * - 10.75
+     - 0.0343
+     - 0.0168
+     - 0.0203
+     - —
+   * - 11.00
+     - 0.0314
+     - 0.0169
+     - 0.0195
+     - —
+   * - 11.25
+     - 0.0351
+     - 0.0198
+     - —
+     - —
+   * - 11.50
+     - 0.0431
+     - 0.0005
+     - —
+     - —
+
+Median over the 143 converged fits is 3.4e-2, a factor **69** above the default, with
+1–5 % seed-to-seed scatter — so the spread across the table is real.  Three things
+matter more than the median:
+
+* The amplitude tracks how much of each sample's variance is clustering rather than
+  shot noise, not the stellar mass as such.
+* The :math:`\log M_\star \ge 11.5`, NSIDE 64 cell needs **no** correction: at
+  :math:`\bar n = 5.6` galaxies per pixel the default already reproduces the measured
+  :math:`\sigma_{\rm clus}` to 1 %.  A single global rescaling would have
+  over-clustered exactly the samples that were already right.
+* The dashes are a limit of the method, not gaps in the run: all 37 non-converged fits
+  lie at NSIDE ≥ 128, where these samples fall below roughly five galaxies per pixel
+  and the mock's shot noise alone exceeds the target scatter, so no amplitude
+  reproduces it.  At NSIDE 32 and 64 — where the calibrated statistics are actually
+  evaluated — the grid is complete.
+
+:func:`~sys_mapping.diagnostics.isd_template_significance` and the LRT null builder
+both accept ``cl_amplitude``, so the fitted value can be passed per sample.
 
 ----
 
