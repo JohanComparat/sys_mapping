@@ -5,8 +5,8 @@ Benchmarks: how long each stage takes
    Generated from ``docs/_static/benchmark/benchmarks.csv`` by
    ``docs/generate_benchmark_page.py``.  The measurements are produced by the
    `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-   repository, which is kept separate so this package's CI does not carry 259
-   timing cases.
+   repository, which is kept separate so this package's CI does not carry the
+   168 timing cases below.
 
 Provenance
 ----------
@@ -103,10 +103,11 @@ Reading these
   evaluations because **each call compiles two new likelihood functions**.
   Build them once with :func:`~sys_mapping.likelihood.make_log_likelihood` and
   difference them directly if you are testing repeatedly.
-* Stage 2 spans **five orders of magnitude**, from OLS to MCMC-comb.  This is
-  why :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs
+* Stage 2 spans **6.4 orders of magnitude**, from the fastest
+  method to the slowest.  This is why
+  :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs
   the methods fastest-first and can checkpoint after the fast phase.
-* Stage 1 is sub-millisecond for every statistic, so pre-selection cost is
-  entirely in the GLASS mock null, which is embarrassingly parallel
-  (``preselect_n_jobs``).
+* Stage 1 ranking costs between 137 µs and 4.26 ms per
+  call, so pre-selection cost is dominated by the GLASS mock null, which is
+  embarrassingly parallel (``preselect_n_jobs``).
 

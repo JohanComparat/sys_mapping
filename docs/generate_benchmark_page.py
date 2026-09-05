@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import json
+import math
 from collections import defaultdict
 from pathlib import Path
 
@@ -41,10 +42,18 @@ def fmt(seconds: float) -> str:
 
 def main() -> None:
     rows = list(csv.DictReader((SNAP / "benchmarks.csv").open()))
+    # The harness records a failed cell as a row with empty timings rather than
+    # dropping it, so these must parse to nan instead of raising.
+    def _num(value, cast=float, default=float("nan")):
+        try:
+            return cast(value)
+        except (TypeError, ValueError):
+            return default
+
     for r in rows:
-        r["median_s"] = float(r["median_s"])
-        r["nside"] = int(r["nside"])
-        r["n_sys"] = int(r["n_sys"])
+        r["median_s"] = _num(r["median_s"])
+        r["nside"] = _num(r["nside"], int, 0)
+        r["n_sys"] = _num(r["n_sys"], int, 0)
     m = json.loads((SNAP / "machine.json").read_text())
     v = m.get("versions", {})
     load = m.get("loadavg_at_start", [float("nan")])[0]
@@ -59,8 +68,8 @@ def main() -> None:
     add("   Generated from ``docs/_static/benchmark/benchmarks.csv`` by")
     add("   ``docs/generate_benchmark_page.py``.  The measurements are produced by the")
     add("   `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_")
-    add("   repository, which is kept separate so this package's CI does not carry 259")
-    add("   timing cases.")
+    add(f"   repository, which is kept separate so this package's CI does not carry the")
+    add(f"   {len(rows)} timing cases below.")
     add("")
     add("Provenance")
     add("----------")
@@ -122,12 +131,26 @@ def main() -> None:
     add("  evaluations because **each call compiles two new likelihood functions**.")
     add("  Build them once with :func:`~sys_mapping.likelihood.make_log_likelihood` and")
     add("  difference them directly if you are testing repeatedly.")
-    add("* Stage 2 spans **five orders of magnitude**, from OLS to MCMC-comb.  This is")
-    add("  why :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs")
-    add("  the methods fastest-first and can checkpoint after the fast phase.")
-    add("* Stage 1 is sub-millisecond for every statistic, so pre-selection cost is")
-    add("  entirely in the GLASS mock null, which is embarrassingly parallel")
-    add("  (``preselect_n_jobs``).")
+    # Derive these two from the measurements.  They were previously asserted as
+    # literals ("five orders of magnitude", "sub-millisecond for every
+    # statistic") and the second was already false against the committed CSV.
+    def _finite(group):
+        return [r["median_s"] for r in rows
+                if r["group"] == group and math.isfinite(r["median_s"])
+                and r["median_s"] > 0]
+
+    s2 = _finite("stage2")
+    if s2:
+        decades = math.log10(max(s2) / min(s2))
+        add(f"* Stage 2 spans **{decades:.1f} orders of magnitude**, from the fastest")
+        add("  method to the slowest.  This is why")
+        add("  :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs")
+        add("  the methods fastest-first and can checkpoint after the fast phase.")
+    s1 = _finite("stage1")
+    if s1:
+        add(f"* Stage 1 ranking costs between {fmt(min(s1))} and {fmt(max(s1))} per")
+        add("  call, so pre-selection cost is dominated by the GLASS mock null, which is")
+        add("  embarrassingly parallel (``preselect_n_jobs``).")
     add("")
     OUT.write_text("\n".join(L) + "\n")
     print(f"wrote {OUT} ({len(rows)} measurements, {len(configs)} configurations)")

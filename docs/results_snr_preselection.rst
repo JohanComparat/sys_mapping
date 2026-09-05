@@ -46,6 +46,27 @@ Three ranking statistics are implemented (see :mod:`sys_mapping.diagnostics`):
 A fourth optional statistic, ``"peak"``, ranks templates by the peak amplitude
 of the cross-power spectrum :math:`C_\ell^{gT}`.
 
+.. warning::
+
+   The per-bin variance in the ``"isd"`` statistic is accumulated in **centred
+   two-pass** form.  The algebraically equivalent
+   :math:`\langle\delta^2\rangle - \langle\delta\rangle^2` must not be used: under
+   ``jax.jit`` XLA contracts it into a fused multiply-add whose rounding returns
+   :math:`\sim10^{-20}` rather than zero for a bin holding one pixel, which then
+   passes a small-positive guard and contributes an inverse variance of
+   :math:`\sim10^{19}`, swamping the whole :math:`\Delta\chi^2`.  Three guards
+   follow from this and are enforced in both JAX kernels: a bin needs
+   :math:`N_\beta \ge 2` pixels, its variance must exceed :math:`10^{-12}` times
+   the variance of :math:`\delta_g` over the footprint (a floor relative to the
+   field's own scatter, not an absolute constant), and :math:`\Delta\chi^2` is
+   zero when fewer than two bins survive.  The kernels reproduce the NumPy
+   fallback in the same function to :math:`4\times10^{-15}`.
+
+   The figures on this page were regenerated against the fixed kernels and are
+   byte-identical to the previous version: the synthetic templates here sit on a
+   well-populated footprint that never produces a bin with fewer than two pixels.
+   The defect was visible only on the real, skewed LS10 templates.
+
 For a rigorous significance test, :func:`sys_mapping.diagnostics.isd_template_significance`
 compares :math:`\Delta\chi^2_\mathrm{data}` against a distribution of
 :math:`\Delta\chi^2_\mathrm{mock}` values computed from GLASS systematic-free
