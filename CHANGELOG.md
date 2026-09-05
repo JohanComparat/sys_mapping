@@ -23,8 +23,16 @@ All notable changes to `sys_mapping` are documented here.
   arithmetic reports), floor the variance relative to the field's own scatter
   rather than at an absolute 10⁻²⁰, and return 0 when fewer than two bins
   survive — matching the NumPy reference, which they now reproduce to 4 × 10⁻¹⁵.
-  **This changes Stage-1 ISD pre-selection results.** `method="data"`,
-  `"template"` and `"peak"`, and every Stage-2 method, are unaffected.
+  **Scope, measured rather than assumed.** The published LS10 weights are
+  unaffected: all 36 `params.json` record no pre-selection. The Stage-1 demo
+  figures in `docs/results_snr_preselection.rst` are also unaffected — they
+  regenerate byte-identical, because that demo uses synthetic templates on a
+  well-populated NSIDE-32 footprint where no bin ever holds fewer than two
+  pixels, so the degenerate-bin path never fires. What *is* affected is ISD
+  ranking on the real LS10 templates, whose skewed pixel distributions leave
+  near-empty tails in equal-width bins (25 bins with fewer than two pixels
+  across 11 templates at NSIDE 64). `method="data"`, `"template"` and
+  `"peak"`, and every Stage-2 method, are unaffected throughout.
 
 - **`cl_amplitude` could not reach either GLASS mock null.** Both
   `isd_template_significance` and `build_lrt_null` took the 5 × 10⁻⁴ default with
