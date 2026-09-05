@@ -30,7 +30,9 @@ dependencies = [
     "healpy",
     "emcee",
     "jax[cpu]>=0.9",
-    "blackjax>=1.2",
+    # <1.6: 1.6.2 forwards window_adaptation's progress_bar to the NUTS
+    # kernel, which rejects it, breaking every MCMC-add/MCMC-comb run.
+    "blackjax>=1.2,<1.6",
     "joblib",
     "treecorr",
     "matplotlib",
