@@ -135,7 +135,7 @@ def synthetic_templates(nside, n_families=5, seed=0):
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
-                   k_start=0, cl_amplitude=5e-4):
+                   k_start=0, cl_amplitude=5e-4, cl_input=None):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -166,6 +166,7 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     mock_fields = np.empty((n_good, n_mocks))
     for i, k in enumerate(range(k_start, k_start + n_mocks)):
         cat = generate_glass_fullsky_mock(nside, n_total, z_edges, nz,
+                                          cl_input=cl_input,
                                           seed=seed + k, rand_factor=rand_factor,
                                           cl_amplitude=cl_amplitude)
         ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good_pix].astype(float)
@@ -191,7 +192,32 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     return sm.lrt_null_distribution(mock_fields, delta_t, fit_theta)
 
 
+def _resolve_null_cl(args, sample_id, nside):
+    """The matched spectrum for THIS sample at THIS resolution, or None.
+
+    There is no universal spectrum: what the null has to reproduce is the
+    large-scale clustering of the particular sample on the particular footprint,
+    so the artefact is per setup and is looked up per setup.  Falling back to the
+    power law is allowed but is announced, because a null built on it is not
+    calibrated to this sample's clustering.
+    """
+    src = getattr(args, "lrt_null_cl_file", None)
+    if not src:
+        return None
+    import sys_mapping as _sm
+    cl = _sm.load_matched_cl(src, sample_id, nside)
+    if cl is None:
+        print(f"  !! no matched spectrum for {sample_id} NSIDE{nside:04d} in {src}; "
+              f"falling back to the parametric power law -- the null will NOT be "
+              f"calibrated to this sample's large-scale clustering")
+    else:
+        print(f"  null spectrum: matched, {len(cl)} multipoles "
+              f"({sample_id} NSIDE{nside:04d})")
+    return cl
+
+
 def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, outdir, args):
+    null_cl_input = _resolve_null_cl(args, sample_id, nside)
     """Top up an existing mock-calibrated LRT null **in place**, without a data re-fit.
 
     Reads the sample's ``params.json``, runs only the mocks missing to reach
@@ -226,6 +252,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         np.array([_z_min, _z_max]), np.array([float(n_total_footprint)]), n_total_footprint,
         args.lrt_null_seed, args.sampler, args.nuts_warmup, args.nuts_samples, args.n_chains,
         k_start=m, cl_amplitude=args.lrt_null_cl_amplitude,
+        cl_input=null_cl_input,
     )
     merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
     n_ge = int(np.sum(merged >= lam))
@@ -235,6 +262,10 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         "reject_null": bool(p_mock < 0.05),
         "n_null": int(merged.size),
         "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
+            "null_cl_source": ("matched spectrum: "
+                               + str(args.lrt_null_cl_file))
+                              if null_cl_input is not None else
+                              "parametric power law",
         "null_lambda_mean": float(np.mean(merged)),
         "null_lambda_max": float(np.max(merged)),
         "null_lambda": [float(x) for x in merged],
@@ -392,6 +423,8 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                preselect=False, preselect_method="isd", preselect_n_top=None,
                preselect_p_threshold=0.05, preselect_n_mocks=100):
     import matplotlib.pyplot as plt
+
+    null_cl_input = _resolve_null_cl(args, sample_id, nside)
 
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -773,6 +806,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 int(len(ra_gal)), args.lrt_null_seed, args.sampler,
                 args.nuts_warmup, args.nuts_samples, args.n_chains,
                 cl_amplitude=args.lrt_null_cl_amplitude,
+                cl_input=null_cl_input,
             )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
@@ -895,6 +929,10 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             "p_chi2": float(_chi2.sf(lrt.lambda_lr, df=lrt.n_dof)),
             "n_null": (int(np.size(_null_lambda)) if _null_lambda is not None else 0),
             "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
+            "null_cl_source": ("matched spectrum: "
+                               + str(args.lrt_null_cl_file))
+                              if null_cl_input is not None else
+                              "parametric power law",
             "null_lambda_mean": (float(np.mean(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda_max": (float(np.max(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda": ([float(x) for x in np.asarray(_null_lambda)]
@@ -1422,6 +1460,12 @@ def main():
                              "under-clusters it ~25x in variance, making the null too "
                              "narrow and the p-value anticonservative. Fit it per sample "
                              "to the measured sigma_hat (calibrate_glass_clustering.py).")
+    parser.add_argument("--lrt-null-cl-file", default=None,
+                        help="A *_match.json from match_glass_to_data.py, or a directory "
+                             "of them.  Gives the null the sample's own measured "
+                             "large-scale clustering instead of a fixed-slope power law. "
+                             "There is no universal spectrum: it must be matched for this "
+                             "sample, at this NSIDE, on this footprint.")
     parser.add_argument("--lrt-null-seed", type=int, default=90000,
                         help="Base seed for the --lrt-null-mocks ensemble.")
     parser.add_argument("--resume-null", action="store_true",

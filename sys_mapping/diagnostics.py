@@ -621,11 +621,21 @@ def isd_template_significance(
     n_jobs: int = 1,
     binning: str = "width",
     cl_amplitude: float = 5e-4,
+    cl_input: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
 
     .. warning::
-       ``cl_amplitude`` sets the clustering power of the null.  The default
+       Prefer ``cl_input``.  A mock null is only a null for the sample, resolution
+       and footprint it was matched to: what has to agree is the *large-scale*
+       (two-halo) clustering, since that is the scale systematic templates vary
+       on, and one scalar cannot set the shape of a spectrum.  Match it per setup
+       with ``match_glass_to_data.py`` (sys_mapping_benchmark) and load the result
+       with :func:`~sys_mapping.glass_mocks.load_matched_cl`.  There is no
+       universal value.
+
+       ``cl_amplitude`` is the parametric fallback and sets the clustering power
+       of the null through a fixed-slope power law.  The default
        ``5e-4`` reproduces the data's *surface density* (hence its shot noise) but
        gives :math:`\\sigma_{\\rm clus} \\approx 0.08` against LS10's
        :math:`\\approx 0.39` --- 25x too little clustering variance.  A null that
@@ -758,6 +768,7 @@ def isd_template_significance(
         cat = generate_glass_fullsky_mock(
             nside, n_total, z_edges, nz, seed=seed + k,
             rand_factor=rand_factor, cl_amplitude=cl_amplitude,
+            cl_input=cl_input,
         )
         n_gal_full = pixelize_catalog(cat["ra"], cat["dec"], nside)
         n_rand_full = pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)

@@ -148,6 +148,46 @@ def sanitise_cl(cl: np.ndarray, lmax: int, *, floor_frac: float = 1e-8) -> np.nd
     return out
 
 
+def load_matched_cl(source, sample: str | None = None,
+                    nside: int | None = None) -> np.ndarray | None:
+    """Load a spectrum produced by the mock-matching iteration, if one exists.
+
+    There is no universal input spectrum.  What a mock has to reproduce is the
+    large-scale clustering of *the particular sample, at the particular
+    resolution, on the particular footprint* the analysis runs on --- change any
+    of the three and the required spectrum changes.  So a matched spectrum is an
+    artefact of one setup, stored per setup, and every consumer of the mocks
+    loads the one matching its own configuration rather than sharing a constant.
+
+    Parameters
+    ----------
+    source:
+        A ``*_match.json`` written by ``match_glass_to_data.py``, or a directory
+        holding them (in which case ``sample`` and ``nside`` select one).
+    sample, nside:
+        Used to build the filename when ``source`` is a directory.
+
+    Returns
+    -------
+    The matched C_l, or ``None`` when no file matches --- so a caller can fall
+    back to the parametric spectrum and say that it did, rather than failing.
+    """
+    from pathlib import Path
+    import json
+
+    path = Path(source)
+    if path.is_dir():
+        if sample is None or nside is None:
+            raise ValueError("sample and nside are needed to pick a file from a "
+                             "directory")
+        path = path / f"{sample}_NSIDE{int(nside):04d}_match.json"
+    if not path.exists():
+        return None
+    d = json.loads(path.read_text())
+    cl = d.get("cl_matched")
+    return np.asarray(cl, dtype=float) if cl else None
+
+
 def generate_glass_fullsky_mock(
     nside: int,
     n_total: int,

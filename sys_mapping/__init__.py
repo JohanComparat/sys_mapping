@@ -92,6 +92,8 @@ from .plotting import (
 )
 from .glass_mocks import (
     measure_nz,
+    load_matched_cl,
+    sanitise_cl,
     generate_glass_fullsky_mock,
     generate_glass_delta_map,
     sample_positions_from_delta,
@@ -203,6 +205,8 @@ __all__ = [
     "METHOD_ORDER",
     # glass_mocks
     "measure_nz",
+    "load_matched_cl",
+    "sanitise_cl",
     "generate_glass_fullsky_mock",
     "generate_glass_delta_map",
     "sample_positions_from_delta",
