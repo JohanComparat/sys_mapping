@@ -90,18 +90,28 @@ def measure_nz(
     return z_edges, nz.astype(float)
 
 
-def _make_glass_cls(nside: int, amplitude: float = 5e-4) -> np.ndarray:
-    """Return a simple galaxy C_ℓ power spectrum for GLASS.
+def _make_glass_cls(nside: int, amplitude: float = 5e-4,
+                    slope: float = -1.5) -> np.ndarray:
+    """Return a power-law galaxy C_ℓ power spectrum for GLASS.
 
-    Uses C_ℓ ∝ (ℓ+1)^{-1.5} (intermediate slope, realistic for BGS scales).
-    The monopole is forced to zero.
+    C_ℓ = amplitude * (ℓ+1)^slope, with the monopole forced to zero.
+
+    A power law with a *fixed* slope can match a single summary statistic of the
+    data --- the pixel variance, say --- but not the scale dependence, and the
+    scale dependence is what drives the variance inflation of the iid likelihood.
+    Where the data's own spectrum is available, prefer passing it to
+    :func:`generate_glass_fullsky_mock` as ``cl_input`` (see
+    :func:`match_cl_to_target`) rather than fitting this two-parameter form.
 
     Parameters
     ----------
     nside:
         HEALPix NSIDE; sets lmax = 3 * nside.
     amplitude:
-        Overall C_ℓ amplitude at ℓ=1.  Default tuned for mild clustering.
+        Overall C_ℓ amplitude at ℓ=1.
+    slope:
+        Power-law index.  Default ``-1.5`` (intermediate, realistic for BGS
+        scales) reproduces the historical behaviour.
 
     Returns
     -------
@@ -109,8 +119,33 @@ def _make_glass_cls(nside: int, amplitude: float = 5e-4) -> np.ndarray:
     """
     lmax = 3 * nside
     ells = np.arange(lmax + 1, dtype=float)
-    cl = np.where(ells > 0, amplitude * (ells + 1) ** (-1.5), 0.0)
+    cl = np.where(ells > 0, amplitude * (ells + 1) ** slope, 0.0)
     return cl
+
+
+def sanitise_cl(cl: np.ndarray, lmax: int, *, floor_frac: float = 1e-8) -> np.ndarray:
+    """Make a measured C_ℓ usable as a GLASS input spectrum.
+
+    A spectrum measured from data is noisy and can go negative at high ℓ, where
+    shot-noise subtraction over-subtracts.  GLASS needs a non-negative spectrum it
+    can turn into a Gaussian one, so clip at a small positive floor, force the
+    monopole to zero, and pad or truncate to ``lmax``.
+
+    The floor is relative to the spectrum's own peak rather than absolute, so the
+    function behaves the same whatever units or resolution it is handed.
+    """
+    cl = np.asarray(cl, dtype=float).copy()
+    out = np.zeros(lmax + 1, dtype=float)
+    n = min(cl.size, lmax + 1)
+    out[:n] = cl[:n]
+    if n < lmax + 1 and n > 2:
+        out[n:] = out[n - 1]          # hold the last measured value, do not zero
+    out[0] = 0.0
+    peak = float(np.max(out)) if out.size else 0.0
+    if peak > 0:
+        np.clip(out, floor_frac * peak, None, out=out)
+    out[0] = 0.0
+    return out
 
 
 def generate_glass_fullsky_mock(
@@ -120,6 +155,8 @@ def generate_glass_fullsky_mock(
     nz: np.ndarray,
     *,
     cl_amplitude: float = 5e-4,
+    cl_slope: float = -1.5,
+    cl_input: np.ndarray | None = None,
     rand_factor: int = 10,
     seed: int | None = None,
 ) -> MockCatalogDict:
@@ -143,7 +180,17 @@ def generate_glass_fullsky_mock(
         Galaxy counts per redshift bin (length n_bins).  Used to sample
         redshifts; does not need to be normalised.
     cl_amplitude:
-        Amplitude of the galaxy angular power spectrum C_ℓ at ℓ=1.
+        Amplitude of the galaxy angular power spectrum C_ℓ at ℓ=1.  Ignored when
+        ``cl_input`` is given.
+    cl_slope:
+        Power-law index of the built-in spectrum.  Ignored when ``cl_input`` is
+        given.
+    cl_input:
+        Tabulated C_ℓ to use directly, indexed from ℓ=0.  Overrides
+        ``cl_amplitude``/``cl_slope``.  This is the way to give the mock the
+        *measured* clustering of a real sample rather than a parametric guess;
+        see ``match_glass_to_data.py`` in the sys_mapping_benchmark repository,
+        which iterates it to convergence.  Passed through :func:`sanitise_cl`.
     rand_factor:
         Ratio of randoms to data.  Default 10 gives accurate Landy-Szalay.
     seed:
@@ -192,7 +239,10 @@ def generate_glass_fullsky_mock(
 
     fields = glass.lognormal_fields(shells)
 
-    cl = _make_glass_cls(nside, amplitude=cl_amplitude)
+    if cl_input is not None:
+        cl = sanitise_cl(cl_input, 3 * nside)
+    else:
+        cl = _make_glass_cls(nside, amplitude=cl_amplitude, slope=cl_slope)
     cls_list = [cl]  # single shell → single auto-spectrum
     gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, cls_list))
 
