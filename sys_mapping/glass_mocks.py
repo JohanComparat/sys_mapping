@@ -149,7 +149,8 @@ def sanitise_cl(cl: np.ndarray, lmax: int, *, floor_frac: float = 1e-8) -> np.nd
 
 
 def load_matched_cl(source, sample: str | None = None,
-                    nside: int | None = None) -> np.ndarray | None:
+                    nside: int | None = None, *,
+                    require_validated: bool = True) -> np.ndarray | None:
     """Load a spectrum produced by the mock-matching iteration, if one exists.
 
     There is no universal input spectrum.  What a mock has to reproduce is the
@@ -167,10 +168,20 @@ def load_matched_cl(source, sample: str | None = None,
     sample, nside:
         Used to build the filename when ``source`` is a directory.
 
+    require_validated:
+        Refuse a spectrum that has not passed the large-scale check (default).
+        Set False only to inspect one deliberately.
+
     Returns
     -------
     The matched C_l, or ``None`` when no file matches --- so a caller can fall
     back to the parametric spectrum and say that it did, rather than failing.
+
+    Raises
+    ------
+    ValueError
+        If a file exists but has not passed the large-scale check.  Refusing is
+        the point: an unverified null is the state this replaced.
     """
     from pathlib import Path
     import json
@@ -185,7 +196,32 @@ def load_matched_cl(source, sample: str | None = None,
         return None
     d = json.loads(path.read_text())
     cl = d.get("cl_matched")
-    return np.asarray(cl, dtype=float) if cl else None
+    if not cl:
+        return None
+
+    # The gate.  A matched spectrum is only usable once it has been shown, on
+    # seeds it was not fitted to, to reproduce the data's large-scale clustering
+    # to within tolerance.  A file that records a failed check, or that predates
+    # the check entirely, is refused rather than used quietly -- a null nobody
+    # verified is exactly the state this whole exercise started from.
+    val = d.get("validation")
+    if val is None:
+        if not require_validated:
+            return np.asarray(cl, dtype=float)
+        raise ValueError(
+            f"{path} carries no validation block: it predates the large-scale "
+            f"check and cannot be used.  Re-run match_glass_to_data.py, or pass "
+            f"require_validated=False to accept it deliberately.")
+    if not val.get("passed"):
+        r = val.get("large_scale_ratio", float("nan"))
+        msg = (f"{path} failed the large-scale check: mock/data power ratio "
+               f"{r:.3f} over l={val.get('l_range')}, tolerance "
+               f"{val.get('tol')}.  This mock is not calibrated to the data's "
+               f"clustering and must not be used for a null.")
+        if require_validated:
+            raise ValueError(msg)
+        warnings.warn(msg, stacklevel=2)
+    return np.asarray(cl, dtype=float)
 
 
 def generate_glass_fullsky_mock(
