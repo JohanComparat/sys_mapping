@@ -188,10 +188,24 @@ def load_matched_cl(source, sample: str | None = None,
 
     path = Path(source)
     if path.is_dir():
-        if sample is None or nside is None:
-            raise ValueError("sample and nside are needed to pick a file from a "
-                             "directory")
-        path = path / f"{sample}_NSIDE{int(nside):04d}_match.json"
+        if sample is None:
+            raise ValueError("sample is needed to pick a file from a directory")
+        exact = (path / f"{sample}_NSIDE{int(nside):04d}_match.json"
+                 if nside is not None else None)
+        if exact is not None and exact.exists():
+            path = exact
+        else:
+            # The spectrum is a property of the SAMPLE and its footprint, not of
+            # the map it was verified on: resolution limits what can be checked,
+            # not what can be used.  Reaching rp = 10 Mpc/h needs NSIDE 128 for
+            # the higher-redshift samples, while the LRT runs at 32 and 64, so a
+            # run must be able to pick up a spectrum validated at finer
+            # resolution.  Prefer the finest available, which is the best
+            # verified.
+            cands = sorted(path.glob(f"{sample}_NSIDE*_match.json"))
+            if not cands:
+                return None
+            path = max(cands, key=lambda q: int(q.stem.split("_NSIDE")[1][:4]))
     if not path.exists():
         return None
     d = json.loads(path.read_text())
@@ -233,6 +247,7 @@ def generate_glass_fullsky_mock(
     cl_amplitude: float = 5e-4,
     cl_slope: float = -1.5,
     cl_input: np.ndarray | None = None,
+    lognormal_shift: float | None = None,
     rand_factor: int = 10,
     seed: int | None = None,
 ) -> MockCatalogDict:
@@ -267,6 +282,16 @@ def generate_glass_fullsky_mock(
         *measured* clustering of a real sample rather than a parametric guess;
         see ``match_glass_to_data.py`` in the sys_mapping_benchmark repository,
         which iterates it to convergence.  Passed through :func:`sanitise_cl`.
+    lognormal_shift:
+        Lognormal shift :math:`\lambda` of the density field (GLASS's ``shift``).
+        The field is :math:`\delta = \lambda(e^{G-\sigma_G^2/2}-1)`, so
+        :math:`\lambda` bounds the underdensity at :math:`\delta \ge -\lambda`
+        and sets how skewed the field is at fixed variance: small
+        :math:`\lambda` gives deep voids and rarer high peaks, large
+        :math:`\lambda` approaches a Gaussian field.  It is the closest thing
+        GLASS offers to a galaxy-bias parameter, and it changes the *shape* the
+        realised spectrum takes for a given input, not only its amplitude.
+        ``None`` keeps the GLASS default.
     rand_factor:
         Ratio of randoms to data.  Default 10 gives accurate Landy-Szalay.
     seed:
@@ -313,7 +338,8 @@ def generate_glass_fullsky_mock(
         warnings.simplefilter("ignore", UserWarning)
         shells = glass.tophat_windows(z_glass)
 
-    fields = glass.lognormal_fields(shells)
+    fields = (glass.lognormal_fields(shells) if lognormal_shift is None
+              else glass.lognormal_fields(shells, shift=lambda _z: float(lognormal_shift)))
 
     if cl_input is not None:
         cl = sanitise_cl(cl_input, 3 * nside)
@@ -416,7 +442,8 @@ def generate_glass_delta_map(
         warnings.simplefilter("ignore", UserWarning)
         shells = glass.tophat_windows(z_glass)
 
-    fields = glass.lognormal_fields(shells)
+    fields = (glass.lognormal_fields(shells) if lognormal_shift is None
+              else glass.lognormal_fields(shells, shift=lambda _z: float(lognormal_shift)))
     cl = _make_glass_cls(nside, amplitude=cl_amplitude)
     gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, [cl]))
 
