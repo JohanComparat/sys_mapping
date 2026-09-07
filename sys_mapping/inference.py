@@ -413,12 +413,16 @@ def get_param_covariance_from_chain(
     >>> cov_a.shape
     (3, 3)
     """
-    a_arr = flat_chain[:, :n_sys]
     if model == 'combined':
+        a_arr = flat_chain[:, :n_sys]
         b_arr = flat_chain[:, n_sys:2 * n_sys]
     elif model == 'multiplicative':
-        b_arr = a_arr
+        # The free parameters are the multiplicative coefficients; there is no
+        # additive component in this model.
+        b_arr = flat_chain[:, :n_sys]
+        a_arr = np.zeros_like(b_arr)
     else:  # additive
+        a_arr = flat_chain[:, :n_sys]
         b_arr = np.zeros_like(a_arr)
     cov_a = np.cov(a_arr, rowvar=False) if n_sys > 1 else np.atleast_2d(np.var(a_arr))
     cov_b = np.cov(b_arr, rowvar=False) if n_sys > 1 else np.atleast_2d(np.var(b_arr))

@@ -5,7 +5,7 @@ Implements the forward model (Eq. 11-13 of Berlfein et al. 2024):
 
 Three nested models:
   - 'additive':       b = 0, free params: [a_0,...,a_{N-1}]
-  - 'multiplicative': b = a, free params: [a_0,...,a_{N-1}]
+  - 'multiplicative': a = 0, free params: [b_0,...,b_{N-1}]
   - 'combined':       a, b free, params: [a_0,...,a_{N-1}, b_0,...,b_{N-1}]
 """
 
@@ -71,7 +71,8 @@ def pack_params(
     Parameters
     ----------
     a : ``(n_sys,)`` additive coefficients
-    b : ``(n_sys,)`` or None  multiplicative coefficients (required for ``combined``)
+    b : ``(n_sys,)`` or None  multiplicative coefficients (required for
+        ``combined`` and for ``multiplicative``, where they are the free parameters)
     sigma : float  noise standard deviation
     gamma : float or None  skewness parameter (appended last when provided)
     model : str  ``'additive'``, ``'multiplicative'``, or ``'combined'``
@@ -96,11 +97,18 @@ def pack_params(
     >>> pack_params(a, None, 0.12, gamma=1.5, model="additive")
     array([ 0.05, -0.03,  0.02,  0.12,  1.5 ])
     """
-    parts: list[np.ndarray] = [np.asarray(a)]
-    if model == "combined":
+    if model == "multiplicative":
         if b is None:
-            raise ValueError("combined model requires b")
-        parts.append(np.asarray(b))
+            raise ValueError(
+                "multiplicative model requires b: its free parameters are the "
+                "multiplicative coefficients, and a is identically zero")
+        parts: list[np.ndarray] = [np.asarray(b)]
+    else:
+        parts = [np.asarray(a)]
+        if model == "combined":
+            if b is None:
+                raise ValueError("combined model requires b")
+            parts.append(np.asarray(b))
     parts.append(np.array([sigma]))
     if gamma is not None:
         parts.append(np.array([gamma]))
@@ -125,7 +133,7 @@ def unpack_params(
     Returns
     -------
     a : ``(n_sys,)`` additive coefficients (JAX array)
-    b : ``(n_sys,)`` multiplicative coefficients; zeros for additive, equals a for multiplicative
+    b : ``(n_sys,)`` multiplicative coefficients; zeros for additive
     sigma : scalar noise standard deviation
     gamma : scalar skewness parameter or None
 
@@ -151,8 +159,10 @@ def unpack_params(
             b = jnp.zeros(n_sys)
             rest = theta[n_sys:]
         case "multiplicative":
-            a = theta[:n_sys]
-            b = a
+            # Purely multiplicative: the templates modulate the density and do
+            # not also add to it.  The free parameters ARE the b's.
+            a = jnp.zeros(n_sys)
+            b = theta[:n_sys]
             rest = theta[n_sys:]
         case "combined":
             a = theta[:n_sys]

@@ -52,13 +52,37 @@ class TestPackUnpack:
         np.testing.assert_allclose(np.asarray(b2), np.zeros(n), atol=1e-12)
 
     def test_roundtrip_multiplicative(self):
+        """The multiplicative model modulates the density and does not add to it.
+
+        Its free parameters are the b's; a is identically zero.  An earlier
+        version tied b = a, which made one coefficient drive both an additive
+        and a multiplicative term at once -- not a nested special case of the
+        combined model, and not a model anyone would choose to fit.
+        """
         n = 3
-        a = np.array([0.1, -0.2, 0.3])
+        b = np.array([0.1, -0.2, 0.3])
         sigma = 0.1
-        theta = pack_params(a, a, sigma, model="multiplicative")
+        theta = pack_params(None, b, sigma, model="multiplicative")
+        assert theta.size == n + 1
         a2, b2, _, _ = unpack_params(jnp.asarray(theta), n, "multiplicative")
-        np.testing.assert_allclose(np.asarray(a2), a, atol=1e-12)
-        np.testing.assert_allclose(np.asarray(b2), a, atol=1e-12)
+        np.testing.assert_allclose(np.asarray(b2), b, atol=1e-12)
+        np.testing.assert_allclose(np.asarray(a2), np.zeros(n), atol=1e-12)
+
+    def test_multiplicative_forward_map_has_no_additive_part(self):
+        """delta_g_obs = delta_g * (1 + sum b_i t_i), with nothing added."""
+        rng = np.random.default_rng(0)
+        n_pix, n = 400, 3
+        dg = rng.normal(0.0, 0.3, n_pix)
+        dt = rng.normal(0.0, 1.0, (n, n_pix))
+        b = np.array([0.05, -0.03, 0.02])
+        theta = pack_params(None, b, 0.1, model="multiplicative")
+        a2, b2, _, _ = unpack_params(jnp.asarray(theta), n, "multiplicative")
+        obs = np.asarray(apply_contamination(jnp.asarray(dg), jnp.asarray(dt), a2, b2))
+        np.testing.assert_allclose(obs, dg * (1.0 + b @ dt), atol=1e-12)
+
+    def test_multiplicative_requires_b(self):
+        with pytest.raises(ValueError, match="multiplicative model requires b"):
+            pack_params(np.array([0.1, 0.2]), None, 0.1, model="multiplicative")
 
     def test_skewed_gamma_included(self):
         n = 2

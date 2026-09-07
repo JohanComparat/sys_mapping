@@ -100,11 +100,13 @@ class TestParamExtraction:
         assert np.all(var_a >= 0)
         assert np.all(var_b >= 0)
 
-    def test_multiplicative_model_b_equals_a(self):
+    def test_multiplicative_model_has_no_additive_covariance(self):
+        """The chain holds b, not a: a is identically zero in this model."""
         rng = np.random.default_rng(1)
-        chain = rng.standard_normal((500, N_SYS + 1)) * 0.01  # a + sigma
+        chain = rng.standard_normal((500, N_SYS + 1)) * 0.01  # b + sigma
         cov_a, cov_b = get_param_covariance_from_chain(chain, N_SYS, "multiplicative")
-        np.testing.assert_array_equal(cov_a, cov_b)
+        np.testing.assert_array_equal(cov_a, np.zeros_like(cov_a))
+        assert float(np.trace(cov_b)) > 0.0
 
     def test_n_sys_1_additive(self):
         rng = np.random.default_rng(2)
