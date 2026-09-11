@@ -28,6 +28,8 @@ from .maps import (
     pixelize_catalog,
     compute_overdensity,
     assign_template_values,
+    standardise_on_footprint,
+    inverse_variance_pixel_weights,
 )
 from .inference import make_log_prob, run_mcmc, run_additive_analytic, get_mle_params, get_param_variance_from_chain, get_param_covariance_from_chain
 from .nuts import run_nuts, build_logdensity, default_n_chains
@@ -143,6 +145,8 @@ __all__ = [
     "pixelize_catalog",
     "compute_overdensity",
     "assign_template_values",
+    "standardise_on_footprint",
+    "inverse_variance_pixel_weights",
     # inference
     "make_log_prob",
     "run_mcmc",

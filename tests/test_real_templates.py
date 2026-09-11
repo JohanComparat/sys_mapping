@@ -21,6 +21,8 @@ All tests skip automatically if the FITS files are not present on disk.
 
 from pathlib import Path
 
+import warnings
+
 import numpy as np
 import pytest
 import healpy as hp
@@ -496,3 +498,64 @@ class TestSNRRankingRealTemplates:
         )
         # At least one template should have SNR > 0.01
         assert np.max(snr) > 0.01
+
+
+class TestFootprintStandardisation:
+    """A basis must be standardised where it is fitted, not where it was loaded.
+
+    Survey-property maps are normalised over each map's own valid region, which
+    is larger than any one sample's footprint.  Restricted to the footprint the
+    rms drifts, and the amplitudes, the condition number and the template
+    auto-correlations the two-point correction subtracts drift with it.
+    """
+
+    @staticmethod
+    def _basis(n_sys=4, n_pix=6000, seed=0):
+        rng = np.random.default_rng(seed)
+        t = rng.standard_normal((n_sys, n_pix))
+        # Stand in for a map normalised somewhere else: offset and rescaled.
+        t[1] = 3.5 * t[1] + 2.0
+        t[3] = 0.4 * t[3] - 1.0
+        return t
+
+    def test_zero_mean_and_unit_rms(self):
+        out = sm.standardise_on_footprint(self._basis())
+        assert np.allclose(out.mean(axis=1), 0.0, atol=1e-12)
+        assert np.allclose(out.std(axis=1), 1.0, atol=1e-12)
+
+    def test_scales_are_reported(self):
+        t = self._basis()
+        out, means, scales = sm.standardise_on_footprint(t, return_scales=True)
+        assert scales.shape == (t.shape[0],)
+        assert scales[1] == pytest.approx(3.5, rel=0.05)
+        assert scales[3] == pytest.approx(0.4, rel=0.05)
+        # The reported scales are exactly what was divided out.
+        assert np.allclose(out * scales[:, None] + means[:, None], t, atol=1e-9)
+
+    def test_eigenvalues_sum_to_n_sys(self):
+        # The property that fails on the real basis: trace(C) == n_sys.
+        t = self._basis()
+        before = float(np.sum(np.mean(t ** 2, axis=1)))
+        after = float(np.sum(np.mean(sm.standardise_on_footprint(t) ** 2, axis=1)))
+        assert before > 2.0 * t.shape[0]
+        assert after == pytest.approx(t.shape[0], rel=1e-10)
+
+    def test_covariance_guard_is_silenced(self):
+        t = self._basis()
+        with pytest.warns(RuntimeWarning):
+            sm.compute_covariance_matrix(t)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            sm.compute_covariance_matrix(sm.standardise_on_footprint(t))
+
+    def test_a_constant_template_does_not_poison_the_basis(self):
+        t = self._basis()
+        t[2] = 7.0                      # no information, zero rms
+        out = sm.standardise_on_footprint(t)
+        assert np.all(np.isfinite(out))
+        assert np.allclose(out[2], 0.0)
+        assert out[0].std() == pytest.approx(1.0, abs=1e-12)
+
+    def test_rejects_a_non_2d_basis(self):
+        with pytest.raises(ValueError, match=r"n_sys, n_pix"):
+            sm.standardise_on_footprint(np.zeros(10))

@@ -325,6 +325,147 @@ def compute_overdensity(
     return delta_g, good_pixels
 
 
+def inverse_variance_pixel_weights(
+    galaxy_counts: np.ndarray,
+    random_counts: np.ndarray,
+    *,
+    regulariser: float = 2.0,
+) -> np.ndarray:
+    """Per-pixel inverse-variance weight for the contamination regression.
+
+    .. math::
+
+        W_k \\;\\propto\\; \\frac{A_k^2}{N_k + n_{\\rm reg}}
+
+    where :math:`A_k` is the observed area of pixel :math:`k` (traced by the
+    random count, exactly as in :func:`compute_overdensity`) and :math:`N_k` its
+    galaxy count.  This is the DES Y6 weighting (Weaverdyck et al. 2026, Eq. 8):
+    the numerator downweights partially covered pixels, whose overdensity is
+    measured over less sky, and the denominator is the Poisson variance of the
+    count.
+
+    The regulariser matters more than it looks.  Without it an empty pixel gets
+    infinite weight, and pixels with one or two galaxies dominate the fit; with
+    it every pixel keeps a finite, bounded weight and the heteroskedasticity of
+    the observations is still accounted for.
+
+    Parameters
+    ----------
+    galaxy_counts:
+        Galaxy count per pixel (shape ``(n_pix,)``), at the fitted pixels.
+    random_counts:
+        Random count per pixel, the coverage proxy (shape ``(n_pix,)``).
+    regulariser:
+        Count added to the Poisson variance.  Default ``2.0``, the DES Y6 value.
+
+    Returns
+    -------
+    weights : ``(n_pix,)``
+        Normalised to mean one, so the overall scale of the likelihood is
+        unchanged and only the relative weighting of pixels differs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import inverse_variance_pixel_weights
+    >>> n_gal = np.array([10.0, 20.0, 0.0])
+    >>> n_ran = np.array([100.0, 100.0, 50.0])
+    >>> w = inverse_variance_pixel_weights(n_gal, n_ran)
+    >>> bool(np.isclose(w.mean(), 1.0))
+    True
+    >>> bool(np.all(np.isfinite(w)))
+    True
+    >>> bool(w[1] < w[0])          # more galaxies -> larger Poisson variance
+    True
+
+    References
+    ----------
+    Weaverdyck et al. 2026, arXiv:2601.14484, Eq. 8.
+    """
+    galaxy_counts = np.asarray(galaxy_counts, dtype=float)
+    random_counts = np.asarray(random_counts, dtype=float)
+    if galaxy_counts.shape != random_counts.shape:
+        raise ValueError(
+            f"galaxy_counts {galaxy_counts.shape} and random_counts "
+            f"{random_counts.shape} must have the same shape")
+
+    area = random_counts / (np.max(random_counts) + 1e-30)
+    w = area ** 2 / (galaxy_counts + regulariser)
+    mean = float(np.mean(w))
+    return w / mean if mean > 0 else np.ones_like(w)
+
+
+def standardise_on_footprint(
+    delta_t: np.ndarray,
+    *,
+    return_scales: bool = False,
+):
+    r"""Standardise a template basis over the pixels it is about to be fitted on.
+
+    Survey-property maps are normalised over each map's own valid region, which
+    is larger than any one sample's footprint.  Restricted to the footprint the
+    basis is no longer standardised, and three quantities that are read in units
+    of one template standard deviation stop being in those units: the fitted
+    amplitudes, the condition number of the template covariance, and the template
+    auto-correlations :math:`\xi_i(\theta)` that the two-point correction of
+    :func:`~sys_mapping.correction.correct_two_point_function` subtracts.
+
+    Measured on the eleven LS10 maps at :math:`NSIDE = 64`, the per-template rms
+    over the analysis pixels spans ``0.905`` to ``5.77`` and the relative mean
+    reaches ``0.729``, so the covariance eigenvalues sum to ``44.4`` rather than
+    ``n_sys = 11``.  Synthetic bases are barely affected --- ``0.971``--``1.030``
+    under a Galactic cut --- because they carry no footprint structure.
+
+    Call this after masking, where the footprint is known.  Doing it at load time
+    cannot work: the loader does not know which pixels the fit will use.
+
+    Parameters
+    ----------
+    delta_t:
+        ``(n_sys, n_pix)`` template values at the pixels that will be fitted.
+    return_scales:
+        Also return the ``(n_sys,)`` means and rms values that were divided out,
+        so a caller can record what basis its amplitudes are in.
+
+    Returns
+    -------
+    ``(n_sys, n_pix)`` with each row at zero mean and unit rms over ``n_pix``, or
+    ``(delta_t, means, scales)`` when ``return_scales``.  A row that is constant
+    over the footprint carries no information and is left at zero rather than
+    divided by zero.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import standardise_on_footprint
+    >>> rng = np.random.default_rng(0)
+    >>> t = rng.standard_normal((3, 5000))
+    >>> t[2] = 4.0 * t[2] + 7.0            # wrong units and offset
+    >>> ts, means, scales = standardise_on_footprint(t, return_scales=True)
+    >>> bool(np.allclose(ts.mean(axis=1), 0.0, atol=1e-12))
+    True
+    >>> bool(np.allclose(ts.std(axis=1), 1.0, atol=1e-12))
+    True
+    >>> float(round(scales[2], 1))
+    4.0
+    """
+    delta_t = np.asarray(delta_t, dtype=float)
+    if delta_t.ndim != 2:
+        raise ValueError(
+            f"delta_t must be (n_sys, n_pix); got shape {delta_t.shape}"
+        )
+    means = delta_t.mean(axis=1)
+    centred = delta_t - means[:, None]
+    scales = np.sqrt(np.mean(centred ** 2, axis=1))
+    # A constant row has nothing to rescale.  Dividing by its zero rms would give
+    # NaN amplitudes for every template, not just that one.
+    safe = np.where(scales > 0, scales, 1.0)
+    out = centred / safe[:, None]
+    if return_scales:
+        return out, means, scales
+    return out
+
+
 def assign_template_values(
     templates: np.ndarray,
     good_pixels: np.ndarray,
