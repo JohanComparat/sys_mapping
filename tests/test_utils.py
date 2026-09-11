@@ -1,8 +1,11 @@
 """Tests for sys_mapping.utils — two-point measurement utilities."""
 
+import warnings
+
 import numpy as np
 import pytest
 
+import sys_mapping as sm
 from sys_mapping.utils import (
     measure_two_point_function,
     measure_two_point_function_corrfunc,
@@ -160,3 +163,48 @@ class TestMeasureKKCorrfunc:
         )
         assert theta.shape == (5,)
         assert xi.shape == (5,)
+
+
+class TestUnstandardisedBasisGuard:
+    """A basis standardised somewhere other than where it is used is not standardised.
+
+    Survey-property maps are normalised over their own valid region, which is
+    larger than any one sample's footprint.  Restricted to the footprint their
+    variances drift, and every quantity read in "standardised units" -- the
+    amplitudes, the condition number, the template auto-correlations the
+    two-point correction subtracts -- drifts with them.
+    """
+
+    def test_rescaled_template_warns(self):
+        rng = np.random.default_rng(0)
+        delta_t = rng.standard_normal((3, 5000))
+        delta_t -= delta_t.mean(axis=1, keepdims=True)
+        delta_t[2] *= 4.0
+        with pytest.warns(RuntimeWarning, match="not standardised over the pixels"):
+            sm.compute_covariance_matrix(delta_t)
+
+    def test_standardised_basis_is_silent(self):
+        rng = np.random.default_rng(1)
+        delta_t = rng.standard_normal((3, 5000))
+        delta_t -= delta_t.mean(axis=1, keepdims=True)
+        delta_t /= delta_t.std(axis=1, keepdims=True)
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            sm.compute_covariance_matrix(delta_t)
+
+    def test_zero_mean_tolerance_scales_with_sample_size(self):
+        # A centred draw has a sample mean of order 1/sqrt(n_pix); a fixed
+        # relative threshold would fire on it every time and train the reader
+        # to ignore the warning.
+        rng = np.random.default_rng(2)
+        for n_pix in (500, 5_000, 50_000):
+            delta_t = rng.standard_normal((3, n_pix))
+            with warnings.catch_warnings():
+                warnings.simplefilter("error", RuntimeWarning)
+                sm.compute_covariance_matrix(delta_t)
+
+    def test_a_real_offset_still_warns(self):
+        rng = np.random.default_rng(3)
+        delta_t = rng.standard_normal((3, 5000)) + 0.2
+        with pytest.warns(RuntimeWarning, match="zero mean"):
+            sm.compute_covariance_matrix(delta_t)

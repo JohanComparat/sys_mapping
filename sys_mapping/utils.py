@@ -11,6 +11,8 @@ Implements:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 
@@ -18,6 +20,15 @@ def compute_covariance_matrix(delta_t: np.ndarray) -> np.ndarray:
     """Compute the template covariance matrix (Eq. 24).
 
     ``C_{ij} = (1/N_pix) Σ_p δ_{ti,p} δ_{tj,p}``
+
+    .. note::
+       This is the **uncentred second moment**, not a covariance in general.  It
+       coincides with one because
+       :func:`~sys_mapping.maps.load_real_template` standardises every template to
+       zero mean over the footprint before any fit, so ``⟨δ_t⟩ = 0`` by
+       construction.  It is a covariance *because of that invariant*, not because
+       the mean is subtracted here.  Passing an un-standardised template gives a
+       matrix dominated by the product of the means, and no error.
 
     Parameters
     ----------
@@ -51,7 +62,43 @@ def compute_covariance_matrix(delta_t: np.ndarray) -> np.ndarray:
     >>> np.allclose(C, C.T)  # symmetric
     True
     """
+    delta_t = np.asarray(delta_t)
     n_pix = delta_t.shape[1]
+    means = delta_t.mean(axis=1)
+    scale = np.sqrt(np.mean(delta_t ** 2, axis=1))
+    scale = np.where(scale > 0, scale, 1.0)
+    # The sample mean of n_pix unit-variance values has standard error
+    # 1/sqrt(n_pix), so a fixed relative threshold fires on every finite draw of
+    # a genuinely centred basis.  Flag a mean that is large against that.
+    mean_tol = max(1e-3, 5.0 / np.sqrt(n_pix))
+    if np.any(np.abs(means) / scale > mean_tol):
+        warnings.warn(
+            "compute_covariance_matrix is an uncentred second moment and assumes "
+            "templates standardised to zero mean; the input has a relative mean of "
+            f"{float(np.max(np.abs(means) / scale)):.3g} against a tolerance of "
+            f"{mean_tol:.3g}. Standardise first (see "
+            "maps.load_real_template) or the result is not a covariance.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    # A basis standardised somewhere other than where it is used is not
+    # standardised.  Survey-property maps are normalised over their own valid
+    # region, which is larger than any one sample's footprint; restricted to the
+    # footprint their variances drift, and every quantity that reads the basis in
+    # "standardised units" -- the amplitudes, the condition number, the template
+    # auto-correlations the two-point correction subtracts -- inherits the drift.
+    if np.any((scale < 0.5) | (scale > 2.0)):
+        worst = int(np.argmax(np.abs(np.log(scale))))
+        warnings.warn(
+            "templates are not standardised over the pixels supplied: rms ranges "
+            f"{float(scale.min()):.3g} to {float(scale.max()):.3g} (template "
+            f"{worst}). Amplitudes fitted against this basis are not in units of "
+            "one standard deviation of the template on this footprint, and the "
+            "sum of the covariance eigenvalues is "
+            f"{float(np.sum(scale ** 2)):.4g} rather than {len(scale)}.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
     return (delta_t @ delta_t.T) / n_pix
 
 
@@ -115,6 +162,7 @@ def measure_two_point_function(
     max_sep: float = 30.0,
     nbins: int = 15,
     sep_units: str = "arcmin",
+    metric: str = "Arc",
 ) -> tuple[np.ndarray, np.ndarray]:
     """Measure the angular two-point correlation function via Landy-Szalay.
 
@@ -128,6 +176,9 @@ def measure_two_point_function(
     min_sep, max_sep : float  angular bin limits in ``sep_units``
     nbins : int  number of log-spaced bins
     sep_units : str  angular units for ``min_sep``/``max_sep`` (default ``'arcmin'``)
+    metric : str  TreeCorr metric (default ``'Arc'``, great-circle separation).
+        Matches :func:`measure_cross_two_point_function`; TreeCorr's own
+        default is ``'Euclidean'``, a different distance measure.
 
     Returns
     -------
@@ -170,6 +221,12 @@ def measure_two_point_function(
         max_sep=max_sep,
         nbins=nbins,
         sep_units=sep_units,
+        # Great-circle separation, matching measure_cross_two_point_function.
+        # TreeCorr's own default is "Euclidean" (chord), so leaving this unset put
+        # the auto- and cross-correlation on different distance measures: the two
+        # diverge as theta^3/24 and are not comparable bin for bin at degree
+        # scales, which is exactly where w(theta) is measured here.
+        metric=metric,
     )
     cat_gal = treecorr.Catalog(ra=ra_gal, dec=dec_gal, ra_units="degrees", dec_units="degrees")
     cat_rand = treecorr.Catalog(ra=ra_rand, dec=dec_rand, ra_units="degrees", dec_units="degrees")
