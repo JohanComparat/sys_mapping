@@ -79,6 +79,55 @@ def _assign_patches(
     return patch_ids
 
 
+def assign_spatial_patches(
+    good_pixels: np.ndarray,
+    nside: int,
+    n_patches: int,
+    nside_patch: int | None = None,
+) -> np.ndarray:
+    """Label every unmasked pixel with a compact spatial patch id.
+
+    Public entry point to the patch scheme used by
+    :func:`block_bootstrap_variance` and :func:`jackknife_covariance`, exposed so
+    that the same patches can be reused as cross-validation groups in
+    :func:`~sys_mapping.regression.elasticnet_contamination_fit`.  Sharing one
+    definition matters: the folds a penalty is selected on and the patches its
+    uncertainty is estimated from should be the same partition of the sky.
+
+    Parameters
+    ----------
+    good_pixels:
+        Boolean footprint mask over the full sky (shape ``(12 * nside**2,)``).
+    nside:
+        HEALPix resolution of the maps.
+    n_patches:
+        Desired number of patches (approximate; the achievable count is set by
+        the power-of-two coarsening).
+    nside_patch:
+        Coarse HEALPix NSIDE defining the patch boundaries.  ``None``
+        auto-selects from the footprint sky fraction.
+
+    Returns
+    -------
+    patch_ids : ``(n_good_pix,)``
+        Integer label ``0..K-1`` per unmasked pixel, in the order the pixels
+        appear in ``np.where(good_pixels)[0]`` -- the same order the overdensity
+        and template arrays use.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import assign_spatial_patches
+    >>> good = np.ones(12 * 16 ** 2, dtype=bool)
+    >>> ids = assign_spatial_patches(good, nside=16, n_patches=48)
+    >>> bool(len(ids) == good.sum())
+    True
+    >>> int(ids.min())
+    0
+    """
+    return _assign_patches(good_pixels, nside, n_patches, nside_patch)
+
+
 def block_bootstrap_variance(
     delta_g_obs: np.ndarray,
     delta_t: np.ndarray,

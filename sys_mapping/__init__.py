@@ -47,7 +47,11 @@ from .model_selection import (
     SnrPreselectionResult,
     snr_preselect,
 )
-from .bootstrap import block_bootstrap_variance, jackknife_covariance
+from .bootstrap import (
+    block_bootstrap_variance,
+    jackknife_covariance,
+    assign_spatial_patches,
+)
 from .power_spectrum import (
     measure_pseudo_cl,
     subtract_template_cl,
@@ -167,6 +171,7 @@ __all__ = [
     # bootstrap
     "block_bootstrap_variance",
     "jackknife_covariance",
+    "assign_spatial_patches",
     # utils
     "compute_covariance_matrix",
     "compute_amplitude_bias",
