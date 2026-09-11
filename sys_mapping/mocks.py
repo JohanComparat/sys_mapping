@@ -194,8 +194,9 @@ def generate_lognormal_field(
     return delta_true
 
 
-def make_galactic_mask(nside: int, lat_cut_deg: float = 20.0) -> np.ndarray:
-    """Boolean survey mask: exclude pixels within Galactic latitude b_gal < lat_cut_deg.
+def make_galactic_mask(nside: int, lat_cut_deg: float = 20.0,
+                       coord_in: str = "G") -> np.ndarray:
+    """Boolean survey mask: exclude pixels within ``lat_cut_deg`` of the Galactic plane.
 
     Parameters
     ----------
@@ -203,6 +204,12 @@ def make_galactic_mask(nside: int, lat_cut_deg: float = 20.0) -> np.ndarray:
         HEALPix NSIDE.
     lat_cut_deg:
         Galactic latitude cut in degrees.
+    coord_in:
+        Coordinate system the HEALPix map is in: ``"G"`` (Galactic, default),
+        ``"C"`` (celestial/equatorial) or ``"E"`` (ecliptic).  The cut is always
+        made in Galactic latitude; for any other input frame the pixel directions
+        are rotated first.  Passing a celestial map and leaving this at ``"G"``
+        removes an equatorial band instead of the Galactic plane.
 
     Returns
     -------
@@ -219,7 +226,14 @@ def make_galactic_mask(nside: int, lat_cut_deg: float = 20.0) -> np.ndarray:
     True
     """
     n_pix = hp.nside2npix(nside)
-    theta_pix, _ = hp.pix2ang(nside, np.arange(n_pix))
+    theta_pix, phi_pix = hp.pix2ang(nside, np.arange(n_pix))
+    if coord_in.upper() != "G":
+        # The map's own latitude is Galactic only for a map already in Galactic
+        # coordinates.  For a celestial map, cutting on it removes an equatorial
+        # band -- a different region of sky entirely, and one that keeps most of
+        # the Galactic plane.  Rotate the pixel directions into Galactic first.
+        theta_pix, phi_pix = hp.Rotator(coord=[coord_in.upper(), "G"])(
+            theta_pix, phi_pix)
     lat = 90.0 - np.degrees(theta_pix)
     return np.abs(lat) > lat_cut_deg
 
@@ -489,9 +503,15 @@ def make_mock_suite(
     if b_amplitudes is None:
         b_amplitudes = rng.normal(0.0, 0.10, n_sys)
 
+    # One child seed for the whole suite, drawn before the loop.  Drawing inside
+    # it gave every scenario a different density realisation, which is the
+    # opposite of what this function is for: the scenarios are meant to differ
+    # only in their contamination, so that a method comparison across them is not
+    # also a comparison across sample variance.
+    child_seed = int(rng.integers(0, 2**31))
+
     suite: dict[str, MockCatalog] = {}
     for scenario in scenarios:
-        child_seed = int(rng.integers(0, 2**31))
         suite[scenario] = make_mock_catalog(
             nside=nside,
             n_sys=n_sys,

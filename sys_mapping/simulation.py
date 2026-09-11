@@ -40,7 +40,7 @@ import healpy as hp
 import jax.numpy as jnp
 import numpy as np
 
-from .contamination import apply_contamination
+from .contamination import apply_contamination, apply_nonlinear_contamination
 from .maps import (
     assign_template_values,
     compute_overdensity,
@@ -99,17 +99,36 @@ class ContaminationConfig:
     scenario: str
     a_true: np.ndarray
     b_true: np.ndarray
+    responses: tuple = ()
+    shape: str = "linear"
 
     @property
     def n_sys(self) -> int:
         return len(self.a_true)
 
+    @property
+    def contaminated(self) -> tuple[int, ...]:
+        """Indices of the templates this configuration actually contaminates.
+
+        The true positives a selection rule is supposed to find.  For the linear
+        scenarios it is read off the amplitudes; for a response scenario it is
+        the entries of ``responses`` that are not ``None``.
+        """
+        if self.responses:
+            return tuple(i for i, r in enumerate(self.responses) if r is not None)
+        return tuple(int(i) for i in np.flatnonzero(
+            (np.asarray(self.a_true) != 0) | (np.asarray(self.b_true) != 0)))
+
     def to_header_dict(self) -> dict:
         """Flat dict suitable for storage in a FITS header."""
-        out: dict = {"LEVEL": self.level, "SCENARIO": self.scenario}
+        out: dict = {"LEVEL": self.level, "SCENARIO": self.scenario,
+                     "SHAPE": self.shape}
         for i, (a, b) in enumerate(zip(self.a_true, self.b_true)):
             out[f"A_TRUE_{i}"] = float(a)
             out[f"B_TRUE_{i}"] = float(b)
+        for i, r in enumerate(self.responses):
+            if r is not None:
+                out.update(r.to_header_dict(i))
         return out
 
 
@@ -161,6 +180,98 @@ def make_contamination_grid(
             a = a_base.copy() if scenario in ("additive", "combined") else np.zeros(n_sys)
             b = b_base.copy() if scenario in ("multiplicative", "combined") else np.zeros(n_sys)
             configs.append(ContaminationConfig(level=level_name, scenario=scenario, a_true=a, b_true=b))
+    return configs
+
+
+#: Shape parameter per response kind, chosen so that at the medium level the
+#: departure from linear is large enough to matter and small enough to stay a
+#: perturbative correction.  See `evaluate_response` for the definitions.
+RESPONSE_SHAPES: dict[str, float] = {
+    "linear": 0.0,        # control: what the existing grid already injects
+    "quadratic": 0.5,     # kappa
+    "cubic": 0.3,         # kappa
+    "tanh": 1.5,          # alpha, saturating
+    "threshold": 0.5,     # t0, a depth cut
+    "exp": 0.8,           # alpha, runaway tail
+}
+
+
+def make_response_grid(
+    n_sys: int,
+    seed: int = 0,
+    *,
+    kinds: Sequence[str] | None = None,
+    n_contaminated: int | None = None,
+) -> list[ContaminationConfig]:
+    """Build the non-linear response grid: ``len(kinds)`` shapes x 3 levels.
+
+    The existing :func:`make_contamination_grid` injects
+    ``delta_g*(1 + sum_i b_i t_i) + sum_i a_i t_i``, which is linear in every
+    template.  A linear marginal fit is already sufficient for that, so it cannot
+    distinguish ``ISD-1`` from ``ISD-3`` and in practice does not: the two recover
+    the same amplitude in every cell of campaign ``20260907c``.  This grid injects
+    a response that is not linear, through
+    :func:`~sys_mapping.contamination.apply_nonlinear_contamination`.
+
+    Three of the default kinds (``linear``, ``quadratic``, ``cubic``) lie inside
+    the basis a degree-3 marginal polynomial represents exactly; three
+    (``tanh``, ``threshold``, ``exp``) do not, and are there to find where the
+    method stops working rather than to confirm that it does.
+
+    Parameters
+    ----------
+    n_sys:
+        Number of systematic templates.
+    seed:
+        Seed for the choice of which templates are contaminated.
+    kinds:
+        Response kinds to include; defaults to all of
+        :data:`~sys_mapping.contamination.RESPONSE_KINDS`.
+    n_contaminated:
+        How many of the ``n_sys`` templates to contaminate.  ``None`` (default)
+        contaminates all of them.  Setting it below ``n_sys`` is what makes
+        greedy template *selection* measurable: with every template contaminated
+        there is no true negative for a selection rule to get wrong.
+
+    Returns
+    -------
+    ``len(kinds) * 3`` configurations, labelled by ``shape`` and ``level``.
+
+    Examples
+    --------
+    >>> from sys_mapping.simulation import make_response_grid
+    >>> cfgs = make_response_grid(n_sys=5, n_contaminated=2)
+    >>> len(cfgs)
+    18
+    >>> all(len(c.contaminated) == 2 for c in cfgs)
+    True
+    """
+    from .contamination import RESPONSE_KINDS, TemplateResponse
+
+    kinds = tuple(kinds) if kinds is not None else RESPONSE_KINDS
+    rng = np.random.default_rng(seed)
+    if n_contaminated is None or n_contaminated >= n_sys:
+        picked = np.arange(n_sys)
+    else:
+        picked = np.sort(rng.choice(n_sys, size=int(n_contaminated), replace=False))
+    signs = rng.choice([-1, 1], size=n_sys).astype(float)
+
+    configs: list[ContaminationConfig] = []
+    for level_name, mag in LEVELS.items():
+        for kind in kinds:
+            responses = tuple(
+                TemplateResponse(kind, RESPONSE_SHAPES[kind], float(signs[i] * mag))
+                if i in picked else None
+                for i in range(n_sys)
+            )
+            # a_true records the *linear* amplitude the response was scaled to,
+            # so the existing recovery metrics stay meaningful as a baseline.
+            a = np.zeros(n_sys)
+            a[picked] = signs[picked] * mag
+            configs.append(ContaminationConfig(
+                level=level_name, scenario="response", a_true=a,
+                b_true=np.zeros(n_sys), responses=responses, shape=kind,
+            ))
     return configs
 
 
@@ -335,6 +446,7 @@ def inject_systematics(
     a: np.ndarray,
     b: np.ndarray,
     nside: int,
+    responses: Sequence | None = None,
 ) -> np.ndarray:
     """Compute per-galaxy contamination weights.
 
@@ -402,15 +514,22 @@ def inject_systematics(
     with np.errstate(invalid="ignore", divide="ignore"):
         delta_g_full = np.where(rand_norm > 0, gal_counts / rand_norm - 1.0, 0.0)
 
-    # Apply contamination model on the full sky
-    delta_cont_full = np.asarray(
-        apply_contamination(
-            jnp.asarray(delta_g_full),
-            jnp.asarray(templates),
-            jnp.asarray(a),
-            jnp.asarray(b),
+    # Apply contamination model on the full sky.  `responses` selects the
+    # selection-efficiency model `(1+d)*prod(1+F_i(t_i))`, which is what ISD
+    # inverts and which need not be linear in the template; without it the model
+    # is Eq. 13, linear in every template by construction.
+    if responses is not None:
+        delta_cont_full = apply_nonlinear_contamination(
+            delta_g_full, templates, responses)
+    else:
+        delta_cont_full = np.asarray(
+            apply_contamination(
+                jnp.asarray(delta_g_full),
+                jnp.asarray(templates),
+                jnp.asarray(a),
+                jnp.asarray(b),
+            )
         )
-    )
 
     # Per-galaxy weight from per-pixel ratio
     theta = np.radians(90.0 - dec)
@@ -549,6 +668,7 @@ def run_wtheta_recovery(
     min_sep: float = 0.1,
     max_sep: float = 10.0,
     nbins: int = 10,
+    method_kwargs: dict | None = None,
 ) -> dict:
     """Run full decontamination pipeline and return w(θ) at each stage.
 
@@ -578,6 +698,13 @@ def run_wtheta_recovery(
         Angular separation range in degrees.
     nbins:
         Number of angular bins.
+    method_kwargs:
+        Extra keyword arguments forwarded to
+        :func:`~sys_mapping.regression.run_decontamination`, either as one dict
+        applied to every method or as ``{method_name: {...}}``.  The ISD methods
+        need ``isd_chi2_68`` here: without it their stopping threshold is in raw
+        :math:`\\Delta\\chi^2` units and the iteration does not stop where it
+        should.
 
     Returns
     -------
@@ -607,7 +734,8 @@ def run_wtheta_recovery(
 
     # 2. Contamination weights
     weight_cont = inject_systematics(
-        ra, dec, ra_rand, dec_rand, templates, config.a_true, config.b_true, nside
+        ra, dec, ra_rand, dec_rand, templates, config.a_true, config.b_true, nside,
+        responses=config.responses or None,
     )
 
     # 3. Contaminated w(θ)
@@ -638,8 +766,11 @@ def run_wtheta_recovery(
     phi_pix = np.radians(ra)
     pix_gal = hp.ang2pix(nside, theta_pix, phi_pix)
 
+    method_kwargs = method_kwargs or {}
     for method in methods:
-        res = run_decontamination(method, delta_g_obs, delta_t_masked)
+        kw = method_kwargs.get(method, method_kwargs)
+        kw = {k: v for k, v in kw.items() if not isinstance(v, dict)}
+        res = run_decontamination(method, delta_g_obs, delta_t_masked, **kw)
         weights_sys = res["weights"]  # (n_good_pix,)
 
         # Map good-pixel correction weights back to per-galaxy
@@ -660,10 +791,30 @@ def run_wtheta_recovery(
             min_sep=min_sep, max_sep=max_sep, nbins=nbins,
         )
         result[f"w_recovered_{method}"] = w_rec
-        result[f"params_{method}"] = {
+        params = {
             "a_hat": res.get("a_hat"),
             "b_hat": res.get("b_hat"),
             "elapsed_s": res.get("elapsed_s"),
         }
+        # ISD's amplitude is the linear projection of the fitted curve, so on a
+        # non-linear response it is blind to exactly the thing the higher orders
+        # buy.  The curvature lives in the per-step coefficients; keep them, and
+        # the stopping record that says whether the run was calibrated at all.
+        if res.get("isd_steps") is not None:
+            params.update({
+                "isd_poly_order": res.get("isd_poly_order"),
+                "n_steps": res.get("n_iterations"),
+                "stopped_on": res.get("isd_stopped_on"),
+                "calibrated": res.get("isd_calibrated"),
+                "n_floored": res.get("isd_n_floored"),
+                "significance": res.get("isd_significance"),
+                "steps": [
+                    {"template": int(st["template"]),
+                     "significance": float(st["significance"]),
+                     "coeffs": np.asarray(st["coeffs"], dtype=float).tolist()}
+                    for st in res["isd_steps"]
+                ],
+            })
+        result[f"params_{method}"] = params
 
     return result

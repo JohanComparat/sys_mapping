@@ -7,6 +7,8 @@ import os
 import numpy as np
 import pytest
 
+import sys_mapping as sm
+
 UCHUU_DATA = os.path.expanduser(
     "~/data/Uchuu/FullSky/mock_catalogues/"
     "MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/"
@@ -178,3 +180,58 @@ class TestLoadUchuuMock:
         assert nz.sum() > 0
         assert z_edges.shape == (21,)
         assert nz.shape == (20,)
+
+
+class TestLoadMatchedCl:
+    """Resolution of a per-setup matched spectrum, and the validation gate."""
+
+    @staticmethod
+    def _write(tmp_path, sample, nside, *, passed, ratio=1.0, n=8):
+        import json
+        p = tmp_path / f"{sample}_NSIDE{nside:04d}_match.json"
+        p.write_text(json.dumps({
+            "sample": sample, "nside": nside,
+            "cl_matched": [0.0] + [1e-3] * n,
+            "validation": {"passed": passed, "large_scale_ratio": ratio,
+                           "tol": 0.1, "l_range": [2, n]},
+        }))
+        return p
+
+    def test_exact_resolution_wins_when_it_passes(self, tmp_path):
+        s = "SAMPLE_A"
+        self._write(tmp_path, s, 32, passed=True, n=4)
+        self._write(tmp_path, s, 128, passed=True, n=16)
+        cl = sm.load_matched_cl(tmp_path, s, 32)
+        assert len(cl) == 5          # the NSIDE 32 file, not the finer one
+
+    def test_finest_wins_when_no_exact_file(self, tmp_path):
+        s = "SAMPLE_B"
+        self._write(tmp_path, s, 32, passed=True, n=4)
+        self._write(tmp_path, s, 128, passed=True, n=16)
+        cl = sm.load_matched_cl(tmp_path, s, 64)   # no NSIDE 64 file
+        assert len(cl) == 17         # falls through to NSIDE 128
+
+    def test_failed_exact_falls_back_to_a_validated_resolution(self, tmp_path):
+        """A failed fit at one resolution says nothing about a passing one.
+
+        The spectrum is a property of the sample and its footprint; resolution
+        limits what can be *checked*, not what can be *used*.  This is the LS10
+        logM>=11.5 case: its NSIDE 64 fit failed while its NSIDE 128 fit passed.
+        """
+        s = "SAMPLE_C"
+        self._write(tmp_path, s, 64, passed=False, ratio=0.954, n=4)
+        self._write(tmp_path, s, 128, passed=True, n=16)
+        with pytest.warns(UserWarning, match="did not pass the large-scale check"):
+            cl = sm.load_matched_cl(tmp_path, s, 64)
+        assert len(cl) == 17
+
+    def test_refuses_when_nothing_passed(self, tmp_path):
+        """Falling back must not become a way of accepting an unvalidated null."""
+        s = "SAMPLE_D"
+        self._write(tmp_path, s, 64, passed=False, ratio=0.6)
+        self._write(tmp_path, s, 128, passed=False, ratio=0.5)
+        with pytest.raises(ValueError, match="failed the large-scale check"):
+            sm.load_matched_cl(tmp_path, s, 64)
+
+    def test_missing_sample_returns_none(self, tmp_path):
+        assert sm.load_matched_cl(tmp_path, "NO_SUCH_SAMPLE", 64) is None

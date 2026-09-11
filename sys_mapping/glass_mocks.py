@@ -185,27 +185,51 @@ def load_matched_cl(source, sample: str | None = None,
     """
     from pathlib import Path
     import json
+    import warnings
+
+    def _validated(q) -> bool:
+        """Has this file passed the large-scale check?"""
+        try:
+            v = json.loads(q.read_text()).get("validation")
+        except (OSError, ValueError):
+            return False
+        return bool(v and v.get("passed"))
 
     path = Path(source)
     if path.is_dir():
         if sample is None:
             raise ValueError("sample is needed to pick a file from a directory")
+        # The spectrum is a property of the SAMPLE and its footprint, not of the
+        # map it was verified on: resolution limits what can be checked, not what
+        # can be used.  Reaching rp = 10 Mpc/h needs NSIDE 128 for the
+        # higher-redshift samples, while the LRT runs at 32 and 64, so a run must
+        # be able to pick up a spectrum validated at finer resolution.
+        cands = sorted(path.glob(f"{sample}_NSIDE*_match.json"))
+        if not cands:
+            return None
+        finest = lambda qs: max(qs, key=lambda q: int(q.stem.split("_NSIDE")[1][:4]))
         exact = (path / f"{sample}_NSIDE{int(nside):04d}_match.json"
                  if nside is not None else None)
-        if exact is not None and exact.exists():
+        if exact is not None and exact.exists() and _validated(exact):
             path = exact
         else:
-            # The spectrum is a property of the SAMPLE and its footprint, not of
-            # the map it was verified on: resolution limits what can be checked,
-            # not what can be used.  Reaching rp = 10 Mpc/h needs NSIDE 128 for
-            # the higher-redshift samples, while the LRT runs at 32 and 64, so a
-            # run must be able to pick up a spectrum validated at finer
-            # resolution.  Prefer the finest available, which is the best
-            # verified.
-            cands = sorted(path.glob(f"{sample}_NSIDE*_match.json"))
-            if not cands:
-                return None
-            path = max(cands, key=lambda q: int(q.stem.split("_NSIDE")[1][:4]))
+            # Either there is no file at this resolution, or the one there did
+            # not pass.  A failed fit at one resolution says nothing about a
+            # passing fit at another for the same sample and footprint, so prefer
+            # the finest *validated* candidate rather than refusing outright --
+            # but fall back to the finest of any kind so that, when nothing
+            # passed, the gate below still raises with a real diagnosis instead
+            # of a bare None.
+            passing = [q for q in cands if _validated(q)]
+            path = finest(passing) if passing else finest(cands)
+            if exact is not None and exact.exists() and path != exact:
+                warnings.warn(
+                    f"{exact.name} did not pass the large-scale check; using "
+                    f"{path.name} instead, which did. The spectrum belongs to the "
+                    f"sample and its footprint, not to the resolution it was "
+                    f"verified at.",
+                    UserWarning, stacklevel=2,
+                )
     if not path.exists():
         return None
     d = json.loads(path.read_text())
