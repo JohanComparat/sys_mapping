@@ -230,6 +230,99 @@ def mock_sandwich_covariance(
     return Minv @ c_proj @ Minv
 
 
+def method_marginalised_covariance(
+    cov: np.ndarray,
+    w_a: np.ndarray,
+    w_b: np.ndarray,
+    *,
+    block_sizes: list[int] | None = None,
+) -> np.ndarray:
+    """Fold the choice of weighting method into the data-vector covariance.
+
+    This package offers six decontamination methods and they do not return the
+    same :math:`w(\\theta)`.  Picking one and reporting its error bar treats a
+    real modelling uncertainty as though it were zero.  The alternative is to
+    promote the difference between two defensible methods into an extra mode of
+    the covariance:
+
+    .. math::
+
+        {\\rm Cov}\\bigl[w(\\theta_i), w(\\theta_j)\\bigr]
+        \\;\\longrightarrow\\;
+        {\\rm Cov}\\bigl[w(\\theta_i), w(\\theta_j)\\bigr]
+        + \\Delta_i \\Delta_j,
+        \\qquad \\Delta = \\hat w^{A} - \\hat w^{B},
+
+    so that substituting one method for the other moves the data vector by at
+    most about :math:`1\\sigma`.  This is analytic marginalisation over a single
+    linear nuisance direction, and it converts a systematic that would otherwise
+    be argued about into statistical error that the likelihood handles.
+
+    Parameters
+    ----------
+    cov:
+        Covariance of the data vector, shape ``(n, n)``.
+    w_a, w_b:
+        The same data vector measured with two weighting methods, shape ``(n,)``.
+        Both should already be debiased (see
+        :func:`~sys_mapping.correction.debias_two_point_function`), or the term
+        will absorb the difference in their over-correction rather than the
+        difference in what they remove.
+    block_sizes:
+        Lengths of independent blocks of the data vector -- for a tomographic
+        analysis, the number of :math:`\\theta` bins in each redshift bin.  When
+        given, the added term is block diagonal, so each block is free to prefer a
+        different method.  When ``None`` the term is added across the whole
+        vector, which is equivalent to marginalising over one parameter shared by
+        every block, and is the more restrictive choice.
+
+    Returns
+    -------
+    ``(n, n)`` covariance with the method term added.  Symmetric, and positive
+    semi-definite whenever ``cov`` is (an outer product adds a non-negative rank-1
+    contribution).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import method_marginalised_covariance
+    >>> cov = np.diag([1.0, 1.0, 1.0])
+    >>> w_a = np.array([0.10, 0.05, 0.02])
+    >>> w_b = np.array([0.11, 0.05, 0.02])
+    >>> out = method_marginalised_covariance(cov, w_a, w_b)
+    >>> bool(np.isclose(out[0, 0], 1.0 + 0.01 ** 2))
+    True
+    >>> bool(np.allclose(out, out.T))
+    True
+
+    References
+    ----------
+    Weaverdyck et al. 2026, arXiv:2601.14484, Eq. 24.
+    """
+    cov = np.asarray(cov, dtype=float)
+    delta = np.asarray(w_a, dtype=float) - np.asarray(w_b, dtype=float)
+    n = delta.size
+    if cov.shape != (n, n):
+        raise ValueError(f"cov has shape {cov.shape}, expected ({n}, {n})")
+
+    if block_sizes is None:
+        add = np.outer(delta, delta)
+    else:
+        if int(np.sum(block_sizes)) != n:
+            raise ValueError(
+                f"block_sizes sum to {int(np.sum(block_sizes))} but the data "
+                f"vector has length {n}")
+        add = np.zeros((n, n))
+        start = 0
+        for size in block_sizes:
+            stop = start + size
+            add[start:stop, start:stop] = np.outer(delta[start:stop],
+                                                   delta[start:stop])
+            start = stop
+
+    return cov + add
+
+
 def sample_covariance(samples: np.ndarray) -> np.ndarray:
     """Unbiased sample covariance of an ensemble of estimator realizations.
 

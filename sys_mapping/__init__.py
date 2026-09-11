@@ -18,6 +18,7 @@ from .covariance import (
     sample_covariance,
     hartlap_factor,
     build_harmonic_precision,
+    method_marginalised_covariance,
 )
 from .maps import (
     systematic_power_spectrum,
@@ -136,6 +137,7 @@ __all__ = [
     "sample_covariance",
     "hartlap_factor",
     "build_harmonic_precision",
+    "method_marginalised_covariance",
     # maps
     "systematic_power_spectrum",
     "generate_systematic_map",
