@@ -3,7 +3,11 @@ import jax
 jax.config.update("jax_enable_x64", True)
 
 from .contamination import (
+    RESPONSE_KINDS,
+    TemplateResponse,
     apply_contamination,
+    apply_nonlinear_contamination,
+    evaluate_response,
     invert_contamination,
     compute_two_point_correction,
     pack_params,
@@ -124,7 +128,11 @@ from .simulation import (
 
 __all__ = [
     # contamination
+    "RESPONSE_KINDS",
+    "TemplateResponse",
     "apply_contamination",
+    "apply_nonlinear_contamination",
+    "evaluate_response",
     "invert_contamination",
     "compute_two_point_correction",
     "pack_params",

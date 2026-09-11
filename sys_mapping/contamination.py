@@ -11,9 +11,15 @@ Three nested models:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import jax.numpy as jnp
 import numpy as np
 from jax import Array
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 # ---------------------------------------------------------------------------
 # Parameter layout helpers
@@ -298,7 +304,11 @@ def compute_two_point_correction(
     w_obs : (n_bins,) observed angular correlation function
     a_sq : ``(n_sys,)`` debiased squared additive coefficients
     b_sq : ``(n_sys,)`` debiased squared multiplicative coefficients
-    template_correlations : ``(n_sys, n_bins)`` template auto-correlations per angular bin
+    template_correlations : ``(n_sys, n_bins)`` template auto-correlations per
+        angular bin, or ``(n_sys, n_sys, n_bins)`` for the full correlation matrix
+        including cross terms.  With the 3-D form, ``a_sq``/``b_sq`` must be the
+        debiased *matrices* from
+        :func:`~sys_mapping.correction.debias_params_matrix`.
 
     Returns
     -------
@@ -326,6 +336,227 @@ def compute_two_point_correction(
     >>> w_corr.shape
     (15,)
     """
-    add_bias = jnp.einsum("i,ij->j", a_sq, template_correlations)
-    mult_bias = jnp.einsum("i,ij->j", b_sq, template_correlations)
+    tc = jnp.asarray(template_correlations)
+    a_sq = jnp.asarray(a_sq)
+    b_sq = jnp.asarray(b_sq)
+    # The amplitude rank must match the correlation rank: vectors go with autos,
+    # matrices with the full correlation matrix.  Mixing them is a silent
+    # broadcast in numpy semantics and an opaque einsum error in jax, so name it.
+    if a_sq.ndim + 1 != tc.ndim or b_sq.ndim + 1 != tc.ndim:
+        raise ValueError(
+            f"amplitude and correlation ranks disagree: a_sq{tuple(a_sq.shape)}, "
+            f"b_sq{tuple(b_sq.shape)}, template_correlations{tuple(tc.shape)}. "
+            "Use 1-D a_sq/b_sq (from debias_params) with (n_sys, n_bins) autos, "
+            "or 2-D (from debias_params_matrix) with (n_sys, n_sys, n_bins)."
+        )
+    if tc.ndim == 3:
+        # Full form: sum_ij A_ij xi_ij(theta), with A the debiased outer product
+        # from debias_params_matrix.  The PCA rotation diagonalises the template
+        # covariance at zero lag only, so xi_ij(theta) != 0 for theta > 0 and the
+        # cross terms are a 7-17% effect on the LS10 basis.
+        add_bias = jnp.einsum("ij,ijk->k", a_sq, tc)
+        mult_bias = jnp.einsum("ij,ijk->k", b_sq, tc)
+    elif tc.ndim == 2:
+        # Auto-only form: keeps the diagonal alone.  Retained for compatibility;
+        # pass the full (n_sys, n_sys, n_bins) matrix to include the cross terms.
+        add_bias = jnp.einsum("i,ij->j", a_sq, tc)
+        mult_bias = jnp.einsum("i,ij->j", b_sq, tc)
+    else:
+        raise ValueError(
+            f"template_correlations must be (n_sys, n_bins) for the auto-only "
+            f"correction or (n_sys, n_sys, n_bins) for the full one; got shape "
+            f"{tuple(tc.shape)}"
+        )
     return (w_obs - add_bias) / (1.0 + mult_bias)
+
+
+# ---------------------------------------------------------------------------
+# Non-linear template response (injection only)
+# ---------------------------------------------------------------------------
+
+#: Response shapes.  The first three lie inside the basis a degree-3 marginal
+#: polynomial can represent exactly; the last three do not, and exist to find the
+#: boundary of the method rather than to flatter it.
+RESPONSE_KINDS: tuple[str, ...] = (
+    "linear", "quadratic", "cubic", "tanh", "threshold", "exp",
+)
+
+
+@dataclass(frozen=True)
+class TemplateResponse:
+    """A per-template contamination response :math:`F(t)`.
+
+    The response is applied as a *selection efficiency*,
+
+    .. math::
+
+        1 + \\delta_{\\rm obs} = (1 + \\delta_g)\\,\\prod_i \\bigl(1 + F_i(t_i)\\bigr),
+
+    which is the model
+    :func:`~sys_mapping.regression.iterative_systematics_decontamination` inverts,
+    its weight being :math:`\\prod_j 1/(1 + \\hat F_j)`.  It is **not**
+    :func:`apply_contamination`'s model; the two coincide only when every
+    :math:`F` is linear and ``a = b``.  Measuring what that mismatch costs is one
+    of the things this class exists for.
+
+    ``kind`` is one of :data:`RESPONSE_KINDS`.  ``shape`` is the shape parameter,
+    whose meaning it sets: the curvature :math:`\kappa` for
+    ``quadratic``/``cubic``, the rate :math:`\alpha` for ``tanh``/``exp``, the cut
+    :math:`t_0` for ``threshold``, and nothing for ``linear``.  ``amplitude`` is
+    the target ``rms(F(t))`` over the footprint; every response is rescaled to hit
+    it (see :func:`evaluate_response`), so shapes are compared at equal injected
+    power rather than at equal nominal coefficient.  Without that normalisation a
+    ranking of shapes is a ranking of amplitudes.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import TemplateResponse, evaluate_response
+    >>> rng = np.random.default_rng(0)
+    >>> t = rng.standard_normal(20000)
+    >>> f = evaluate_response(TemplateResponse("cubic", 0.5, 0.05), t)
+    >>> bool(abs(float(np.sqrt(np.mean(f**2))) - 0.05) < 1e-12)
+    True
+    """
+
+    kind: str
+    shape: float
+    amplitude: float
+
+    def __post_init__(self) -> None:
+        if self.kind not in RESPONSE_KINDS:
+            raise ValueError(
+                f"unknown response kind {self.kind!r}; expected one of "
+                f"{', '.join(RESPONSE_KINDS)}"
+            )
+
+    def to_header_dict(self, i: int) -> dict:
+        """FITS-header-safe record for template ``i``."""
+        return {f"RESP{i}": self.kind, f"RSHP{i}": float(self.shape),
+                f"RAMP{i}": float(self.amplitude)}
+
+
+def _response_unnormalised(kind: str, shape: float, t: np.ndarray) -> np.ndarray:
+    """Shape of ``F`` before the rms rescaling.  ``t`` is standardised."""
+    if kind == "linear":
+        return t
+    if kind == "quadratic":
+        return t + shape * t ** 2
+    if kind == "cubic":
+        return t + shape * t ** 3
+    if kind == "tanh":
+        # Saturating: a completeness that plateaus.  alpha -> 0 recovers `linear`.
+        a = float(shape)
+        return np.tanh(a * t) / a if a != 0.0 else t
+    if kind == "threshold":
+        # A depth cut: no response below t0, linear above.  The derivative is
+        # discontinuous, so no polynomial represents it on the bin scale.
+        return np.where(t > shape, t - shape, 0.0)
+    if kind == "exp":
+        a = float(shape)
+        return np.expm1(a * t) / a if a != 0.0 else t
+    raise ValueError(f"unknown response kind {kind!r}")
+
+
+def evaluate_response(response: TemplateResponse, t: np.ndarray) -> np.ndarray:
+    """Evaluate :math:`F(t)`, rescaled so ``rms(F) == response.amplitude``.
+
+    Parameters
+    ----------
+    response:
+        The response to evaluate.
+    t:
+        Standardised template values at the footprint pixels, shape ``(n_pix,)``.
+
+    Returns
+    -------
+    ``(n_pix,)`` array with ``rms`` equal to ``response.amplitude``.
+
+    Notes
+    -----
+    The rescaling is what makes the shapes comparable: ``cubic`` with
+    :math:`\\kappa = 0.5` on a Gaussian template has roughly twice the raw
+    variance of ``linear``, so an unnormalised comparison would report the cubic
+    as harder to correct when it is merely larger.  Normalising the *injected*
+    power leaves the shape as the only difference.
+
+    A response is centred before rescaling, because a constant offset in ``F`` is
+    absorbed by the overall density normalisation of
+    :func:`~sys_mapping.maps.compute_overdensity` and is not contamination the
+    fit can or should see.
+    """
+    t = np.asarray(t, dtype=float)
+    f = _response_unnormalised(response.kind, float(response.shape), t)
+    f = f - f.mean()
+    rms = float(np.sqrt(np.mean(f ** 2)))
+    if rms <= 0.0:
+        return np.zeros_like(t)
+    return f * (float(response.amplitude) / rms)
+
+
+def apply_nonlinear_contamination(
+    delta_g: np.ndarray,
+    delta_t: np.ndarray,
+    responses: "Sequence[TemplateResponse | None]",
+    *,
+    min_efficiency: float = 0.05,
+) -> np.ndarray:
+    """Inject a template response that need not be linear.
+
+    Computes
+
+    .. math::
+
+        1 + \\delta_{\\rm obs} = (1 + \\delta_g)\\,\\prod_i \\bigl(1 + F_i(t_i)\\bigr)
+
+    with each :math:`F_i` given by :func:`evaluate_response`.  This is the
+    selection-efficiency model ISD inverts, and the reason it is a separate
+    function from :func:`apply_contamination` rather than a generalisation of it:
+    the flat parameter vector of :func:`pack_params`, the Jacobian in
+    :mod:`sys_mapping.likelihood`, and the closed-form two-point correction of
+    :func:`compute_two_point_correction` are all tied to one coefficient per
+    template per branch, and none of them has an analogue for a general
+    :math:`F`.  This function is for *injecting* contamination into mocks; the
+    inference models are unchanged.
+
+    Parameters
+    ----------
+    delta_g:
+        Clean galaxy overdensity, shape ``(n_pix,)``.
+    delta_t:
+        Standardised templates, shape ``(n_sys, n_pix)``.
+    responses:
+        One :class:`TemplateResponse` per template, or ``None`` for a template
+        left uncontaminated.  ``None`` entries are what make greedy template
+        *selection* measurable: without a true negative there is nothing for a
+        selection rule to get wrong.
+    min_efficiency:
+        Floor on the product :math:`\\prod_i (1 + F_i)`.  A ``cubic`` or ``exp``
+        response on a skewed template drives the efficiency through zero in the
+        tail, and :func:`~sys_mapping.glass_mocks.sample_positions_from_delta`
+        requires :math:`1 + \\delta \\ge 0`.  Flooring is the conservative
+        reading: an efficiency of zero is a masked pixel, not a negative count.
+
+    Returns
+    -------
+    ``(n_pix,)`` contaminated overdensity.
+
+    See Also
+    --------
+    apply_contamination : the linear model of Eq. 13, used by the inference path.
+    evaluate_response : the per-template response, and its normalisation.
+    """
+    delta_g = np.asarray(delta_g, dtype=float)
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    if len(responses) != delta_t.shape[0]:
+        raise ValueError(
+            f"got {len(responses)} responses for {delta_t.shape[0]} templates"
+        )
+
+    efficiency = np.ones(delta_t.shape[1], dtype=float)
+    for i, resp in enumerate(responses):
+        if resp is None:
+            continue
+        efficiency *= 1.0 + evaluate_response(resp, delta_t[i])
+    np.maximum(efficiency, float(min_efficiency), out=efficiency)
+    return (1.0 + delta_g) * efficiency - 1.0
