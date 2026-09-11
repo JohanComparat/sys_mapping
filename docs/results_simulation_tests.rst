@@ -520,10 +520,10 @@ cross-term :math:`\delta_g b_i t_i` in the data.
    produce a :math:`w(\theta)`-level contamination comparable to or below the
    noise, and since the :math:`w(\theta)` signal grows as :math:`A^2` while the
    fitted correction carries the full variance of :math:`\hat a`, "correcting"
-   adds more variance than it removes bias.  The competing explanation is that the
-   ``multiplicative`` *fit* model (which sets :math:`b=a` while retaining
-   :math:`a`) does not match the pure multiplicative form used by the *injector*.
-   Distinguishing the two is an open item; see :doc:`roadmap`.
+   adds more variance than it removes bias.  The competing explanation, that the
+   ``multiplicative`` *fit* model did not match the pure multiplicative form used
+   by the *injector*, is closed: the fit model now sets :math:`a = 0` and fits
+   :math:`b`, which is the form the injector uses.
 
 **Additive scenario.**  Where the injected amplitude is well above the detection
 threshold, OLS and ISD-1 achieve the lowest residual bias: they fit the model that

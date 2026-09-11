@@ -153,8 +153,8 @@ unit variance over the footprint.  The amplitudes :math:`a_i` (additive) and
      - :math:`b_i = 0`
      - Stellar contamination, photometric bias
    * - ``multiplicative``
-     - :math:`a_i`, :math:`\sigma`
-     - :math:`b_i = a_i`
+     - :math:`b_i`, :math:`\sigma`
+     - :math:`a_i = 0`
      - Depth / completeness variations
    * - ``combined``
      - :math:`a_i, b_i`, :math:`\sigma`

@@ -57,7 +57,7 @@ emcee sampler remains available as `--sampler emcee` (the validation baseline).
 Raw catalogs / randoms
         │
         ▼
-scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS10)
+scripts/archive/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS10)
         │
         ▼
     Template FITS files  (LS10_EBV_NSIDE_0064.fits, GAIA_nstar_faint_NSIDE_00064.fits, …)
@@ -71,7 +71,6 @@ scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS
   Stage 2: Full decontamination on reduced template set
         │
         ├──► scripts/run_ls10_analysis.py              ← LS10 BGS per-method weights + w(θ)
-        │         (or scripts/run_all_methods_sequential.sh for phased multi-method run)
         ├──► scripts/run_mock_analysis.py              ← parameter recovery on mocks
         ├──► scripts/run_validation.py                 ← all methods × all scenarios
         ├──► scripts/run_systematic_tests.py           ← all methods × template configs
@@ -129,7 +128,7 @@ of three nested models:
 | Model | Equation | Free params |
 |---|---|---|
 | Additive | `δ̂_g,p = δ_g,p + Σ_i a_i δ_{ti,p}` | a |
-| Multiplicative | `δ̂_g,p = δ_g,p (1 + Σ_i a_i δ_{ti,p})` | a (b=a) |
+| Multiplicative | `δ̂_g,p = δ_g,p (1 + Σ_i b_i δ_{ti,p})` | b, with a = 0 |
 | Combined | `δ̂_g,p = δ_g,p (1 + Σ_i b_i δ_{ti,p}) + Σ_i a_i δ_{ti,p}` | a, b |
 
 ### Likelihoods (Eq. 17–18)
@@ -191,39 +190,18 @@ where r is the number of additional free parameters.
 
 ## Scripts
 
-### `scripts/run_all_methods_sequential.sh`
+### `scripts/archive/build_systematic_maps.py`
 
-Main orchestration script: runs all six methods on LS10 BGS in phases
-(fast methods first), writing incremental Sphinx documentation after
-each phase. Environment variables control behaviour:
-
-```bash
-# Full run (nohup so the terminal can be closed)
-nohup bash scripts/run_all_methods_sequential.sh > logs/run_all.log 2>&1 &
-
-# OLS-only quick preview (seconds)
-METHODS="OLS" bash scripts/run_all_methods_sequential.sh
-
-# Resume from MCMC-add (OLS and ElasticNet already done)
-METHODS="MCMC-add MCMC-comb" bash scripts/run_all_methods_sequential.sh
-
-# Force re-run all bins
-FORCE=1 METHODS="OLS" bash scripts/run_all_methods_sequential.sh
-```
-
-Key environment variables: `BINS`, `DEVICE` (cpu/gpu), `METHODS`,
-`FORCE`, `SKIP_LS10`, `CATALOG_DIR`, `LS10_NSIDE`.
-
-### `scripts/build_systematic_maps.py`
-
-Build HEALPix systematic template maps from GAIA DR2 or LS10 BGS randoms.
+Builds HEALPix systematic template maps from GAIA DR2 or LS10 BGS randoms.  It is
+archived: the maps it produces are an input to the pipeline rather than part of it,
+and they are built once per survey release.
 
 ```bash
 # LS10 maps (EBV, GALDEPTH, PSFSIZE, NOBS)
-python scripts/build_systematic_maps.py --source ls10 --nside 32 64 128 256
+python scripts/archive/build_systematic_maps.py --source ls10 --nside 32 64 128 256
 
 # GAIA DR2 maps (G/BP/RP flux, star counts by magnitude)
-python scripts/build_systematic_maps.py --source gaia --nside 64
+python scripts/archive/build_systematic_maps.py --source gaia --nside 64
 ```
 
 ### `scripts/compute_sys_weights.py`
@@ -267,21 +245,16 @@ python scripts/compute_sys_weights.py \
 | `WEIGHT_COMB` | Combined | library, exact inverse |
 | `WEIGHT_SYS` | Combined (recommended) | alias for `WEIGHT_COMB` |
 
-A written file records the convention in `WEIGHTVER`, `WEIGHTCON` and `WMAXCLIP`.
-`WEIGHTVER = 1` marks a file predating this and is read with a warning; the shipped
-NSIDE 32 and 64 products are version 2.
+A written file records the convention in `WEIGHTVER`, `WEIGHTCON`, `WMAXCLIP` and
+`TPLBASIS`. Version 3 is a basis standardised over the analysis footprint, version 2
+over each template map's own valid region, and version 1 predates both and is read
+with a warning. The two are not comparable: fitted amplitudes are in units of one
+template standard deviation only in version 3.
 
 Both scripts take the same `--skewed` flag, defaulting off. It is opt-in because
 enabling the skew-normal also moves the additive model off its exact analytic
-posterior onto NUTS.
-
-> **Two defects affect the corrected `w(θ)`, not the weights.** The template
-> two-point functions are measured on the pixel grid, so they are zero inside one
-> pixel and the correction does nothing below `49'` at NSIDE 64. And the template
-> basis is standardised over each map's own valid region rather than over the
-> analysis footprint, which is what drives `ISD-3`'s corrected `w(θ)` negative in the
-> widest bins. `correct_two_point_function` and `compute_covariance_matrix` warn on
-> both. See the roadmap.
+posterior onto NUTS. `--no-footprint-standardise` and `--ct-from-pixels` reproduce a
+version-2 product.
 
 ### `scripts/run_ls10_analysis.py`
 
@@ -368,12 +341,13 @@ python scripts/run_paper_validation.py --nside 512 --n-real 119 \
 
 | Script | Output |
 |---|---|
-| `scripts/generate_results_ls10_summary.py` | `docs/results_ls10.rst` from `*_params.json` files |
-| `scripts/generate_sample_pages.py` | Per-sample RST pages in `docs/` |
-| `scripts/generate_recommendations.py` | `docs/results_ls10_recommendations.rst` |
 | `scripts/plot_ls10_wtheta_corrected.py` | `docs/_static/results_ls10/wtheta_corrected_nside64.png` |
 | `scripts/plot_runtime_scaling.py` | `docs/_static/runtime_scaling.png` |
-| `scripts/patch_params_from_partials.py` | Patches `*_params.json` from per-method partial JSON files |
+| `scripts/plot_simulation_tests.py` | simulation-test figures under `docs/_static/` |
+
+The page generators that wrote `docs/results_ls10*.rst` are under `scripts/archive/`
+with the rest of the pre-0.9 tooling; `scripts/archive/README.md` says what each was
+superseded by.
 
 ### `scripts/benchmark_corrfunc_vs_treecorr.py`
 

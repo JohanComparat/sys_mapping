@@ -369,10 +369,12 @@ present) against the current codebase.
 * ``test_real_templates.py`` — **28 passed** using real GAIA DR3 and LS10 DR10
   systematic maps; all six methods completed without error on the 5 954-pixel
   LS10 footprint.
-* ``test_regression.py`` — **26 passed**, including the previously known edge
+* ``test_regression.py`` — **39 passed**, including the previously known edge
   case (``TestElasticNet::test_weights_bounded_positive``), which now passes.
 * The systematic test matrix (``scripts/run_systematic_tests.py``, 32
   configurations) ran to completion; results are documented in
   :doc:`results_systematic_tests`.
 
-**Status: PASSED** — all 258 tests pass with no known failures.
+**Status: PASSED** — 568 tests are collected across 24 files.  ``pytest`` passes 552
+and skips 16 without the real data files; ``pytest -m "not slow"`` deselects a
+further 5 and passes 547.

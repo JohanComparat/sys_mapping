@@ -6,16 +6,14 @@ Prioritised next steps.  Every entry corresponds to an open finding in the
 to the science; this page adds the implementation detail.  Priorities reflect impact
 on *scientific output*, not implementation effort.
 
-**The two that a next version should contain**, in order:
+**What a next version needs**, in order:
 
-1. Standardise the template basis on the footprint (P0 below).  The maps are
-   normalised over each map's own valid region, so on the pixels the fit uses the
-   eleven LS10 templates at NSIDE 64 have rms spanning 0.905 to 5.77.  Every
-   amplitude, the condition number, and the template auto-correlations the two-point
-   correction subtracts are read in units that do not hold there.
-2. Measure the template two-point functions from the galaxies (P0 below).  They are
-   measured on the pixel grid, so they are exactly zero inside one pixel and the
-   correction does nothing over 21 of 30 bins at NSIDE 64 and 24 of 30 at NSIDE 32.
+1. Finish re-issuing the LS10 products on the footprint-standardised basis (P0
+   below).  The code is in place and one cell is verified; the remaining 35 decide
+   whether any of them still overshoots.
+2. Give the per-template significances a covariance that holds on a correlated field
+   (P1 below).  The iid likelihood has a 3-sigma false-positive rate of 76--96 % on
+   clean simulations, so a significance quoted from it is not a detection.
 
 .. contents:: On this page
    :local:
@@ -26,40 +24,37 @@ on *scientific output*, not implementation effort.
 P0 — correctness of the published products
 ------------------------------------------
 
-**Standardise the template basis on the footprint.**  *(highest value in this list)*
-``load_templates_from_dir`` standardises each survey-property map over that map's own
+**Standardise the template basis on the footprint.**  *(implemented, re-run running)*
+``load_templates_from_dir`` normalises each survey-property map over that map's own
 valid region.  The analysis footprint is a subset of it, and the basis is not
-standardised there: at NSIDE 64 the eleven LS10 maps have per-template rms spanning
-0.905 to 5.77 and a relative mean of 0.729, so the covariance eigenvalues sum to 44.4
-rather than ``n_sys = 11`` with a leading eigenvalue of 37.5.
+standardised there: on the LS10 footprint at NSIDE 64 the per-template rms spans
+0.108 to 1.015 and the relative mean reaches 0.496.  Fitted amplitudes are then not
+in units of one template standard deviation, ``compute_covariance_matrix`` is not a
+covariance, and the template auto-correlations the two-point correction subtracts
+carry the same scaling.
 
-Three quantities are read in units that do not hold.  Fitted amplitudes are not in
-units of one standard deviation of the template, so they are not comparable between
-templates.  :func:`~sys_mapping.utils.compute_covariance_matrix` is an uncentred
-second moment and is a covariance only for a zero-mean basis.  And
-:math:`\xi_i(\theta)` in the two-point correction carries the same scaling, which is
-what drives ``ISD-3``'s corrected :math:`w(\theta)` negative in all 18 shipped LS10
-cells, to :math:`-39\times \hat w` at NSIDE 64 and :math:`-232\times` at NSIDE 32.
+:func:`~sys_mapping.maps.standardise_on_footprint` is applied after masking by both
+production scripts, which record the means and rms they divided out in
+``params.json`` and stamp ``TPLBASIS`` into the FITS header.  Measured on the
+fiducial cell, the linear methods' ``rms|a_hat|`` drops from 0.138 to 0.018 while ISD
+moves from 0.0049 to 0.0040, since its marginal fit bins by template value and
+equal-occupancy bins are invariant under a monotone rescaling.  The likelihood ratio
+is unchanged, 179 against 183.
 
-*Action:* re-standardise after masking, where the footprint is known, rather than at
-load time.  ``compute_covariance_matrix`` now warns on both conditions, so the defect
-is loud; closing it needs every LS10 amplitude re-fitted.
-*Blast radius:* every published amplitude, the condition number, and the corrected
-:math:`w(\theta)`.  A full campaign.
+*Remaining:* the 36-cell re-issue at ``WEIGHTVER = 3``.
 
-**Measure the template two-point functions from the galaxies.**
-``run_ls10_analysis.py`` measures :math:`\xi_i(\theta)` with TreeCorr on the rotated
-templates at the HEALPix pixel centres.  No pair of distinct pixels is separated by
-less than the pixel scale, so :math:`\xi_i` comes back as exactly zero below it, while
-:math:`\hat w(\theta)` is measured from the catalogue down to :math:`0.5'`.  The
-correction is therefore identically zero over the bins carrying most of the signal:
-21 of 30 at NSIDE 64 (below :math:`49'`) and 24 of 30 at NSIDE 32 (below
-:math:`94'`).  The first corrected bin tracks the pixel scale in both.
+**Measure the template two-point functions from the galaxies.**  *(implemented)*
+The template correlations were measured with TreeCorr at the HEALPix pixel centres.
+No pair of distinct pixels is separated by less than the pixel scale, so they came
+back as exactly zero below it while the galaxy correlation is measured from the
+catalogue down to 0.5 arcmin, and the correction did nothing over 21 of 30 bins at
+NSIDE 64 and 24 of 30 at NSIDE 32.  A template is constant within a pixel, so its
+correct correlation at sub-pixel separations is its variance, not zero.
 
-*Action:* attach each galaxy the template value of its pixel and run the KK
-correlation on the galaxy positions, at the same separations as :math:`\hat w`.
-*Blast radius:* the corrected :math:`w(\theta)` at every separation below the pixel
-scale, which is currently uncorrected rather than wrong.
+Each galaxy now carries the rotated-template value of its pixel and the correlation
+runs on the galaxy positions.  On the fiducial cell the correction acts in all 30
+bins, and the corrected function stays between 0.97 and 0.99 of the observed one for
+every method, where ``ISD-3`` previously reached -4.8.
 
 **Guard the corrected** :math:`w(\theta)`.  *(done)*
 :func:`~sys_mapping.correction.correct_two_point_function` warns where
@@ -85,13 +80,13 @@ harmonic template subtraction also now removes the debiased *square*
 :math:`\tilde a_i^2 C_\ell^{t_i}`, so it is the Hankel transform of the
 configuration-space estimator.
 
-**Re-run the LS10 ISD columns.**  *(done at NSIDE 32 and 64)*
-The 18 shipped products at NSIDE 32 and 64 carry the library's own per-pixel weight,
-taken from ``result["weights"]``, and record ``WEIGHTVER = 2``, ``WEIGHTCON`` and
-``WMAXCLIP``.  ``WEIGHT_ISD3`` is non-trivial in all 18 and ``WEIGHT_ISD1`` in 16,
-being identically unity for the two densest NSIDE-32 samples, where the stopping rule
-accepts no template.  NSIDE 128 and 256 are still ``WEIGHTVER = 1`` and are being
-regenerated.
+**Re-run the LS10 ISD columns.**  *(superseded by the basis re-run)*
+The products carry the library's own per-pixel weight, taken from
+``result["weights"]``, and record the convention in ``WEIGHTVER``, ``WEIGHTCON``,
+``WMAXCLIP`` and ``TPLBASIS``.  ``WEIGHT_ISD3`` is non-trivial in every cell and
+``WEIGHT_ISD1`` in all but the two densest NSIDE-32 samples, where the stopping
+rule accepts no template.  All four resolutions are being re-issued at
+``WEIGHTVER = 3`` together with the footprint-standardised basis.
 
 **Unify the weight definition.**  *(done)*
 Both production scripts read ``result["weights"]`` rather than recomputing
@@ -113,10 +108,10 @@ Two candidate explanations:
    variance of :math:`\hat a` exceeds the bias removed (the detectability law
    predicts exactly this, since :math:`w(\theta)` contamination grows as
    :math:`A^2`); or
-#. the ``multiplicative`` *fit* model sets :math:`b = a` while retaining :math:`a`,
-   giving :math:`\hat\delta_g = \delta_g(1+\sum a_i t_i) + \sum a_i t_i`, whereas the
-   *injector* uses the pure form :math:`a = 0`, :math:`b` free — so the fit model
-   cannot represent the field it is validated against.
+#. the ``multiplicative`` *fit* model did not match its injector: it set
+   :math:`b = a` while retaining :math:`a`, where the injector uses the pure
+   form :math:`a = 0` with :math:`b` free.  The fit model now unpacks the same
+   way, so this explanation is closed.
 
 *Resolved:* hypothesis (1) is confirmed and (2) is excluded as the driver — see
 :ref:`char-break-even`.  The ``multiplicative`` unpacking is still a genuine bug (it
@@ -178,10 +173,10 @@ because it needs one confirmation run first:
   ``5e-4`` default and no single value corrects it --- the fitted amplitude spans two
   orders of magnitude across samples and resolutions.  *Action:* require ``cl_input``
   for any calibrated statistic rather than falling back to a scalar.
-* The family-B amplitude grid predates the ``--min-probes`` / ``--max-shot-leak``
-  guards and the corrected shot-noise subtraction in ``measure()``.  *Action:* re-run
-  it; expect ~8 % shifts where the leak was small and non-convergence where it was
-  not.
+* The ``cl_amplitude`` grid has been regenerated under the corrected shot-noise
+  subtraction.  Every accepted amplitude rose by an amount tracking the leak,
+  +0.9 % at a leak of 0.7 % and +23 % at 15 %, and six of the 36 cells are now
+  refused.
 
 **Reporting.**
 Three places where a number is quoted that should not be:
