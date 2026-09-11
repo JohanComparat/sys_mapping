@@ -22,7 +22,6 @@ All tests skip automatically if the FITS files are not present on disk.
 from pathlib import Path
 
 import warnings
-
 import numpy as np
 import pytest
 import healpy as hp
@@ -209,57 +208,68 @@ class TestElasticNetRealTemplates:
 
 # ── ISD — Iterative Systematics Decontamination ───────────────────────────
 
+# Stand-in for a mock-calibrated Delta chi^2_68.  These tests check shapes,
+# finiteness and termination, not the calibration itself; a production run
+# takes this from isd_template_significance on GLASS nulls.
+_ISD_CHI2_68 = 50.0
+
 class TestISDRealTemplates:
-    # ISD returns (weights, alpha_hat_all, n_iterations) where alpha_hat_all
-    # is a 1-D array of shape (n_expanded,); first n_sys elements are linear.
+    # The published ISD returns an ISDResult; `a_hat` is the summed linear
+    # coefficient of the marginal fits, one entry per template.
 
     @real_data
     def test_isd1_output_shape(self, real_mock):
         n_sys = real_mock["n_sys"]
-        _, alpha_hat, _ = sm.iterative_systematics_decontamination(
-            real_mock["delta_g"], real_mock["delta_t"], poly_order=1
+        res = sm.iterative_systematics_decontamination(
+            real_mock["delta_g"], real_mock["delta_t"], poly_order=1,
+            chi2_68=_ISD_CHI2_68,
         )
-        a_final = np.asarray(alpha_hat)[:n_sys]
-        assert a_final.shape == (n_sys,)
+        assert res.a_hat.shape == (n_sys,)
+        assert res.weights.shape == real_mock["delta_g"].shape
 
     @real_data
     def test_isd3_output_shape(self, real_mock):
         n_sys = real_mock["n_sys"]
-        _, alpha_hat, _ = sm.iterative_systematics_decontamination(
-            real_mock["delta_g"], real_mock["delta_t"], poly_order=3
+        res = sm.iterative_systematics_decontamination(
+            real_mock["delta_g"], real_mock["delta_t"], poly_order=3,
+            chi2_68=_ISD_CHI2_68,
         )
-        a_final = np.asarray(alpha_hat)[:n_sys]
-        assert a_final.shape == (n_sys,)
+        assert res.a_hat.shape == (n_sys,)
 
     @real_data
     def test_isd1_recovery(self, real_mock):
-        n_sys = real_mock["n_sys"]
-        _, alpha_hat, _ = sm.iterative_systematics_decontamination(
-            real_mock["delta_g"], real_mock["delta_t"], poly_order=1
+        res = sm.iterative_systematics_decontamination(
+            real_mock["delta_g"], real_mock["delta_t"], poly_order=1,
+            chi2_68=_ISD_CHI2_68,
         )
-        a_final = np.asarray(alpha_hat)[:n_sys]
-        _check_recovery(a_final, real_mock["a_true"], tol=0.25, label="ISD-1")
+        _check_recovery(res.a_hat, real_mock["a_true"], tol=0.25, label="ISD-1")
 
     @real_data
     def test_isd3_finite(self, real_mock):
-        """ISD-3 may be ill-conditioned with real correlated templates; check finiteness only."""
+        """ISD-3 on real, correlated templates: finite and bounded.
+
+        Unlike the v1.2 polynomial-OLS variant, which inverted a 55-column
+        collinear basis, each fit here is a 10-bin cubic, so the result is
+        well conditioned whatever the template correlations.
+        """
         n_sys = real_mock["n_sys"]
-        _, alpha_hat, _ = sm.iterative_systematics_decontamination(
-            real_mock["delta_g"], real_mock["delta_t"], poly_order=3
+        res = sm.iterative_systematics_decontamination(
+            real_mock["delta_g"], real_mock["delta_t"], poly_order=3,
+            chi2_68=_ISD_CHI2_68,
         )
-        a_final = np.asarray(alpha_hat)[:n_sys]
-        assert a_final.shape == (n_sys,)
-        assert np.all(np.isfinite(a_final))
+        assert res.a_hat.shape == (n_sys,)
+        assert np.all(np.isfinite(res.a_hat))
+        assert np.all(np.isfinite(res.weights)) and np.all(res.weights > 0)
 
     @real_data
-    def test_convergence(self, real_mock):
-        """ISD-1 should return a finite number of iterations (convergence not guaranteed)."""
-        _, _, n_iter = sm.iterative_systematics_decontamination(
-            real_mock["delta_g"], real_mock["delta_t"],
-            poly_order=1, max_iter=50,
+    def test_terminates(self, real_mock):
+        """The iteration terminates, and says why."""
+        res = sm.iterative_systematics_decontamination(
+            real_mock["delta_g"], real_mock["delta_t"], poly_order=1,
+            chi2_68=_ISD_CHI2_68, max_steps=50,
         )
-        assert n_iter >= 1
-        assert n_iter <= 50
+        assert 0 <= res.n_steps <= 50
+        assert res.stopped_on in ("threshold", "max_steps", "exhausted")
 
 
 # ── MCMC — additive model ─────────────────────────────────────────────────

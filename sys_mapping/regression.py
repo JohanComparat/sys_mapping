@@ -2,7 +2,9 @@
 
 Implements:
   - ElasticNet regularised regression (Weaverdyck & Huterer 2021)
-  - Iterative Systematics Decontamination via polynomial OLS (Rodríguez-Monroy+2025)
+  - Iterative Systematics Decontamination (Elvin-Poole+2018, Rodríguez-Monroy+2022,
+    Weaverdyck+2026): marginal binned polynomial fits, greedy, mock-calibrated stop
+  - Iteratively reweighted polynomial OLS (the v1.2 method formerly named ISD)
   - Multi-method comparison framework (Weaverdyck & Huterer 2021)
   - Unified run_decontamination() interface for all 6 methods
 """
@@ -12,11 +14,20 @@ from __future__ import annotations
 import itertools
 import time
 import warnings
+from dataclasses import dataclass
 from typing import Callable
+
+import re
 
 import numpy as np
 
 _VALID_METHODS = frozenset({"OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"})
+
+# ISD at an arbitrary marginal-polynomial degree.  "ISD-1" and "ISD-3" are the
+# DES Y1/Y3 and Y6 choices and stay in _VALID_METHODS as named methods; the
+# pattern admits the rest so the degree can be swept without inventing a method
+# name per degree.  Degree 0 is a constant, which is no correction at all.
+_ISD_METHOD_RE = re.compile(r"^ISD-([1-9]\d*)$")
 
 # Maximum weight allowed during ISD iterations and in the final ISD output.
 # Pixels where 1 + a@t ≈ 0 would otherwise produce weights → 1/eps = 1e6,
@@ -24,6 +35,19 @@ _VALID_METHODS = frozenset({"OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "
 # to a denominator floor of 0.05 — generous enough not to bias well-behaved
 # scenarios while preventing numerical blow-up under strong contamination.
 _ISD_MAX_WEIGHT: float = 20.0
+
+
+def _as_float_or_none(value):
+    """``float(value)``, or ``None`` when the quantity is not defined.
+
+    A sampler diagnostic that does not apply must not be reported as a number:
+    ``rhat = 1.0`` from an exact analytic draw is indistinguishable in a results
+    table from ``rhat = 1.0`` measured on a converged chain.
+    """
+    if value is None:
+        return None
+    v = float(value)
+    return None if not np.isfinite(v) else v
 
 
 def _compute_weights(
@@ -66,7 +90,7 @@ if _JAX_AVAILABLE_REG:
         """Fully-jitted ISD reweighting loop (``lax.while_loop``).
 
         Numerically equivalent to the NumPy iteration in
-        :func:`iterative_systematics_decontamination`: the constant design matrix
+        :func:`polynomial_ols_decontamination`: the constant design matrix
         ``X`` becomes a JIT constant, so the whole fixed-point iteration compiles
         into a single kernel with no Python-level loop overhead.
         """
@@ -104,6 +128,8 @@ def elasticnet_contamination_fit(
     cv_folds: int = 5,
     max_iter: int = 10_000,
     fit_intercept: bool = False,
+    patch_ids: np.ndarray | None = None,
+    pixel_weights: np.ndarray | None = None,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
     """Fit systematic contamination amplitudes via ElasticNet regression.
 
@@ -132,6 +158,22 @@ def elasticnet_contamination_fit(
         ``cv_folds``-fold cross-validation (``ElasticNetCV``).
     cv_folds:
         Number of cross-validation folds used when ``alpha_reg=None``.
+    patch_ids:
+        Spatial patch label per pixel (shape ``(n_pix,)``), from
+        :func:`~sys_mapping.bootstrap.assign_spatial_patches`.  When given, the
+        cross-validation folds are built from whole patches
+        (``sklearn.model_selection.GroupKFold``) instead of arbitrary index
+        chunks, so a held-out fold is spatially disjoint from the training set.
+        This matters on a clustered field: with folds that mix spatially, the
+        held-out pixels are correlated with the training pixels, the prediction
+        error is under-estimated, and the cross-validation selects too weak a
+        penalty.  DES Y6 uses ~200 compact patches of about 5 degrees diameter
+        (Weaverdyck et al. 2026, Sec. III B).
+    pixel_weights:
+        Per-pixel weight in the likelihood (shape ``(n_pix,)``), passed to
+        ``sample_weight``.  Use :func:`inverse_variance_pixel_weights` to build
+        the DES Y6 form :math:`A_k^2 / (N_k + 2)`, which accounts for both partial
+        coverage and Poisson scatter in the pixel counts.
     max_iter:
         Maximum coordinate descent iterations.
     fit_intercept:
@@ -189,17 +231,34 @@ def elasticnet_contamination_fit(
 
     X = delta_t.T  # (n_pix, n_sys)
     y = delta_g_obs  # (n_pix,)
+    sw = None if pixel_weights is None else np.asarray(pixel_weights, dtype=float)
+
+    cv = cv_folds
+    if patch_ids is not None:
+        from sklearn.model_selection import GroupKFold
+
+        patch_ids = np.asarray(patch_ids)
+        n_groups = int(np.unique(patch_ids).size)
+        if n_groups < 2:
+            warnings.warn(
+                "patch_ids defines fewer than two patches; falling back to "
+                f"{cv_folds}-fold index-chunk cross-validation.",
+                UserWarning, stacklevel=2,
+            )
+        else:
+            n_splits = min(cv_folds, n_groups)
+            cv = list(GroupKFold(n_splits=n_splits).split(X, y, groups=patch_ids))
 
     cv_scores = None
     if alpha_reg is None:
         model = ElasticNetCV(
             l1_ratio=l1_ratio,
-            cv=cv_folds,
+            cv=cv,
             max_iter=max_iter,
             fit_intercept=fit_intercept,
             n_jobs=-1,
         )
-        model.fit(X, y)
+        model.fit(X, y, sample_weight=sw)
         alpha_reg = float(model.alpha_)
         cv_scores = model.mse_path_.mean(axis=-1)
     else:
@@ -209,7 +268,7 @@ def elasticnet_contamination_fit(
             max_iter=max_iter,
             fit_intercept=fit_intercept,
         )
-        model.fit(X, y)
+        model.fit(X, y, sample_weight=sw)
 
     alpha_hat = model.coef_  # (n_sys,)
     weights = np.clip(
@@ -220,11 +279,12 @@ def elasticnet_contamination_fit(
         "alpha_reg": alpha_reg,
         "l1_ratio": l1_ratio,
         "cv_scores": cv_scores,
+        "cv_spatial": patch_ids is not None and not isinstance(cv, int),
     }
     return alpha_hat, weights, cv_info
 
 
-def iterative_systematics_decontamination(
+def polynomial_ols_decontamination(
     delta_g_obs: np.ndarray,
     delta_t: np.ndarray,
     *,
@@ -234,11 +294,28 @@ def iterative_systematics_decontamination(
     lambda_poly: float = 0.0,
     backend: str = "numpy",
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Iterative Systematics Decontamination (ISD) via polynomial OLS.
+    """Iteratively reweighted OLS on a multivariate polynomial template basis.
 
-    Expands templates to include cross-products up to ``poly_order``, then
-    iteratively fits OLS weights until convergence.  Implements the approach
-    of Rodríguez-Monroy et al. 2025 (DES Y6), Sec. 3.2.
+    .. warning::
+       **This is not ISD.**  Up to and including v1.2 this function was named
+       ``iterative_systematics_decontamination`` and cited as the method of
+       Rodriguez-Monroy et al.; it is a different algorithm.  It expands the
+       templates into *all* monomials :math:`t_{i_1}\cdots t_{i_k}` with
+       :math:`k \le` ``poly_order`` --- cross-products between different templates
+       included, :math:`\\binom{n_s + k}{k} - 1` columns --- and fits them
+       *simultaneously*.  Published ISD fits one template at a time against its own
+       binned density relation; see
+       :func:`iterative_systematics_decontamination` for that algorithm.
+
+       The distinction is not cosmetic.  Only the first ``n_sys`` linear
+       coefficients drive the weight, so at ``poly_order=3`` fifty-odd strongly
+       collinear columns are fitted and discarded, inflating the variance of the
+       coefficients that are actually used.  On LS10 this produced
+       :math:`{\\rm rms}|\\hat a| \\simeq 7.6`, some 35x the OLS solution on the
+       same data, and a weight map saturated across the whole footprint.
+
+       It is kept because the v1.2 benchmark and timing results were produced with
+       it and remain reproducible.  Do not use it for new analyses.
 
     The ISD cleansed overdensity after convergence is:
 
@@ -311,22 +388,22 @@ def iterative_systematics_decontamination(
     Examples
     --------
     >>> import numpy as np
-    >>> from sys_mapping import iterative_systematics_decontamination
+    >>> from sys_mapping import polynomial_ols_decontamination
     >>> rng = np.random.default_rng(0)
     >>> n_pix, n_sys = 8000, 3
     >>> delta_t = rng.standard_normal((n_sys, n_pix))
     >>> true_alpha = np.array([0.15, -0.08, 0.04])
     >>> delta_g = true_alpha @ delta_t + rng.standard_normal(n_pix) * 0.4
-    >>> weights, alpha_all, n_it = iterative_systematics_decontamination(
+    >>> weights, alpha_all, n_it = polynomial_ols_decontamination(
     ...     delta_g, delta_t, poly_order=2, max_iter=10)
     >>> weights.shape
     (8000,)
     >>> np.all(weights > 0)
     True
 
-    References
-    ----------
-    Rodríguez-Monroy et al. 2025, arXiv:2509.07943.
+    See Also
+    --------
+    iterative_systematics_decontamination : the published ISD algorithm.
     """
     n_sys, n_pix = delta_t.shape
 
@@ -414,6 +491,341 @@ def iterative_systematics_decontamination(
     return weights, alpha_hat_all, max_iter
 
 
+@dataclass(frozen=True)
+class ISDStep:
+    """One accepted step of the ISD iteration.
+
+    ``template``
+        Index of the template selected at this step.
+    ``significance``
+        :math:`S = \\Delta\\chi^2 / \\Delta\\chi^2_{68}` at selection time.
+    ``coeffs``
+        Fitted polynomial coefficients, shape ``(poly_order + 1,)``, in ascending
+        power order, so the intermediate weight is
+        ``1 / (1 + sum_k coeffs[k] t**k)``.
+    """
+
+    template: int
+    significance: float
+    coeffs: np.ndarray
+
+
+@dataclass(frozen=True)
+class ISDResult:
+    """Result of :func:`iterative_systematics_decontamination`.
+
+    ``weights``
+        Shape ``(n_pix,)``.  Product of the intermediate weights over all accepted steps.
+    ``a_hat``
+        Shape ``(n_sys,)``.  Linear contamination amplitude per template, summed
+        over the steps that selected it.  Each contribution is the least-squares
+        projection of the fitted curve onto the template,
+        ``<F_i(t_i) t_i> / <t_i^2>`` -- the amplitude such that ``sum_i a_i t_i``
+        reproduces the contamination actually removed, which is what the
+        downstream two-point correction
+        (:func:`~sys_mapping.correction.correct_two_point_function`) and amplitude
+        bias (:func:`~sys_mapping.utils.compute_amplitude_bias`) assume.  For a
+        linear fit on a standardised template it recovers the degree-1
+        coefficient up to the effect of clipping the tails; for a cubic the two
+        part company entirely, because the coefficients are large whenever the bin
+        centres span a narrow range while the curve they describe is not.  Any
+        curvature the fit found lives in ``steps``, not here.
+    ``steps``
+        The accepted :class:`ISDStep` records, in order.  Empty when no template ever crossed the
+        threshold, in which case ``weights`` is identically one.
+    ``significance``
+        Shape ``(n_sys,)``.  Significance of every template at the *final* iteration, i.e. what is left
+        after weighting.  All entries should be below ``threshold``.
+    ``n_steps``
+        ``len(steps)``.
+    ``n_floored``
+        Total number of pixel-steps where ``1 + F(t)`` had to be floored at
+        ``1/w_max``.  Non-zero is normal in the tails; large means the template
+        wants masking.
+    ``stopped_on``
+        ``"threshold"`` (every template insignificant), ``"max_steps"``, or
+        ``"exhausted"`` (every template already selected ``max_reuse`` times).
+    ``calibrated``
+        Whether ``chi2_68`` came from mocks.  When ``False`` the threshold is in
+        raw :math:`\\Delta\\chi^2` units and is not comparable to the DES value.
+    """
+
+    weights: np.ndarray
+    a_hat: np.ndarray
+    steps: list
+    significance: np.ndarray
+    n_steps: int
+    stopped_on: str
+    calibrated: bool
+    n_floored: int = 0
+
+
+def iterative_systematics_decontamination(
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    *,
+    poly_order: int = 1,
+    n_bins: int = 10,
+    binning: str = "quantile",
+    threshold: float = 2.0,
+    chi2_68: np.ndarray | float | None = None,
+    max_steps: int | None = None,
+    max_reuse: int = 3,
+    fracdet: np.ndarray | None = None,
+    w_max: float = _ISD_MAX_WEIGHT,
+    bad_pixel_frac: float = 0.01,
+) -> ISDResult:
+    """Iterative Systematics Decontamination (ISD).
+
+    The published algorithm (Elvin-Poole et al. 2018 for DES Y1; Rodriguez-Monroy
+    et al. 2022 for Y3; Weaverdyck et al. 2026 Sec. III B for Y6).  Each step fits
+    the observed density *marginally* against one template at a time, weights the
+    field by the inverse of the single most significant fit, and repeats on the
+    reweighted field until no template is significant any more:
+
+    .. math::
+
+        \\hat F_i(t) = \\sum_{k \\le d} c_k^{(i)} t^k,
+        \\qquad
+        S_i = \\frac{\\Delta\\chi^2_i}{\\Delta\\chi^2_{68}},
+        \\qquad
+        w \\;\\leftarrow\\; \\frac{w}{1 + \\hat F_j(t_j)},
+        \\quad j = \\arg\\max_i S_i,
+
+    stopping when :math:`\\max_i S_i < ` ``threshold``.
+
+    ``poly_order`` is the degree of the polynomial **in a single template's
+    value** --- ``1`` reproduces DES Y1/Y3, ``3`` the DES Y6 choice.  It is not a
+    multivariate polynomial order: the design matrix of each fit is
+    ``(n_bins, poly_order+1)`` however many templates there are.  This is what
+    makes the method well conditioned, and it is the difference from
+    :func:`polynomial_ols_decontamination`, which is what this package computed
+    under this name up to v1.2.
+
+    Parameters
+    ----------
+    delta_g_obs:
+        Observed galaxy overdensity at footprint pixels (shape ``(n_pix,)``).
+    delta_t:
+        Template maps at footprint pixels (shape ``(n_sys, n_pix)``).
+    poly_order:
+        Degree of the 1D marginal fit.  ``1`` (linear) or ``3`` (cubic).
+    n_bins:
+        Number of template-value bins per marginal fit.
+    binning:
+        ``"quantile"`` (default) or ``"width"``; see
+        :func:`~sys_mapping.diagnostics.isd_marginal_fit`.
+    threshold:
+        Stopping threshold on :math:`S_i`.  DES Y6 uses ``2.0`` with a
+        mock-calibrated ``chi2_68``.
+    chi2_68:
+        68th percentile of :math:`\\Delta\\chi^2` on contamination-free mocks,
+        either one value per template (shape ``(n_sys,)``) or a scalar.  Obtain it
+        from :func:`~sys_mapping.diagnostics.isd_template_significance` as
+        ``np.percentile(result["delta_chi2_mocks"], 68, axis=0)``.  When ``None``
+        the significance is raw :math:`\\Delta\\chi^2` and the threshold is
+        **uncalibrated** --- a warning is issued, because the DES value of 2 then
+        means nothing.
+    max_steps:
+        Hard cap on accepted steps.  ``None`` (default) uses ``4 * n_sys``.
+    max_reuse:
+        Maximum number of times one template may be selected.  A template that
+        keeps being picked after this many corrections is not being fitted, it is
+        being chased.
+    fracdet:
+        Per-pixel fractional coverage weights (shape ``(n_pix,)``).
+    w_max:
+        Clip for the running weight, ``[1/w_max, w_max]``.  Guards a fit that
+        drives ``1 + F(t)`` through zero in some pixel.
+    bad_pixel_frac:
+        Tolerance on the fraction of pixels whose ``1 + F(t)`` falls below
+        ``1/w_max``.  Below it the denominator is floored and the step applied;
+        above it the step is refused and the template retired, because a fit that
+        inverts the field over a percent of the footprint is not a perturbative
+        correction.  Default ``0.01``.
+
+    Returns
+    -------
+    :class:`ISDResult`
+
+    Notes
+    -----
+    The fitted polynomial is evaluated at ``clip(t, t_lo, t_hi)``, where
+    ``t_lo``/``t_hi`` are the outermost bin centres the fit was constrained by.
+    Survey-property maps are strongly skewed --- LS10's ``GALDEPTH_Z`` reaches
+    +26 standardised units while its outermost bin centre sits near +2 --- so an
+    unclipped cubic would be evaluated three orders of magnitude beyond its
+    support and diverge, which it does: without clipping the iteration on real
+    templates re-selects the same templates with *rising* significance instead of
+    converging.  Holding ``F`` constant outside the fitted range is the
+    conservative reading of a binned fit.
+
+    Precision
+    ---------
+    Each step is a weighted least-squares solve on a ``(n_bins, poly_order+1)``
+    Vandermonde --- condition number of order ``n_bins**poly_order`` at worst,
+    against the ``binom(n_s+3, 3)``-column collinear system the v1.2 code
+    inverted.  The iteration is finite by construction: ``max_steps`` and
+    ``max_reuse`` both bound it, independently of the threshold.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import iterative_systematics_decontamination
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix, n_sys = 20000, 3
+    >>> delta_t = rng.standard_normal((n_sys, n_pix))
+    >>> delta_g = 0.15 * delta_t[1] + rng.standard_normal(n_pix) * 0.3
+    >>> res = iterative_systematics_decontamination(
+    ...     delta_g, delta_t, chi2_68=50.0)
+    >>> res.steps[0].template
+    1
+    >>> bool(abs(res.a_hat[1] - 0.15) < 0.02)
+    True
+
+    References
+    ----------
+    Elvin-Poole et al. 2018, PRD 98, 042006.
+    Rodriguez-Monroy et al. 2022, MNRAS 511, 2665.
+    Weaverdyck et al. 2026, arXiv:2601.14484, Sec. III B.
+
+    See Also
+    --------
+    polynomial_ols_decontamination : the v1.2 algorithm this replaces.
+    sys_mapping.diagnostics.isd_marginal_fit : the per-step fit.
+    """
+    from .diagnostics import isd_marginal_fit
+
+    delta_g_obs = np.asarray(delta_g_obs, dtype=float)
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    n_sys, n_pix = delta_t.shape
+    order = int(poly_order)
+
+    calibrated = chi2_68 is not None
+    if calibrated:
+        norm = np.broadcast_to(np.asarray(chi2_68, dtype=float), (n_sys,)).copy()
+        norm[norm <= 0] = np.inf     # an all-zero mock null can never be exceeded
+    else:
+        warnings.warn(
+            "ISD: chi2_68 not supplied, so the stopping threshold is in raw "
+            "Delta chi^2 units and is not the DES-calibrated statistic. Pass "
+            "chi2_68 from isd_template_significance for a meaningful threshold.",
+            UserWarning, stacklevel=2,
+        )
+        norm = np.ones(n_sys)
+
+    if max_steps is None:
+        max_steps = 4 * n_sys
+
+    weights = np.ones(n_pix)
+    a_hat = np.zeros(n_sys)
+    steps: list[ISDStep] = []
+    n_used = np.zeros(n_sys, dtype=int)
+    n_floored_total = 0
+    stopped_on = "max_steps"
+
+    powers = np.arange(order + 1)
+    significance = np.zeros(n_sys)
+
+    for _ in range(max_steps):
+        # The density as it currently stands, i.e. after every weight applied so
+        # far.  ISD refits on the *corrected* field, which is what makes it
+        # iterative rather than a one-shot marginal regression.
+        delta_now = (1.0 + delta_g_obs) * weights - 1.0
+
+        dchi2, coeffs, t_range = isd_marginal_fit(
+            delta_now, delta_t, n_bins=n_bins, poly_order=order,
+            fracdet=fracdet, binning=binning,
+        )
+        significance = dchi2 / norm
+        # A template already corrected max_reuse times is out of the running.
+        eligible = np.where(n_used < max_reuse, significance, -np.inf)
+
+        if not np.any(np.isfinite(eligible)):
+            stopped_on = "exhausted"
+            break
+
+        j = int(np.argmax(eligible))
+        s_j = float(eligible[j])
+        if s_j < threshold:
+            stopped_on = "threshold"
+            break
+
+        c = np.asarray(coeffs[j], dtype=float)
+        # Evaluate the fit only where it was fitted.  The polynomial is
+        # constrained by ten bin centres; outside them it is an extrapolation,
+        # and survey-property maps are skewed enough for that to matter a great
+        # deal -- LS10's GALDEPTH_Z reaches +26 standardised units while its
+        # outermost bin centre sits near +2, so an unclipped cubic is evaluated
+        # 10^3 times beyond its support and diverges. Holding F constant outside
+        # the fitted range is the conservative reading of a binned fit.
+        t_lo, t_hi = float(t_range[j, 0]), float(t_range[j, 1])
+        t_eval = np.clip(delta_t[j], t_lo, t_hi)
+        f_j = (t_eval[:, None] ** powers[None, :]) @ c
+        denom = 1.0 + f_j
+
+        # Residual guard, for a fit that is bad *within* its own range -- the
+        # clipping above has already removed the extrapolation.  Floor the
+        # denominator so a handful of pixels cannot invert the field, but refuse
+        # the step outright if a sizeable fraction needs it, because a
+        # "correction" that inverts a percent of the footprint is not
+        # perturbative and the template wants masking, not fitting.
+        n_floored = int(np.sum(denom < 1.0 / w_max))
+        frac_floored = n_floored / n_pix
+        if frac_floored > bad_pixel_frac:
+            warnings.warn(
+                f"ISD: the fit for template {j} drives 1 + F(t) below "
+                f"{1.0 / w_max:.3g} in {n_floored}/{n_pix} pixels "
+                f"({100 * frac_floored:.2f}%), above the {100 * bad_pixel_frac:.2f}% "
+                "tolerance; step refused and template retired. Mask the extreme "
+                "values of this template (see footprint_mask_diagnostics) rather "
+                "than fitting through them.",
+                UserWarning, stacklevel=2,
+            )
+            n_used[j] = max_reuse
+            continue
+        if n_floored:
+            n_floored_total += n_floored
+
+        weights = np.clip(weights / np.maximum(denom, 1.0 / w_max),
+                          1.0 / w_max, w_max)
+        # Report the linear amplitude of the correction that was *applied*, as
+        # the least-squares projection of the fitted curve onto the template,
+        # rather than the degree-1 polynomial coefficient.  The two track each
+        # other for a linear fit on a standardised template, but for a cubic they
+        # do not: bin centres of a skewed template span a narrow range, so the
+        # Vandermonde is poorly conditioned and the coefficients are large
+        # (c_3 ~ 4 is routine) even though the curve itself is small.  The
+        # projection is invariant to that conditioning, and it is the quantity
+        # the downstream two-point correction assumes -- the amplitude a_i such
+        # that sum_i a_i t_i reproduces the contamination removed.
+        tt = float(np.dot(delta_t[j], delta_t[j]))
+        a_hat[j] += float(np.dot(f_j, delta_t[j]) / tt) if tt > 0 else 0.0
+        n_used[j] += 1
+        steps.append(ISDStep(template=j, significance=s_j, coeffs=c))
+
+    if steps and stopped_on == "max_steps":
+        # The loop ran out of steps rather than breaking, so `significance` is
+        # from before the last accepted step.  Recompute it, since callers read
+        # it as "what is left after weighting".
+        delta_now = (1.0 + delta_g_obs) * weights - 1.0
+        significance = isd_marginal_fit(
+            delta_now, delta_t, n_bins=n_bins, poly_order=order,
+            fracdet=fracdet, binning=binning,
+        )[0] / norm
+
+    return ISDResult(
+        weights=weights,
+        a_hat=a_hat,
+        steps=steps,
+        significance=significance,
+        n_steps=len(steps),
+        stopped_on=stopped_on,
+        calibrated=calibrated,
+        n_floored=n_floored_total,
+    )
+
+
 def method_comparison(
     delta_g_obs: np.ndarray,
     delta_t: np.ndarray,
@@ -487,9 +899,20 @@ def method_comparison(
     results: dict[str, dict] = {}
     n_pix = delta_g_obs.shape[0]
 
+    def _chi2_of_clean(delta_g_clean: np.ndarray) -> float:
+        """Mean square of the recovered clean field: what the model leaves over."""
+        return float(np.sum(np.asarray(delta_g_clean) ** 2) / n_pix)
+
     def _chi2(alpha: np.ndarray) -> float:
-        residual = delta_g_obs - alpha @ delta_t
-        return float(np.sum(residual**2) / n_pix)
+        """Additive-model residual.  Not valid for the combined model.
+
+        For the combined model the clean field is
+        ``(delta_g_obs - a.t) / (1 + b.t)``, not ``delta_g_obs - a.t``: using the
+        additive form there ignores ``b`` entirely and reports a number that does
+        not correspond to the fit it is labelling.  That branch calls
+        :func:`_chi2_of_clean` with the field it already inverts.
+        """
+        return _chi2_of_clean(delta_g_obs - alpha @ delta_t)
 
     if "ols" in methods:
         X = delta_t.T  # (n_pix, n_sys)
@@ -516,7 +939,7 @@ def method_comparison(
         }
 
     if "combined_mcmc" in methods or "additive_mcmc" in methods:
-        from .inference import run_mcmc, get_mle_params
+        from .inference import run_mcmc, posterior_median_params
         from .contamination import unpack_params
 
         kw = {"seed": seed}
@@ -531,7 +954,7 @@ def method_comparison(
             delta_t=delta_t,
             **kw,
         )
-        theta_hat = get_mle_params(flat_chain)
+        theta_hat = posterior_median_params(flat_chain)
         n_sys = delta_t.shape[0]
         a_hat, b_hat, _, _ = unpack_params(theta_hat, n_sys, "combined", use_skewed=False)
         from .contamination import invert_contamination as _inv_cont
@@ -548,7 +971,8 @@ def method_comparison(
             "a_hat": np.asarray(a_hat),
             "b_hat": np.asarray(b_hat),
             "weights": weights_comb,
-            "chi2_residual": _chi2(np.asarray(a_hat)),
+            # The combined model's own residual, using both a_hat and b_hat.
+            "chi2_residual": _chi2_of_clean(_dg_clean),
         }
 
     if "additive_mcmc" in methods:
@@ -559,7 +983,7 @@ def method_comparison(
             delta_t=delta_t,
             **kw,
         )
-        theta_hat = get_mle_params(flat_chain)
+        theta_hat = posterior_median_params(flat_chain)
         n_sys = delta_t.shape[0]
         a_hat, _, _, _ = unpack_params(theta_hat, n_sys, "additive", use_skewed=False)
         weights_mcmc = np.clip(
@@ -593,8 +1017,17 @@ def run_decontamination(
     nuts_n_samples: int = 1000,
     pixel_precision=None,
     cv_folds: int = 5,
-    isd_max_iter: int = 50,
-    isd_lambda_poly: float = 0.0,
+    # ISD (see iterative_systematics_decontamination)
+    isd_n_bins: int = 10,
+    isd_binning: str = "quantile",
+    isd_threshold: float = 2.0,
+    isd_chi2_68: np.ndarray | float | None = None,
+    isd_max_steps: int | None = None,
+    isd_max_reuse: int = 3,
+    isd_fracdet: np.ndarray | None = None,
+    isd_poly_order: int | None = None,
+    isd_w_max: float = _ISD_MAX_WEIGHT,
+    isd_bad_pixel_frac: float = 0.01,
     # Pre-selection (ignored when preselect=False)
     preselect: bool = False,
     preselect_method: str = "isd",
@@ -662,14 +1095,25 @@ def run_decontamination(
         (the exact analytic additive posterior exists only for white noise).
     cv_folds:
         Cross-validation folds for ElasticNet (when ``alpha_reg`` is auto).
-    isd_max_iter:
-        Maximum iterations for ISD methods.
-    isd_lambda_poly:
-        Ridge penalty on the polynomial expansion columns for ISD-3 (see
-        :func:`iterative_systematics_decontamination`).  A value of
-        ``1e-3 * np.var(delta_g_obs)`` is recommended when ISD-3 converges
-        to implausible solutions.  Has no effect for ISD-1 (poly_order=1 has
-        no polynomial-only columns).  Default ``0.0`` (plain OLS).
+    isd_n_bins:
+        Number of template-value bins per ISD marginal fit (default 10, the DES
+        value).
+    isd_binning:
+        ``"quantile"`` (default, equal occupancy) or ``"width"`` for the ISD bins.
+    isd_threshold:
+        ISD stopping threshold on :math:`S = \\Delta\\chi^2/\\Delta\\chi^2_{68}`.
+        Default ``2.0``, the DES Y6 value; meaningful only when ``isd_chi2_68`` is
+        supplied.
+    isd_chi2_68:
+        Mock-calibrated normalisation of the ISD significance, per template or
+        scalar.  When ``None`` and ``preselect=True`` with
+        ``preselect_method="isd"``, it is taken from the GLASS null that
+        pre-selection already generated; otherwise the ISD threshold is
+        uncalibrated and a warning is issued.
+    isd_max_steps:
+        Cap on accepted ISD steps.  ``None`` uses ``4 * n_sys``.
+    isd_fracdet:
+        Per-pixel fractional coverage weights for the ISD binned means.
     preselect:
         If ``True``, run Stage 1 SNR pre-selection before decontamination.
         The ``delta_t`` passed to the decontamination method will be the
@@ -741,9 +1185,10 @@ def run_decontamination(
     Weaverdyck & Huterer 2021, MNRAS 503, 5061.
     Rodríguez-Monroy et al. 2025, arXiv:2509.07943.
     """
-    if method not in _VALID_METHODS:
+    if method not in _VALID_METHODS and not _ISD_METHOD_RE.match(method):
         raise ValueError(
-            f"method must be one of {sorted(_VALID_METHODS)}, got {method!r}"
+            f"method must be one of {sorted(_VALID_METHODS)} or 'ISD-<degree>', "
+            f"got {method!r}"
         )
 
     n_sys, n_pix = delta_t.shape
@@ -758,7 +1203,7 @@ def run_decontamination(
         "cov_a_rot": None, "cov_b_rot": None,
         "cov_a": None, "cov_b": None,
         "R": None,
-        "acceptance_fraction": None, "sigma_hat": None,
+        "acceptance_fraction": None, "sigma_hat": None, "gamma_hat": None,
         # ISD-only
         "n_iterations": None,
         "isd_outlier_mask": None,    # bool (n_pix,): True = pixel excluded in pass 2
@@ -772,6 +1217,7 @@ def run_decontamination(
     }
 
     # ── Pre-selection (Stage 1) ───────────────────────────────────────────────
+    isd_sig = None
     if preselect:
         from .diagnostics import isd_template_significance
         from .model_selection import snr_preselect
@@ -824,70 +1270,69 @@ def run_decontamination(
         result.update({"a_hat": a_hat, "b_hat": b_hat, "weights": weights,
                         "cv_info": cv_info})
 
-    # ── ISD-1 / ISD-3 ─────────────────────────────────────────────────────────
-    elif method in ("ISD-1", "ISD-3"):
-        poly_order = 1 if method == "ISD-1" else 3
+    # ── ISD-d ─────────────────────────────────────────────────────────────────
+    elif method.startswith("ISD-"):
+        # The order is carried by the method name so the six-method comparison
+        # can name its columns, but `isd_poly_order` overrides it: a sweep over
+        # the order should not have to invent a method name per degree.
+        poly_order = int(method.split("-", 1)[1])
+        if isd_poly_order is not None:
+            poly_order = int(isd_poly_order)
 
-        # Pass 1 — run on all pixels (weights clipped to [1/W, W] internally).
-        weights_p1, alpha_all_p1, n_iter_p1 = iterative_systematics_decontamination(
-            delta_g_obs, delta_t, poly_order=poly_order, max_iter=isd_max_iter,
-            lambda_poly=isd_lambda_poly,
+        # Mock calibration of the stopping rule.  Stage-1 pre-selection, when it
+        # ran with method="isd", already generated the contamination-free GLASS
+        # null this needs, so reuse it rather than paying for it twice.
+        chi2_68 = isd_chi2_68
+        if chi2_68 is None and preselect and isd_sig is not None:
+            chi2_68 = np.percentile(isd_sig["delta_chi2_mocks"], 68, axis=0)
+
+        isd_res = iterative_systematics_decontamination(
+            delta_g_obs, delta_t,
+            poly_order=poly_order,
+            n_bins=isd_n_bins,
+            binning=isd_binning,
+            threshold=isd_threshold,
+            chi2_68=chi2_68,
+            max_steps=isd_max_steps,
+            max_reuse=isd_max_reuse,
+            fracdet=isd_fracdet,
+            w_max=isd_w_max,
+            bad_pixel_frac=isd_bad_pixel_frac,
         )
 
-        # Pixels that hit the clip boundary are pathological: 1 + a@t ≈ 0.
-        # Mask them and refit so the final coefficients are not biased by them.
-        _boundary = _ISD_MAX_WEIGHT * (1.0 - 1e-6)
-        outlier_mask = (weights_p1 >= _boundary) | (weights_p1 <= 1.0 / _boundary)
-        n_outlier = int(outlier_mask.sum())
-        masked_fraction = n_outlier / n_pix
-
-        if n_outlier > 0 and (n_pix - n_outlier) >= max(10 * n_sys, 50):
-            # Pass 2 — refit on pixels that stayed away from the clip boundary.
-            good = ~outlier_mask
-            weights_p2, alpha_all_p2, n_iter_p2 = iterative_systematics_decontamination(
-                delta_g_obs[good], delta_t[:, good],
-                poly_order=poly_order, max_iter=isd_max_iter,
-                lambda_poly=isd_lambda_poly,
-            )
-            # Apply clean coefficients to ALL pixels (outliers included).
-            a_hat = np.asarray(alpha_all_p2)[:n_sys]
-            weights = _compute_weights(a_hat, delta_t)
-            weights = np.clip(weights, 1.0 / _ISD_MAX_WEIGHT, _ISD_MAX_WEIGHT)
-            n_iterations = n_iter_p1 + n_iter_p2
-            warnings.warn(
-                f"{method}: {n_outlier}/{n_pix} outlier pixels masked for pass 2 "
-                f"(pass1={n_iter_p1} iters, pass2={n_iter_p2} iters).",
-                UserWarning,
-                stacklevel=2,
-            )
-        else:
-            a_hat = np.asarray(alpha_all_p1)[:n_sys]
-            weights = weights_p1
-            n_iterations = n_iter_p1
-
+        a_hat = np.asarray(isd_res.a_hat, dtype=float)
+        weights = np.asarray(isd_res.weights, dtype=float)
         b_hat = np.zeros(n_sys)
+
         # Guard: non-finite coefficients (residual edge case).
-        if not np.all(np.isfinite(a_hat)):
+        if not (np.all(np.isfinite(a_hat)) and np.all(np.isfinite(weights))):
             warnings.warn(
-                f"{method} produced non-finite coefficients; "
-                "a_hat zeroed, weights set to ones.",
+                f"{method} produced non-finite output; a_hat zeroed, weights set "
+                "to ones.",
                 stacklevel=2,
             )
             a_hat = np.zeros(n_sys)
             weights = np.ones(n_pix)
-            outlier_mask = np.zeros(n_pix, dtype=bool)
-            masked_fraction = 0.0
 
         result.update({
             "a_hat": a_hat, "b_hat": b_hat, "weights": weights,
-            "n_iterations": n_iterations,
-            "isd_outlier_mask": outlier_mask,
-            "isd_masked_fraction": masked_fraction,
+            "n_iterations": isd_res.n_steps,
+            "isd_steps": [
+                {"template": st.template,
+                 "significance": st.significance,
+                 "coeffs": np.asarray(st.coeffs)}
+                for st in isd_res.steps
+            ],
+            "isd_significance": isd_res.significance,
+            "isd_stopped_on": isd_res.stopped_on,
+            "isd_calibrated": isd_res.calibrated,
+            "isd_n_floored": isd_res.n_floored,
+            "isd_poly_order": poly_order,
         })
 
     # ── MCMC-add / MCMC-comb ──────────────────────────────────────────────────
     else:
-        from .inference import get_mle_params, get_param_covariance_from_chain
+        from .inference import posterior_median_params, get_param_covariance_from_chain
         from .contamination import unpack_params
         from .correction import rotate_templates, transform_params_from_rotated
 
@@ -934,8 +1379,8 @@ def run_decontamination(
                 use_skewed=_use_skewed,
             )
 
-        theta_hat = get_mle_params(flat_chain)
-        a_rot_raw, b_rot_raw, sigma_hat_val, _ = unpack_params(
+        theta_hat = posterior_median_params(flat_chain)
+        a_rot_raw, b_rot_raw, sigma_hat_val, gamma_hat_val = unpack_params(
             theta_hat, n_sys, mcmc_model, use_skewed=_use_skewed
         )
         a_hat, b_hat = transform_params_from_rotated(
@@ -978,9 +1423,14 @@ def run_decontamination(
             "R": R,
             "acceptance_fraction": float(np.mean(sampler_obj.acceptance_fraction)),
             "sigma_hat": float(sigma_hat_val),
+            # Skewness, when the skew-normal likelihood was used.  A caller that
+            # refines this fit to an MLE needs it to pack a starting point.
+            "gamma_hat": (None if gamma_hat_val is None else float(gamma_hat_val)),
             "sampler_backend": _sampler,
-            "rhat": float(getattr(sampler_obj, "rhat", np.nan)),
-            "ess": float(getattr(sampler_obj, "ess", np.nan)),
+            # None where the diagnostic does not apply (exact i.i.d. draws) rather
+            # than a perfect score, which would read as a passed check.
+            "rhat": _as_float_or_none(getattr(sampler_obj, "rhat", None)),
+            "ess": _as_float_or_none(getattr(sampler_obj, "ess", None)),
             "num_divergences": int(getattr(sampler_obj, "num_divergences", 0)),
         })
 

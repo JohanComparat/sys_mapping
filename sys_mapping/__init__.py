@@ -75,6 +75,9 @@ from .power_spectrum import (
 from .regression import (
     elasticnet_contamination_fit,
     iterative_systematics_decontamination,
+    polynomial_ols_decontamination,
+    ISDResult,
+    ISDStep,
     method_comparison,
     run_decontamination,
 )
@@ -217,6 +220,9 @@ __all__ = [
     # regression
     "elasticnet_contamination_fit",
     "iterative_systematics_decontamination",
+    "polynomial_ols_decontamination",
+    "ISDResult",
+    "ISDStep",
     "method_comparison",
     "run_decontamination",
     # diagnostics

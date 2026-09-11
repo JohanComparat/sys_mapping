@@ -4,7 +4,8 @@ Covers:
   - ISD Δχ² significance for poly_order > 1 and/or fracdet weights
     (JAX ``_one_isd_poly`` vmap vs the NumPy fallback in snr_template_ranking),
   - the null-test cross-correlation JAX path vs the NumPy loop,
-  - the opt-in ``backend="jax"`` ISD reweighting loop vs ``backend="numpy"``,
+  - the opt-in ``backend="jax"`` polynomial-OLS reweighting loop vs
+    ``backend="numpy"`` (the v1.2 method formerly named ISD),
   - reproducibility of parallel GLASS mock generation (n_jobs) vs serial.
 """
 
@@ -13,7 +14,7 @@ import pytest
 
 import sys_mapping.diagnostics as D
 from sys_mapping.diagnostics import snr_template_ranking, null_test_cross_correlations
-from sys_mapping.regression import iterative_systematics_decontamination as isd
+from sys_mapping.regression import polynomial_ols_decontamination as poly_ols
 
 
 @pytest.fixture(scope="module")
@@ -65,16 +66,16 @@ def test_null_test_correlations_jax_matches_numpy(field):
 
 
 @pytest.mark.parametrize("order,lam", [(1, 0.0), (2, 0.0), (3, 1e-3)])
-def test_isd_backend_jax_matches_numpy(order, lam):
+def test_poly_ols_backend_jax_matches_numpy(order, lam):
     rng = np.random.default_rng(4)
     n_pix, n_sys = 12000, 4
     dt = rng.standard_normal((n_sys, n_pix))
     dt -= dt.mean(1, keepdims=True)
     dt /= dt.std(1, keepdims=True)
     dg = np.array([0.15, -0.08, 0.04, 0.02]) @ dt + rng.standard_normal(n_pix) * 0.4
-    w_np, a_np, it_np = isd(dg, dt, poly_order=order, max_iter=30, tol=1e-6,
+    w_np, a_np, it_np = poly_ols(dg, dt, poly_order=order, max_iter=30, tol=1e-6,
                             lambda_poly=lam, backend="numpy")
-    w_jx, a_jx, it_jx = isd(dg, dt, poly_order=order, max_iter=30, tol=1e-6,
+    w_jx, a_jx, it_jx = poly_ols(dg, dt, poly_order=order, max_iter=30, tol=1e-6,
                             lambda_poly=lam, backend="jax")
     assert it_np == it_jx
     assert np.allclose(w_np, w_jx, atol=1e-10)
