@@ -361,11 +361,11 @@ add mocks with ``RESUME=1`` (:math:`N=50\Rightarrow` floor 0.0196).
    The NSIDE-64 row shows :math:`\lambda_{\rm LR}=-79.3` against a null that is **100 % negative**
    (mean :math:`-972`, max :math:`-166`).  A textbook LRT on *nested* models cannot be negative: the
    combined model contains the additive one (:math:`b=0` lies inside its parameter space), so its
-   **maximised** likelihood can never be lower.  The statistic goes negative because it is **not
-   evaluated at the MLE**: both the data and the null use the **posterior median**
-   (:func:`~sys_mapping.inference.get_mle_params` returns the median despite its name), and for the
+   **maximised** likelihood can never be lower.  The statistic went negative because it was **not
+   evaluated at the MLE**: both the data and the null used the **posterior median**, and for the
    combined model's 23 near-degenerate parameters the median sits well off the likelihood ridge, so
-   :math:`\ln\mathcal{L}` collapses.  The effect grows with pixel count, which is why NSIDE 64 is far
+   :math:`\ln\mathcal{L}` collapses.  :func:`~sys_mapping.inference.refine_to_mle` now maximises
+   from there before differencing.  The effect grew with pixel count, which is why NSIDE 64 was far
    more negative than NSIDE 32.
 
    **This does not invalidate the test.**  The data statistic and the mock null are computed with the

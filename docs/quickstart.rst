@@ -396,8 +396,12 @@ templates from Step 4.
 .. code-block:: python
 
    # ── 7. Likelihood ratio test ─────────────────────────────────────────────
-   theta_add  = sm.get_mle_params(results["MCMC-add"]["flat_chain"])
-   theta_comb = sm.get_mle_params(results["MCMC-comb"]["flat_chain"])
+   theta_add  = sm.refine_to_mle(
+       sm.posterior_median_params(results["MCMC-add"]["flat_chain"]),
+       delta_g, delta_t, model="additive")
+   theta_comb = sm.refine_to_mle(
+       sm.posterior_median_params(results["MCMC-comb"]["flat_chain"]),
+       delta_g, delta_t, model="combined")
 
    result = sm.likelihood_ratio_test(
        delta_g_obs_pix, delta_t_rot, theta_add, theta_comb,

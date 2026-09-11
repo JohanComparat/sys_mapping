@@ -9,6 +9,12 @@ systematic template generation.
 **Outputs:** HEALPix count maps, overdensity arrays ``delta_g`` at unmasked
 pixels, and template arrays ``delta_t`` of shape ``(n_sys, n_good_pix)``.
 
+:func:`~sys_mapping.maps.inverse_variance_pixel_weights` builds the per-pixel
+weight :math:`A_k^2/(N_k + 2)` of Weaverdyck et al. 2026 (Eq. 8) from the same
+galaxy and random counts, for use as ``pixel_weights`` in the regression: it
+downweights partially covered pixels and accounts for the Poisson scatter of the
+counts, with the regulariser keeping empty pixels finite.
+
 Synthetic template families
 ---------------------------
 

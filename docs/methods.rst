@@ -474,10 +474,12 @@ the posterior within the first ~50 steps.  ``sigma`` is initialised near
 the observed overdensity standard deviation, which is a good prior for the
 noise level.
 
-*Point estimate*: :func:`~sys_mapping.inference.get_mle_params` returns
+*Point estimate*: :func:`~sys_mapping.inference.posterior_median_params` returns
 ``np.median(flat_chain, axis=0)`` — a robust estimator that is
 insensitive to outlier walkers and converges to the true parameter at
-:math:`O(1/\sqrt{n_{\rm samples}})`.
+:math:`O(1/\sqrt{n_{\rm samples}})`.  It is a posterior median, not a maximum:
+where a likelihood *maximum* is required, as in the likelihood-ratio test, refine it
+with :func:`~sys_mapping.inference.refine_to_mle`.
 
 *Covariance* (:func:`~sys_mapping.inference.get_param_covariance_from_chain`):
 slices the flat chain by column rather than unpacking sample by sample:
@@ -501,7 +503,8 @@ the JAX likelihood is compiled once (~227 ms) then runs at ~284 μs/eval.
 **Functions:**
 :func:`~sys_mapping.inference.make_log_prob`,
 :func:`~sys_mapping.inference.run_mcmc`,
-:func:`~sys_mapping.inference.get_mle_params`,
+:func:`~sys_mapping.inference.posterior_median_params`,
+:func:`~sys_mapping.inference.refine_to_mle`,
 :func:`~sys_mapping.inference.get_param_variance_from_chain`,
 :func:`~sys_mapping.inference.get_param_covariance_from_chain`
 
@@ -781,14 +784,20 @@ Solving for :math:`w_g(\theta)` and replacing :math:`a_i^2 \to \tilde{a}_i^2`,
    (which uses only :math:`C_{ii}`).  The PCA rotation diagonalises the template
    covariance :math:`C = w_{tt}(0)` at **zero lag** — it does *not* make
    :math:`w_{t_i t_j}(\theta) = 0` for :math:`\theta > 0`.  On a strongly
-   degenerate basis (the LS10 basis has condition number :math:`\sim 10^8`) this is
-   an uncontrolled approximation at non-zero lag.
+   correlated basis (the standardised LS10 basis has second-moment condition
+   number :math:`1.4\times10^{3}` at NSIDE 64, :math:`3.9\times10^{3}` at NSIDE 32)
+   the neglected terms are not obviously small.  Measured on the real fitted
+   amplitudes they are a 7--17 % effect in the PCA-rotated basis the pipeline
+   uses.  :func:`~sys_mapping.contamination.compute_two_point_correction` accepts
+   the full ``(n_sys, n_sys, n_bins)`` correlation matrix, which removes the
+   approximation; the 2-D auto-only form is retained for compatibility.
 
-   Note also that the harmonic-space path
+   The harmonic-space path
    (:func:`~sys_mapping.power_spectrum.subtract_template_cl`) subtracts
-   :math:`\hat\alpha_i C_\ell^{t_i}`, **linear** in the amplitude, whereas this
-   configuration-space correction subtracts the **debiased square**
-   :math:`\tilde a_i^2 w_{t_i t_i}`.  The two are not transforms of one another.
+   :math:`\hat\alpha_i^2 C_\ell^{t_i}` and this configuration-space correction
+   subtracts :math:`\tilde a_i^2 w_{t_i t_i}`: both quadratic in the amplitude,
+   as a two-point statistic must be, and Hankel transforms of one another.  A
+   round-trip test pins the agreement.
 
 **When to use.** Apply this correction *after* measuring the raw
 :math:`w(\theta)` from the galaxy catalog and the template auto-correlations
@@ -1328,226 +1337,191 @@ Iterative Systematics Decontamination (ISD)
 --------------------------------------------
 
 **References:**
-`Rodríguez-Monroy et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250907943R/abstract>`_;
-`Rezaie et al. 2020 <https://arxiv.org/abs/1907.11355>`_.
+`Elvin-Poole et al. 2018 <https://arxiv.org/abs/1708.01536>`_ (DES Y1);
+`Rodríguez-Monroy et al. 2022 <https://ui.adsabs.harvard.edu/abs/2022MNRAS.511.2665R/abstract>`_ (DES Y3);
+`Weaverdyck et al. 2026 <https://arxiv.org/abs/2601.14484>`_ (DES Y6, Sec. III B).
 
 **Module:** :mod:`sys_mapping.regression`
 
-**Physical motivation.** Standard OLS fits a linear model
-:math:`\hat\delta_g \approx \sum_i \alpha_i t_i`.
-When contamination is multiplicative, the correct model is
-:math:`\hat\delta_g \approx \delta_g(1 + \sum_i b_i t_i)`, which is
-non-linear in the templates.  ISD approximates this non-linearity by
-expanding the template basis with polynomial cross-terms and iterating
-the OLS solution.
+.. warning::
 
-**Algorithm.** Starting with the original templates
-:math:`\{t_i\}_{i=1}^{n_s}`, the expanded basis at polynomial order
-:math:`d` includes all products :math:`t_i^{k_1} t_j^{k_2}\cdots` with
-:math:`k_1 + k_2 + \cdots \leq d`.  At order :math:`d=1` this is just
-the original templates (standard OLS).  At order :math:`d=3` the cross
-terms :math:`t_i t_j` (for :math:`i \leq j`) and triple products
-:math:`t_i t_j t_k` are added.  For :math:`n_s` templates the expanded
-basis has :math:`\binom{n_s + d}{d} - 1` columns (e.g. 55 columns for
-:math:`n_s = 5, d = 3`).
+   **Changed in v1.3.0.**  Up to and including v1.2,
+   ``iterative_systematics_decontamination`` implemented a *different* algorithm
+   from the one the references above describe: it expanded the templates into all
+   monomials up to total degree :math:`d` — cross-products between different
+   templates included, :math:`\binom{n_s+d}{d}-1` columns — and fitted them
+   simultaneously.  That basis is strongly collinear, only the :math:`n_s` linear
+   coefficients were used for the weight, and on real data it produced
+   :math:`{\rm rms}|\hat a| \simeq 7.6`, some 35× the OLS solution, with a
+   saturated weight map.  The v1.2 routine is retained as
+   :func:`~sys_mapping.regression.polynomial_ols_decontamination` so its results
+   remain reproducible; it is **not** ISD and should not be used for new analyses.
 
-The iterative loop:
+**Physical motivation.** The response of the observed density to any one survey
+property is measurable directly: bin the footprint by that property and look at
+the mean density per bin.  ISD does exactly that, one template at a time, and
+corrects the strongest trend it finds — then looks again, because correcting one
+template changes the trends against the others.
 
-1. Form the weighted normal equations using per-pixel weights
-   :math:`w^{(k)}(p)`:
+**Algorithm.** At each step, and for every template :math:`i` independently:
 
-   .. math::
+1. Bin the footprint into :math:`n_b = 10` bins of :math:`t_i`, and take the
+   (coverage-weighted) mean overdensity per bin.  The bins are equal-*occupancy*
+   by default, one deviation from DES, which uses equal width: several LS10
+   templates are strongly skewed and equal-width bins put most of the footprint in
+   a single bin.  ``binning="width"`` restores the DES choice.
 
-      \bigl(\mathbf{X}^\top \mathbf{W}^{(k)} \mathbf{X} + \mathbf{\Lambda}\bigr)
-      \hat{\boldsymbol\alpha}^{(k)} = \mathbf{X}^\top \mathbf{W}^{(k)} \hat{\boldsymbol\delta}_g
-
-   where :math:`\mathbf{X}` is the :math:`(N_{\rm pix} \times N_{\rm exp})`
-   expanded design matrix (constant across iterations),
-   :math:`\mathbf{W}^{(k)} = \mathrm{diag}(w^{(k)})`, and
-   :math:`\mathbf{\Lambda}` is an optional ridge penalty matrix
-   (see the ridge regularisation note below).
-
-2. Update weights from the **linear coefficients only** (first :math:`n_s`
-   entries of :math:`\hat{\boldsymbol\alpha}^{(k)}`):
+2. Fit a polynomial of degree :math:`d` **in that one template's value** by
+   weighted least squares, using the per-bin standard error of the mean:
 
    .. math::
 
-      w^{(k+1)}(p) = \frac{1}{1 + \hat{\boldsymbol\alpha}^{(k)}_{\rm lin}
-                                   \cdot \mathbf{t}(p)}
+      \hat F_i(t) = \sum_{k=0}^{d} c_k^{(i)} t^k
 
-3. Repeat until convergence:
-   :math:`\|\mathbf{w}^{(k+1)} - \mathbf{w}^{(k)}\|_2 / \|\mathbf{w}^{(k)}\|_2 < \varepsilon = 10^{-5}`.
+   The design matrix is :math:`n_b \times (d+1)` — ten by two for
+   :math:`d = 1`, ten by four for :math:`d = 3` — regardless of how many
+   templates there are or how strongly they correlate.
 
-The polynomial cross-terms improve the linear coefficient estimates but
-are not propagated into the weight formula, which keeps the same form as
-plain OLS.  The cleaned field is recovered as
-:math:`\hat\delta_g^{\rm clean}(p) = w(p)(1 + \hat\delta_g^{\rm obs}(p)) - 1`.
-
-.. _ISD normal equations speedup:
-
-.. note::
-
-   **Speed (v0.2.4).** Since :math:`\mathbf{X}` is constant across
-   iterations, it is precomputed once outside the loop as
-   :math:`\mathbf{X}^\top` (shape :math:`N_{\rm exp} \times N_{\rm pix}`).
-   The per-iteration cost is then one BLAS-3 matrix multiply
+3. Score the fit against a mock-calibrated null:
 
    .. math::
 
-      \mathbf{X}^\top \mathbf{W}^{(k)} \mathbf{X}
-      = \underbrace{(\mathbf{X}^\top \odot \mathbf{w}^{(k)})}_{\text{broadcast scale}}
-        \mathbf{X}
+      S_i = \frac{\Delta\chi^2_i}{\Delta\chi^2_{68}},
+      \qquad
+      \Delta\chi^2_i = \chi^2_{\rm null} - \chi^2_{\rm model}
 
-   producing an :math:`(N_{\rm exp} \times N_{\rm exp})` matrix — tiny
-   regardless of :math:`N_{\rm pix}` — followed by ``lstsq`` on this
-   small system.  This replaces the previous approach of computing the SVD
-   of the full :math:`(N_{\rm pix} \times N_{\rm exp})` matrix at each
-   iteration, giving a **5–15× speed-up** per iteration for realistic pixel
-   counts (:math:`N_{\rm pix} \gtrsim 10^4`).
+   where :math:`\Delta\chi^2_{68}` is the 68th percentile of the same statistic
+   on contamination-free mocks (see
+   :func:`~sys_mapping.diagnostics.isd_template_significance`).
 
-.. _ISD-3 ridge regularisation:
+Then, if :math:`\max_i S_i \geq T_{\rm thresh}`, correct the single most
+significant template and repeat on the reweighted field:
 
-.. note::
+.. math::
 
-   **ISD-3 accuracy: ridge regularisation on polynomial columns (v0.2.4).**
-   A key source of ISD-3 instability is a *fixed-point inconsistency*: the
-   regression minimises residuals over all :math:`N_{\rm exp}` columns
-   (including polynomial cross-terms), but only the first :math:`n_s`
-   linear coefficients drive the weight update.  When the polynomial
-   columns are correlated with the linear ones — which is always the case
-   for survey systematics — they absorb a share of the linear signal.
-   The linear coefficients :math:`\hat{\boldsymbol\alpha}_{\rm lin}` are
-   left systematically small, and the iteration converges to a fixed point
-   where the contamination has not actually been removed.
+   \mathbf{w} \longleftarrow \frac{\mathbf{w}}{1 + \hat F_j(t_j(p))},
+   \qquad j = \arg\max_i S_i
 
-   The fix is a ridge penalty :math:`\lambda_{\rm poly}` applied
-   *exclusively* to the polynomial-only columns (indices :math:`n_s:` of
-   the expanded basis):
+The final weight is the product over accepted steps, and the cleaned field is
+:math:`\hat\delta_g^{\rm clean}(p) = w(p)\,(1 + \hat\delta_g^{\rm obs}(p)) - 1`.
 
-   .. math::
+**Why ISD-3 is worth having.**  A linear marginal fit cannot represent curvature
+in the density–template relation, and what it cannot represent it leaves behind.
+Inject :math:`F = 0.10\,t + 0.04\,t^2 - 0.02\,t^3` on one template and measure the
+:math:`\Delta\chi^2` that *remains* against that template after correction, probing
+with a linear and with a cubic fit:
 
-      \mathbf{\Lambda} = \mathrm{diag}\!\underbrace{(0,\ldots,0}_{n_s},
-                                \underbrace{\lambda_{\rm poly},\ldots,\lambda_{\rm poly}}_{N_{\rm exp}-n_s})
+.. list-table::
+   :header-rows: 1
+   :widths: 25 25 25 25
 
-   The linear columns are **never** penalised, so the weight update is not
-   biased.  The penalty suppresses the polynomial terms just enough to
-   prevent them from over-fitting noise or absorbing linear signal.
+   * - Field
+     - fitted coefficients
+     - residual, linear probe
+     - residual, cubic probe
+   * - uncorrected
+     - —
+     - 946
+     - 2049
+   * - after ``ISD-1``
+     - (0.052)
+     - 37.7
+     - **1087**
+   * - after ``ISD-3``
+     - (0.105, 0.043, −0.025)
+     - 5.6
+     - **34.7**
 
-   **Recommended value:** :math:`\lambda_{\rm poly} \approx 10^{-3}\,{\rm Var}(\hat\delta_g)`.
-   This is small enough to leave the result unaffected when the polynomial
-   terms are genuinely needed, and large enough to stabilise ISD-3 when
-   templates are strongly correlated.  Exposed as the ``lambda_poly``
-   argument to :func:`~sys_mapping.regression.iterative_systematics_decontamination`
-   and as ``isd_lambda_poly`` in :func:`~sys_mapping.regression.run_decontamination`.
-   Default is ``0.0`` (plain OLS, backward-compatible).
+``ISD-1`` removes the linear trend and leaves essentially all of the curvature;
+``ISD-3`` recovers all three injected coefficients and reduces the residual
+non-linear trend by a factor of 31.  Note that this does *not* show up in
+``a_hat``, which is 0.048 and 0.049 for the two runs: both remove a similar amount
+of *linear* signal, and a single linear amplitude cannot express the difference.
+The gain is in the map, and it is the null test — not the amplitude — that sees it.
 
-**Convergence.** ISD-1 reliably converges within ≲ 25 iterations for all
-tested configurations.  ISD-3 with ``lambda_poly = 0`` may still oscillate
-when templates are strongly correlated; setting
-``lambda_poly = 1e-3 * np.var(delta_g_obs)`` resolves this in practice.
-In the worst case the function returns weights at ``max_iter``, which
-remain a useful (if not fully converged) correction.
+Raising :math:`d` from 1 to 3 adds two columns to a ten-row fit.  It does not add
+fifty.
+
+**The stopping rule is the point.** ISD halts on *insignificance*, not on
+numerical convergence: a template whose trend the data cannot resolve is left
+uncorrected and reports :math:`\hat a_i = 0` exactly, rather than receiving a
+noisy correction that adds more variance than it removes.  This is the break-even
+condition of :doc:`detectability_law` enforced inside the method.
+
+.. warning::
+
+   Without ``chi2_68`` the threshold is in raw :math:`\Delta\chi^2` units and the
+   DES value :math:`T_{\rm thresh} = 2` means nothing; the function warns.  On a
+   strongly contaminated field with an uncalibrated threshold the iteration
+   re-selects templates it has already corrected, chasing second-order residuals,
+   and the summed amplitude overshoots by 25–40 %.  ``max_steps`` (default
+   :math:`4 n_s`) and ``max_reuse`` (default 3) bound the iteration regardless.
+
+**Reported amplitude — not the polynomial coefficient.**  ``a_hat[i]`` is the
+least-squares *projection* of the fitted curve onto the template,
+
+.. math::
+
+   \hat a_i = \sum_{\rm steps}
+     \frac{\langle \hat F_i(\mathrm{clip}(t_i))\, t_i \rangle}{\langle t_i^2 \rangle},
+
+summed over the steps that selected template :math:`i`.  The tempting alternative
+— the degree-1 coefficient :math:`c_1` — is correct for ``poly_order=1`` but not
+for ``poly_order=3``: equal-occupancy bin centres of a skewed template span a
+narrow range, so the Vandermonde is poorly conditioned and the coefficients are
+large even when the curve is small.  On a GLASS null with *no* injected
+contamination, one accepted step returned
+:math:`c = (0.026, 0.681, 3.343, 4.365)`, i.e. ``rms|a_hat| = 0.44`` for a field
+whose true amplitude is zero; the projection gives
+:math:`6 \times 10^{-4}` on the same data.
+
+The projection is the amplitude for which :math:`\sum_i a_i t_i` reproduces the
+contamination actually removed, which is what the two-point correction consumes.
+Higher-order coefficients are kept in the per-step record rather than discarded.
+Note the convention: the ISD weight has multiplicative *form*,
+:math:`w = \prod_j (1 + \hat F_j)^{-1}`, but its amplitude is reported in the
+additive slot with :math:`\hat b \equiv 0`.
+
+**Never extrapolate a binned fit.**  :math:`\hat F` is constrained by ten bin
+centres and is evaluated at ``clip(t, t_lo, t_hi)``, the outermost of them.  This
+is not a detail.  Survey-property maps are strongly skewed: LS10's
+``GALDEPTH_Z`` reaches :math:`+26` standardised units while its outermost bin
+centre sits near :math:`+2`, so an unclipped cubic would be evaluated three orders
+of magnitude beyond its support.  On real LS10 templates that is the difference
+between convergence and divergence — without clipping the significances *rise*
+along the iteration (``S = 9.0 → 14.8 → 36.2`` on one template) as each
+over-corrected step manufactures a larger trend for the next, and 339 of 22 000
+pixels hit the weight floor; with clipping the same run has zero floored pixels
+and stops on the threshold.  Holding :math:`\hat F` constant outside the fitted
+range is the conservative reading of a binned fit, and it removes the need to mask
+skewed templates purely to keep the fit numerically sane.
+
+A residual guard remains for the case where the fit is bad *within* its own
+range: below ``bad_pixel_frac`` (default 1 %) of the footprint the denominator is
+floored at :math:`1/w_{\max}`, and above it the step is refused and the template
+retired, with a warning recommending that its extreme values be masked
+(:func:`~sys_mapping.diagnostics.footprint_mask_diagnostics`).
 
 **When to use.**
 
-* **ISD-1** (``poly_order=1``): equivalent to OLS; fastest option; use as
-  a baseline.
-* **ISD-3** (``poly_order=3``): partially corrects multiplicative
-  contamination without a full MCMC run.  Set
-  ``isd_lambda_poly = 1e-3 * np.var(delta_g_obs)`` when ISD-3 produces
-  implausible solutions or fails to converge.
-* **MCMC-combined**: preferred for high-precision analyses with known
-  multiplicative contamination — it jointly infers additive and
-  multiplicative amplitudes with full posterior uncertainties.
-
-**Technical implementation — polynomial expansion.**
-The expanded template basis is built with
-``itertools.combinations_with_replacement``, which generates all
-multi-indices of degree :math:`\leq d` in lexicographic order:
-
-.. code-block:: python
-
-   rows = [delta_t]   # (n_sys, n_pix) — linear terms always first
-   for deg in range(2, poly_order + 1):
-       for combo in combinations_with_replacement(range(n_sys), deg):
-           product = ones(n_pix)
-           for idx in combo:
-               product *= delta_t[idx]
-           rows.append(product[newaxis, :])
-   delta_t_expanded = vstack(rows)  # (n_expanded, n_pix)
-
-For ``n_sys = 5``, ``poly_order = 3`` this yields
-:math:`\binom{5+3}{3} - 1 = 55` columns.  If ``n_pix < 10 × n_expanded``
-the system would be poorly conditioned; ``poly_order`` is reduced
-automatically with a ``UserWarning``.
-
-**Technical implementation — weighted normal equations.**
-The design matrix ``X = delta_t_expanded.T`` (shape ``(n_pix, n_expanded)``)
-is computed *once* before the iteration loop.  Each iteration updates only
-the diagonal weight matrix:
-
-.. code-block:: python
-
-   Xt = delta_t_expanded            # (n_expanded, n_pix), constant
-   X  = delta_t_expanded.T          # (n_pix, n_expanded), constant
-   ridge_diag = zeros(n_expanded)
-   ridge_diag[n_sys:] = lambda_poly  # penalty on polynomial columns only
-   for iteration in range(1, max_iter + 1):
-       Xw   = Xt * weights           # (n_expanded, n_pix): broadcast scale
-       XtWX = Xw @ X                 # (n_expanded, n_expanded): BLAS-3
-       XtWX.flat[::n_expanded+1] += ridge_diag   # in-place diagonal add
-       XtWy = Xw @ delta_g_obs       # (n_expanded,): BLAS-1
-       alpha_hat_all, *_ = lstsq(XtWX, XtWy)    # small system
-
-The key insight is that ``Xt * weights`` is a row-broadcast (scale each row
-of ``Xt`` by the corresponding weight), which is a single NumPy ufunc call,
-not a loop.  The resulting ``(n_expanded, n_expanded)`` matrix (e.g. 55×55)
-is tiny and the subsequent ``lstsq`` is negligible.  This replaces the
-previous approach of computing the SVD of the full
-``(n_pix × n_expanded)`` matrix at each iteration, yielding a
-**5–15× speed-up** for :math:`N_{\rm pix} \gtrsim 10^4`.
-
-**Weight update and clipping.**
-Only the first ``n_sys`` (linear) coefficients drive the weight update:
-
-.. code-block:: python
-
-   weights = 1.0 / max(1.0 + alpha_hat_all[:n_sys] @ delta_t, 1e-6)
-   weights = np.clip(weights, 1.0/20.0, 20.0)   # hard bound
-
-Pixels where ``1 + a@t → 0`` would otherwise receive weights up to
-:math:`10^6`, making all subsequent weighted OLS fits numerically
-meaningless.  The clip to :math:`[1/20, 20]` keeps the iteration stable.
-
-**Convergence criterion.**
-
-.. code-block:: python
-
-   rel_change = ||w_new - w_old|| / (||w_old|| + 1e-30)
-   if rel_change < tol (default 1e-5): break
-
-ISD-1 typically converges in :math:`\lesssim 25` iterations.  ISD-3 with
-``lambda_poly = 0`` may oscillate when templates are strongly correlated;
-setting ``lambda_poly = 1e-3 × Var(δ_g)`` resolves this.
-
-**Two-pass outlier handling** (in :func:`~sys_mapping.regression.run_decontamination`).
-After pass 1, pixels that hit the weight clip boundary are flagged as
-outliers:
-
-.. code-block:: python
-
-   boundary     = 20.0 * (1 - 1e-6)
-   outlier_mask = (weights >= boundary) | (weights <= 1.0/boundary)
-
-If any outliers exist *and* there are at least :math:`\max(10 n_s, 50)`
-clean pixels, pass 2 refits ISD on the clean subset only, then applies the
-clean coefficients to all pixels (including outliers).  This two-pass scheme
-prevents the handful of pathological pixels from biasing the overall fit.
-The ``isd_outlier_mask`` and ``isd_masked_fraction`` fields in the result
-dict report how many pixels were flagged.
+* **ISD-1** (``poly_order=1``): the DES Y1/Y3 choice.  Fast, and a good baseline
+  against OLS — it should agree to ~1 % when contamination is linear.
+* **ISD-3** (``poly_order=3``): the DES Y6 choice.  Use when the density–template
+  relation shows curvature, which the diagnostic plots of
+  :func:`~sys_mapping.diagnostics.snr_template_ranking` will show.
+* **ElasticNet**: complementary rather than competing.  Marginal fits are blind to
+  contamination that only appears as a *linear combination* of templates; a
+  simultaneous fit is blind to curvature.  Running both, and marginalising over
+  the difference with
+  :func:`~sys_mapping.covariance.method_marginalised_covariance`, is what DES Y6
+  does.
+* **MCMC-combined**: preferred when the additive and multiplicative amplitudes are
+  both wanted with full posterior uncertainties.
 
 **Functions:**
 :func:`~sys_mapping.regression.iterative_systematics_decontamination`,
+:func:`~sys_mapping.diagnostics.isd_marginal_fit`,
+:func:`~sys_mapping.diagnostics.isd_template_significance`,
 :func:`~sys_mapping.regression.run_decontamination`
 
 ----

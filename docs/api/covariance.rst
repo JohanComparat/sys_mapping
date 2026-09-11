@@ -22,9 +22,17 @@ predicts. This module supplies the calibrated alternatives.
   :math:`C_\ell` harmonic precision (the version that would calibrate the single-fit pixel
   likelihood on a cut sky); documented follow-up, not yet implemented.
 
-**Key paper:**
+* :func:`~sys_mapping.covariance.method_marginalised_covariance` — fold the
+  *choice of decontamination method* into the data-vector covariance as a rank-one
+  term :math:`\Delta_i\Delta_j`, with :math:`\Delta` the difference between two
+  methods' :math:`w(\theta)`.  Six methods are on offer and they do not agree;
+  this turns that disagreement from an argument into an error bar.
+
+**Key papers:**
 `Weaverdyck & Huterer 2021 <https://ui.adsabs.harvard.edu/abs/2021MNRAS.503.5061W/abstract>`_
-(mock-mode-projection / template covariance) — see also :doc:`../methods`.
+(mock-mode-projection / template covariance);
+`Weaverdyck et al. 2026 <https://arxiv.org/abs/2601.14484>`_ (Eq. 24, method
+marginalisation) — see also :doc:`../methods`.
 
 .. automodule:: sys_mapping.covariance
    :members:

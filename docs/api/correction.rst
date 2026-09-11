@@ -12,9 +12,14 @@ The typical post-MCMC workflow is:
    debiased parameters to the observed :math:`w(\theta)`.
 3. :func:`~sys_mapping.correction.correct_power_spectrum_harmonic` — apply
    the harmonic-space correction (Elsner et al. 2016).
+4. :func:`~sys_mapping.correction.estimate_overcorrection_bias` — measure, on
+   contamination-free mocks, how much true structure the weighting itself
+   removes, and :func:`~sys_mapping.correction.debias_two_point_function` to
+   subtract it from the data vector.
 
 **Key papers:** `Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_ (Eq. 15–16, 21, Appendix A);
-`Elsner et al. 2016 <https://ui.adsabs.harvard.edu/abs/2016MNRAS.456.2095E/abstract>`_ — see also :doc:`../methods`.
+`Elsner et al. 2016 <https://ui.adsabs.harvard.edu/abs/2016MNRAS.456.2095E/abstract>`_;
+`Weaverdyck et al. 2026 <https://arxiv.org/abs/2601.14484>`_ (Eq. 21–23) — see also :doc:`../methods`.
 
 .. automodule:: sys_mapping.correction
    :members:

@@ -12,6 +12,10 @@ bootstrap misses.
   user-supplied estimator.
 * :func:`~sys_mapping.bootstrap.jackknife_covariance` — leave-one-patch-out
   deterministic estimator with prefactor :math:`(K-1)/K`.
+* :func:`~sys_mapping.bootstrap.assign_spatial_patches` — the patch labelling
+  itself, exposed so the same partition can serve as cross-validation groups in
+  :func:`~sys_mapping.regression.elasticnet_contamination_fit` and as jackknife
+  patches in :func:`~sys_mapping.diagnostics.vet_templates_against_tracer`.
 
 **Key papers:**
 `Ross et al. 2011 <https://ui.adsabs.harvard.edu/abs/2011MNRAS.417.1350R/abstract>`_;

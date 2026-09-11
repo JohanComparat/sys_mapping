@@ -35,8 +35,8 @@ scaling `n_total` by the footprint fraction before full-sky generation.
 |---|---|---|
 | **OLS** | Additive | Ordinary least-squares pixel regression |
 | **ElasticNet** | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
-| **ISD-1** | Additive–multiplicative | Iterative reweighted OLS, poly order 1 |
-| **ISD-3** | Additive–multiplicative | Iterative reweighted OLS, poly order 3 |
+| **ISD-1** | Multiplicative weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
+| **ISD-3** | Multiplicative weight | Same, with a cubic marginal fit — the degree is in *one* template's value |
 | **MCMC-add** | Additive | Exact analytic posterior (default) / emcee, b=0 |
 | **MCMC-comb** | Combined | Gradient-based NUTS (default) / emcee, free a, b |
 
@@ -89,6 +89,8 @@ scripts/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS
 ```python
 import sys_mapping as sm
 
+# With preselect_method="isd", the GLASS null built for Stage 1 is reused to
+# calibrate the ISD stopping threshold — pass isd_chi2_68 explicitly otherwise.
 result = sm.run_decontamination(
     "ISD-1", delta_g, delta_t,
     preselect=True,             # enable Stage 1
@@ -180,9 +182,10 @@ where r is the number of additional free parameters.
 > λ_LR is inflated under H₀ and `chi2.sf` returns a p-value that is too small. Pass
 > `null_lambda=` (an ensemble of λ_LR from uncontaminated mocks, via
 > `lrt_null_distribution`) for a mock-calibrated p-value. On LS10 the χ² null fails
-> in *both* directions — see `docs/results_ls10.rst`. Note also that λ_LR is
-> evaluated at the posterior **median** (`get_mle_params`), not the MLE, so it can be
-> negative and only its rank against the mock null is meaningful.
+> in *both* directions — see `docs/results_ls10.rst`. λ_LR is evaluated at a true
+> likelihood maximum: `refine_to_mle` maximises the log-likelihood from the posterior
+> median and from the OLS solution and keeps whichever start scores higher, so the
+> nesting guarantee λ_LR ≥ 0 holds. A negative value now warns.
 
 ---
 
@@ -242,29 +245,43 @@ python scripts/compute_sys_weights.py \
 
 **Weighting scheme**
 
-> **Three weight conventions are in circulation — know which one you are reading.**
-> The library and the scripts do not agree, and the scripts do **not** persist
-> `result["weights"]`; they recompute from the fitted coefficients.
+> The weight depends on the method. `run_decontamination` returns the one that
+> inverts the model it fitted, in `result["weights"]`, and both production scripts
+> write that rather than recomputing from the fitted coefficients.
 >
-> | # | Where | Formula | Clip |
+> | Form | Methods | Formula | Clip |
 > |---|---|---|---|
-> | W1 | library, linear methods (`regression.py:29`) | `1 / max(1 + Σ_i a_i·t_i(p), 1e-6)` | `[1/20, 20]` |
-> | W2 | library, MCMC methods (`regression.py:951`) | `(1 + δ_g,clean(p)) / max(1 + δ_g,obs(p), 1e-6)` | `[1/20, 20]` |
-> | W3 | **both production scripts** | `1 / max(1 + Σ_i θ_i·t_i(p), 0.01)` | max weight 100 |
+> | linear | `OLS`, `ElasticNet` | `1 / max(1 + Σ_i a_i·t_i(p), 1e-6)` | `[1/20, 20]` |
+> | exact | `MCMC-add`, `MCMC-comb` | `(1 + δ_g,clean(p)) / max(1 + δ_g,obs(p), 1e-6)` | `[1/20, 20]` |
+> | product | `ISD-1`, `ISD-3` | `Π_j 1 / (1 + F̂_j(t_j(p)))` | `[1/20, 20]` |
 >
-> W2 is the exact inverse of the forward model and cancels the contamination when
-> `(â, b̂) = (a, b)`; W1 is its first-order approximation. The FITS columns below are
-> written with **W3**, and `WEIGHT_COMB` uses `θ = b̂` alone — which equals W2 only
-> when `â ≈ 0`.
+> The exact inverse cancels the contamination when `(â, b̂) = (a, b)`; the linear form
+> is its first-order approximation. A linear reconstruction from `â` alone reproduces
+> neither the product nor the exact inverse, which is why the scripts read the field.
 
-| Column | Model | Written as |
+| Column | Model | Source |
 |---|---|---|
-| `WEIGHT_ADD` | Additive | `1 / max(1 + Σ_i a_i · t_i(p), 0.01)` |
-| `WEIGHT_COMB` | Combined | `1 / max(1 + Σ_i b_i · t_i(p), 0.01)` |
-| `WEIGHT_SYS` | Combined (recommended) | identical to `WEIGHT_COMB` |
+| `WEIGHT_OLS`, `WEIGHT_ENET` | Additive, linear fit | library, linear form |
+| `WEIGHT_ISD1`, `WEIGHT_ISD3` | Selection efficiency | library, cumulative product |
+| `WEIGHT_ADD` | Additive | library, exact inverse |
+| `WEIGHT_COMB` | Combined | library, exact inverse |
+| `WEIGHT_SYS` | Combined (recommended) | alias for `WEIGHT_COMB` |
 
-Note also that `compute_sys_weights.py` fits the **skew-normal** likelihood by
-default (`--no-skewed` to disable) while `run_ls10_analysis.py` is always Gaussian.
+A written file records the convention in `WEIGHTVER`, `WEIGHTCON` and `WMAXCLIP`.
+`WEIGHTVER = 1` marks a file predating this and is read with a warning; the shipped
+NSIDE 32 and 64 products are version 2.
+
+Both scripts take the same `--skewed` flag, defaulting off. It is opt-in because
+enabling the skew-normal also moves the additive model off its exact analytic
+posterior onto NUTS.
+
+> **Two defects affect the corrected `w(θ)`, not the weights.** The template
+> two-point functions are measured on the pixel grid, so they are zero inside one
+> pixel and the correction does nothing below `49'` at NSIDE 64. And the template
+> basis is standardised over each map's own valid region rather than over the
+> analysis footprint, which is what drives `ISD-3`'s corrected `w(θ)` negative in the
+> widest bins. `correct_two_point_function` and `compute_covariance_matrix` warn on
+> both. See the roadmap.
 
 ### `scripts/run_ls10_analysis.py`
 
@@ -432,9 +449,8 @@ pip install -e .
 pytest tests/ -v
 ```
 
-Expect **430 passed, 2 failed, 16 skipped**. The two failures are long-standing and
-live in `test_snr_preselection.py::TestMethodComparison` — a numerical edge case in the
-`poly_order=1` ISD path, tracked in `docs/roadmap.rst`.
+Expect **471 passed, 16 skipped** with no marker filter (what CI runs), or
+**469 passed, 16 skipped, 2 deselected** with `-m "not slow"`.
 
 Test modules: `test_contamination`, `test_correction`, `test_likelihood`,
 `test_maps`, `test_inference`, `test_model_selection`, `test_bootstrap`,
@@ -499,12 +515,12 @@ cd docs && make html
 | `likelihood` | `make_log_likelihood` — factory returning a `@jax.jit` log-likelihood (Gaussian or skew-normal) |
 | `covariance` | `LowRankPrecision`, `build_lowrank_precision`, `mock_sandwich_covariance`, `sample_covariance`, `hartlap_factor`, `build_harmonic_precision` |
 | `maps` | `systematic_power_spectrum`, `generate_systematic_map`, `generate_systematic_maps`, `load_real_template`, `load_real_templates`, `pixelize_catalog`, `compute_overdensity`, `assign_template_values` |
-| `inference` | `make_log_prob`, `run_mcmc`, `run_additive_analytic`, `get_mle_params`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
+| `inference` | `make_log_prob`, `run_mcmc`, `run_additive_analytic`, `posterior_median_params`, `refine_to_mle`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
 | `nuts` | `run_nuts` (BlackJAX NUTS), `build_logdensity`, `default_n_chains` |
 | `correction` | `debias_params` (Eq. 21), `rotate_templates` (App. A), `transform_params_from_rotated`, `correct_two_point_function`, `correct_power_spectrum_harmonic` |
 | `model_selection` | `likelihood_ratio_test` → `LikelihoodRatioResult` (Eq. 19); `lrt_null_distribution` (mock-calibrated null), `snr_preselect`, `greedy_forward_select` |
 | `bootstrap` | `block_bootstrap_variance` — spatial block bootstrap via HEALPix coarsening (Sec. 6.2); `jackknife_covariance` |
-| `regression` | `elasticnet_contamination_fit`, `iterative_systematics_decontamination`, `method_comparison`, `run_decontamination` |
+| `regression` | `elasticnet_contamination_fit`, `iterative_systematics_decontamination`, `polynomial_ols_decontamination`, `method_comparison`, `run_decontamination` |
 | `diagnostics` | `null_test_cross_correlations`, `snr_template_ranking`, `footprint_mask_diagnostics` |
 | `mocks` | `generate_lognormal_field`, `make_galactic_mask`, `make_mock_catalog`, `make_mock_suite`, `MockCatalog` |
 | `glass_mocks` | `measure_nz`, `generate_glass_fullsky_mock`, `generate_glass_delta_map`, `sample_positions_from_delta` |

@@ -291,16 +291,18 @@ they target and how they estimate the parameters:
        cross-validation.
        (:func:`~sys_mapping.regression.elasticnet_contamination_fit`)
    * - ISD-1
-     - Additive–multiplicative hybrid
-     - Iterative reweighted OLS: at each iteration, pixel weights
-       :math:`w(p) = 1/(1 + \hat{\mathbf{a}}\cdot\mathbf{t}(p))` are
-       recomputed from the current estimate and the regression is refit on the
-       weighted residuals.  Polynomial order 1 (linear templates only).
+     - Multiplicative weight, additive amplitude
+     - Iterative Systematics Decontamination.  Fits the binned mean density
+       against **one template at a time** with a linear polynomial, corrects the
+       most significant one, and repeats until every template falls below a
+       mock-calibrated :math:`\Delta\chi^2` threshold.
        (:func:`~sys_mapping.regression.iterative_systematics_decontamination`)
    * - ISD-3
-     - Additive–multiplicative hybrid
-     - Same iterative reweighted OLS as ISD-1, but the template basis is
-       expanded with polynomial cross-terms up to order 3 before each fit.
+     - Multiplicative weight, additive amplitude
+     - Same algorithm with a **cubic** marginal fit, which recovers curvature in
+       the density–template relation that a linear fit absorbs into its slope.
+       The order is the degree in one template's value, not a multivariate
+       polynomial order.
        (:func:`~sys_mapping.regression.iterative_systematics_decontamination`)
    * - MCMC-add
      - Additive (:math:`b_i = 0`)

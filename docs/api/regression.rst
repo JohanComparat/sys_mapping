@@ -14,13 +14,18 @@ template maps ``delta_t`` (shape ``(n_sys, n_pix)``).
   penalised regression; requires ``scikit-learn >= 1.3``
   (``pip install sys_mapping[regression]``).
 * :func:`~sys_mapping.regression.iterative_systematics_decontamination` —
-  polynomial OLS expansion, no extra dependencies.
+  Iterative Systematics Decontamination: marginal binned polynomial fits, greedy
+  single-template weighting, mock-calibrated stopping rule.  No extra
+  dependencies.  Returns a :class:`~sys_mapping.regression.ISDResult`.
+* :func:`~sys_mapping.regression.polynomial_ols_decontamination` — the v1.2
+  multivariate-polynomial variant, retained for reproducibility.  **Not ISD.**
 * :func:`~sys_mapping.regression.method_comparison` — run multiple methods
   and return a unified result dict.
 
 **Key papers:**
 `Weaverdyck & Huterer 2021 <https://ui.adsabs.harvard.edu/abs/2021MNRAS.503.5061W/abstract>`_;
-`Rodríguez-Monroy et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250907943R/abstract>`_ — see also :doc:`../methods`.
+`Rodríguez-Monroy et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250907943R/abstract>`_;
+`Weaverdyck et al. 2026 <https://arxiv.org/abs/2601.14484>`_ — see also :doc:`../methods`.
 
 .. automodule:: sys_mapping.regression
    :members:

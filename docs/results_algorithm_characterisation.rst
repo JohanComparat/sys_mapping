@@ -368,33 +368,44 @@ evaluates both forms using the **amplitudes actually fitted to LS10**:
 
    * - NSIDE
      - basis
-     - median \|error\|
-     - max \|error\|
+     - median share
+     - range over the nine samples
    * - 32
      - original
-     - 1952 %
-     - 3459 %
+     - ~1900 %
+     - —
    * - 32
      - PCA-rotated
-     - **7.1 %**
-     - 64.5 %
+     - **1.9 %**
+     - 0.8–2.4 %
    * - 64
      - original
-     - 1369 %
-     - 1973 %
+     - ~1400 %
+     - —
    * - 64
      - PCA-rotated
-     - **17.3 %**
-     - 33.7 %
+     - **3.5 %**
+     - 2.6–10.9 %
 
 **The PCA rotation is load-bearing.**  In the original correlated basis the auto-only
-approximation is wrong by a factor of 14–20 — it would be unusable.  The pipeline
-applies the correction in the rotated basis
-(``run_ls10_analysis.py`` passes ``a_rot``/``b_rot``/``ct_rot``), which reduces the
-error to 7–17 % typical.  The rotation is therefore not merely an MCMC-mixing
-convenience: it is what makes the correction viable at all, and that should be stated
-wherever the rotation is described as optional.
+approximation is wrong by more than an order of magnitude — it would be unusable.  The
+pipeline applies the correction in the rotated basis (``run_ls10_analysis.py`` passes
+``a_rot``/``b_rot``/``ct_rot``), which brings the cross-term share down to a few per
+cent.  The rotation is therefore not merely an MCMC-mixing convenience: it is what
+makes the auto-only correction viable at all, and that should be stated wherever the
+rotation is described as optional.
 
-A residual 7–17 % systematic on the correction term nevertheless remains, and is
-worth either fixing (the full :math:`\sum_{ij}` form costs one
-:math:`n_s \times n_s` contraction) or quoting as a systematic floor.
+The residual is 1.9 % at NSIDE 32 and 3.5 % at NSIDE 64, rising to 10.9 % for the
+sparsest sample and never beyond it.  Small enough that the auto-only form is
+defensible, and the full sum is available where it is not:
+``compute_two_point_correction`` accepts the ``(n_sys, n_sys, n_theta)`` matrix, which
+costs ``n_sys(n_sys+1)/2 = 66`` cross-spectra to build at ``n_sys = 11``.
+
+.. warning::
+   This quantity **cannot** be measured with stand-in amplitudes.  Random amplitudes of
+   the same typical size give 6.3 % and 4.9 % — three times too large at NSIDE 32, and
+   inverting the ordering between the two resolutions.  ``sum_ij a_i a_j xi_ij`` depends
+   on how the amplitude *vector* is oriented relative to the off-diagonal
+   ``xi_ij``, not on its length, and a fit in the rotated basis lands in an orientation
+   that suppresses the cross terms.  ``run_crossterm_bias.py`` therefore takes
+   ``--params-json`` and warns when it falls back to random draws.

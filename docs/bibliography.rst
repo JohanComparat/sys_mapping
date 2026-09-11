@@ -291,7 +291,7 @@ tuning. No single method dominates in all scenarios.
 .. rubric:: Implementation status in sys_mapping
 
 - ElasticNet regression: **implemented** (``regression.elasticnet_contamination_fit``).
-- Iterative OLS: **implemented** (``regression.iterative_systematics_decontamination``).
+- Iterative reweighted OLS: **implemented** (``regression.polynomial_ols_decontamination``).
 - Method comparison framework: **implemented** (``regression.method_comparison``).
 
 ----
@@ -457,36 +457,61 @@ Rodríguez-Monroy et al. 2025
 **Methods:**
 Two complementary strategies applied to DES Y6 galaxy clustering:
 
-1. **Iterative Systematics Decontamination (ISD):** OLS regression on
-   polynomial expansions of templates up to 3rd order, iterated to
-   convergence.
+1. **Iterative Systematics Decontamination (ISD):** a *marginal* fit --- one
+   template at a time --- of the binned mean density against that template's
+   value, with a polynomial of degree 1 (Y1/Y3) or 3 (Y6).  The single most
+   significant template is corrected, the field re-measured through the running
+   weight, and the scan repeated.
 2. **Footprint masking:** conservative masking of survey regions with
    high systematic sensitivity, enabling simpler and more robust
    mitigation.
 
-**ISD cleansed overdensity:**
+**ISD step:**
 
 .. math::
 
-   \delta_g^{\rm clean}(p) =
-   \frac{\delta_g(p) - f_{\rm add}(p)}{1 + f_{\rm mult}(p)}
+   \hat F_i(t) = \sum_{k \le d} c^{(i)}_k t^k,
+   \qquad
+   S_i = \frac{\Delta\chi^2_i}{\Delta\chi^2_{68}},
+   \qquad
+   w \leftarrow \frac{w}{1 + \hat F_j(t_j)}, \quad j = \arg\max_i S_i,
 
-where :math:`f_{\rm add}` and :math:`f_{\rm mult}` are the additive and
-multiplicative systematic components estimated from polynomial template regression.
+stopping when :math:`\max_i S_i < T_{\rm thresh}`.  :math:`\Delta\chi^2_{68}` is
+the 68th percentile of the same statistic on contamination-free mocks, which is
+what makes the threshold mean anything.
+
+.. warning::
+
+   The order :math:`d` is the degree of the polynomial **in one template's
+   value**, not a multivariate polynomial order.  Reading it the second way ---
+   as this package did up to v1.2 --- produces a design matrix with
+   :math:`\binom{n_s+d}{d}-1` strongly collinear columns and a badly
+   ill-conditioned fit.  See Finding 20 in the technical paper, and
+   ``regression.polynomial_ols_decontamination`` for the routine that did it.
 
 .. rubric:: Pros and cons
 
 **Pros:**
-ISD captures non-linear systematic dependencies via polynomial template
-expansion. Footprint masking provides conservative, robust improvement.
+Well conditioned however many templates there are and however strongly they
+correlate, because each fit is a 1-D polynomial through ``n_bins`` points.  The
+mock-calibrated stopping rule refuses to correct what the data cannot resolve,
+which is the break-even rule enforced inside the method.  Captures non-linear
+response through the polynomial degree.
 
 **Cons:**
-Polynomial expansion grows combinatorially with template number and
-polynomial order. Masking reduces effective survey area.
+Marginal fits are blind to a contamination that only shows up as a *linear
+combination* of templates --- that is ElasticNet's strength, and the reason to
+run both.  The stopping threshold is meaningless without mock calibration, and
+generating that null is the expensive part.  Masking reduces effective survey
+area.
 
 .. rubric:: Implementation status in sys_mapping
 
-- ISD (polynomial OLS iteration): **implemented** (``regression.iterative_systematics_decontamination``).
+- ISD: **implemented** (``regression.iterative_systematics_decontamination``),
+  with the per-step marginal fit in ``diagnostics.isd_marginal_fit`` and the
+  mock calibration in ``diagnostics.isd_template_significance``.
+- The v1.2 multivariate-polynomial variant is retained as
+  ``regression.polynomial_ols_decontamination``, documented as **not** being ISD.
 - Footprint masking diagnostics: **implemented** (``diagnostics.footprint_mask_diagnostics``).
 
 ----
@@ -585,3 +610,258 @@ power spectrum.
 - Full quadratic estimator for shear E/B coupling: **not planned**
   (specific to weak lensing; outside the scope of galaxy density maps).
 
+
+
+----
+
+Weaverdyck et al. 2026
+-----------------------
+
+| **Weaverdyck, N., Rodríguez-Monroy, M., Elvin-Poole, J., et al.** (2026). *Dark Energy Survey Year 6 Results: MagLim++ Lens Sample Selection and Measurements of Galaxy Clustering.*
+| arXiv:2601.14484.
+| `arXiv:2601.14484 <https://arxiv.org/abs/2601.14484>`__
+
+**Methods:**
+The reference end-to-end treatment of imaging systematics for a Stage-III lens
+sample, and the source of four features implemented here.  Its organising idea is
+that removing contamination is preferable to weighting it away, so masking, sample
+selection and weighting are designed together rather than applied in sequence.
+
+1. **Template vetting against external tracers.** Each survey-property map is
+   rank-correlated against maps that trace the matter field independently of the
+   survey --- ACT/*Planck* Compton-\ *y*, ACT DR6 CMB lensing, DES Y3 weak-lensing
+   convergence.  Templates that correlate carry real structure, so regressing them
+   out removes signal; they are dropped from the fit (but may still be used for
+   masking).
+2. **ENet with spatially compact cross-validation.** Elastic-net regression over the
+   full template set, with the penalty chosen by 200-fold cross-validation on
+   *k*-means patches of about 5 degrees diameter, and a per-pixel inverse-variance
+   weight :math:`W_k \propto A_k^2/(N_k+2)`.
+3. **ISD with cubic marginal fits** and a mock-calibrated stopping rule (see the
+   Rodríguez-Monroy et al. 2025 entry above).
+4. **Over-correction debias.** The weighting is run on contamination-free lognormal
+   mocks; whatever it changes there is bias, and is subtracted from the data vector.
+5. **Method marginalisation.** The difference between the ENet and ISD data vectors
+   is added to the covariance as a rank-one term, per redshift bin.
+6. **Residual null test.** :math:`\chi^2` of the weighted density in deciles of each
+   template, against a covariance from 1000 mocks inverted with Ledoit--Wolf optimal
+   shrinkage, then a KS test of those :math:`\chi^2` against :math:`\chi^2_{10}`.
+
+**Over-correction bias and method marginalisation:**
+
+.. math::
+
+   b(\theta) = \frac{1}{N}\sum_i
+       \bigl[\tilde w_i^{\rm cleaned}(\theta) - \tilde w_i^{\rm true}(\theta)\bigr],
+   \qquad
+   {\rm Cov} \rightarrow {\rm Cov} + \Delta_i \Delta_j \delta_{kl},
+   \quad \Delta = \hat w^{\rm ENet} - \hat w^{\rm ISD}
+
+.. rubric:: Pros and cons
+
+**Pros:**
+Every step is calibrated on mocks or on the data itself rather than chosen by hand.
+The method-marginalisation term converts an argument about which estimator to trust
+into a covariance element.  The external-tracer vetting is the only test in the
+literature that catches a template carrying the signal it is meant to be independent
+of.
+
+**Cons:**
+Needs a large, well-matched mock suite (they use 1000) and external tracer maps over
+the footprint.  The prescription is tied to a sample clean enough that a perturbative
+contamination model applies; it says less about a sample that is not.
+
+.. rubric:: Implementation status in sys_mapping
+
+- Template vetting against external tracers: **implemented**
+  (``diagnostics.vet_templates_against_tracer``), with jackknife errors over the
+  patches of ``bootstrap.assign_spatial_patches``.
+- Spatially compact cross-validation folds: **implemented**
+  (``patch_ids=`` in ``regression.elasticnet_contamination_fit``).
+- Inverse-variance pixel weights: **implemented**
+  (``maps.inverse_variance_pixel_weights``, ``pixel_weights=`` in the ElasticNet fit).
+- Cubic marginal ISD with mock-calibrated stopping: **implemented**
+  (``regression.iterative_systematics_decontamination``).
+- Over-correction debias: **implemented**
+  (``correction.estimate_overcorrection_bias``, ``correction.debias_two_point_function``).
+- Method-marginalised covariance: **implemented**
+  (``covariance.method_marginalised_covariance``).
+- Residual null test with Ledoit--Wolf shrinkage: **planned** --- the existing
+  ``diagnostics.null_test_cross_correlations`` uses bootstrap Pearson coefficients
+  and is reported failing with iid errors; a mock covariance with optimal shrinkage
+  is the stated fix.
+- Leverage mask (high-dimensional outlier statistic on the template design matrix):
+  **planned**.
+- Data-split consistency test: **planned**.
+
+----
+
+Hernández-Monteagudo et al. 2025
+---------------------------------
+
+| **Hernández-Monteagudo, C., Aricò, G., Chaves-Montero, J., et al.** (2025). *The J-PLUS collaboration. Additive versus multiplicative systematics in surveys of the large scale structure of the Universe.*
+| The Open Journal of Astrophysics 8, 93.
+| `arXiv:2412.14827 <https://arxiv.org/abs/2412.14827>`__
+
+**Methods:**
+Reaches the joint additive/multiplicative decomposition of Berlfein et al. 2024 by a
+different route: rather than sampling a joint posterior, estimate the effective linear
+amplitude by OLS, subtract it, then isolate the multiplicative part by *minimising the
+variance* of the residual map, and finally re-fit the additive part.  Additive and
+multiplicative contaminations are distinguishable because they act differently:
+additive contamination shifts the mean, multiplicative contamination modulates the
+variance.
+
+**Contamination model and the monopole:**
+
+.. math::
+
+   n_g^{\rm obs}(\hat n) = \bigl[\bar n_g (1 + \delta_g) + \boldsymbol\alpha \cdot \mathbf{M}\bigr]
+       \prod_i (1 + \beta_i \delta M_i),
+   \qquad
+   \langle n_g^{\rm obs}\rangle = \bar n_g + \boldsymbol\alpha\cdot\bar{\mathbf{M}}
+       + O(\beta^2)
+
+**Template linearisation:**
+
+.. math::
+
+   \frac{n_g^{\rm obs}}{\langle n_g^{\rm obs}\rangle} \propto
+       \Bigl(\frac{M_j}{\langle M_j\rangle}\Bigr)^{\alpha^j_s},
+   \qquad
+   M_j \rightarrow M_j^{1/|\alpha^j_s|} \ \ \text{if}\ |\alpha^j_s| > 1
+
+.. rubric:: Pros and cons
+
+**Pros:**
+Distinguishes the two characters without assuming either, and the variance-
+minimisation step is a genuinely independent estimator of the multiplicative
+amplitude --- a cross-check on a likelihood-ratio test rather than another way of
+running one.  The template linearisation makes a linear forward model a better
+approximation before any fitting happens.
+
+**Cons:**
+Two-stage rather than joint, so the additive and multiplicative errors are not
+propagated together.  The variance-minimisation step needs a mock suite to know what
+variance to expect.
+
+.. rubric:: Implementation status in sys_mapping
+
+- Joint additive + multiplicative forward model: **implemented** (via Berlfein et al.
+  2024; ``contamination``, ``likelihood``).
+- Independent corroboration of the break-even threshold (they find no OLS-based
+  method detects contamination below :math:`\epsilon,\beta \simeq 0.01`): consistent
+  with ``docs/detectability_law``; **no code change needed**.
+- Variance-minimisation estimator of :math:`\beta` as a seventh method: **planned**.
+- Power-law template linearisation: **planned**.
+- Monopole / mean-density bias: **planned**.  ``maps.compute_overdensity`` divides the
+  monopole out by construction through the single global normalisation, so the package
+  is structurally blind to the one part of an additive contamination that rescales
+  every :math:`C_\ell`; recovering it needs an external :math:`\bar n_g`.
+
+----
+
+Kong et al. 2026
+-----------------
+
+| **Kong, H., Chisari, N. E., Leistedt, B., et al.** (2026). *Imaging systematics induced by galaxy sub-sample fluctuation: new systematics at second order.*
+| Physical Review D 113, 043538.
+| `arXiv:2506.09481 <https://arxiv.org/abs/2506.09481>`__
+
+**Methods:**
+Shows that a *perfect* first-order correction --- one that flattens
+:math:`n_g/\bar n_g` against every survey property --- still leaves a residual, because
+different galaxy types respond to the same observing conditions differently.  The
+composition of the sample therefore varies across the footprint, giving a spatially
+varying :math:`n(z)` and :math:`b(z)` even when the sample-averaged ones are exactly
+right.
+
+**Second-order term and the window decomposition:**
+
+.. math::
+
+   \langle \delta_{\rm obs}, \delta_{\rm obs}\rangle \supset
+   \sum_{kk'} h_k h_{k'} \langle f_k, f_{k'}\rangle
+       \langle \delta_{{\rm truth},k}, \delta_{{\rm truth},k'}\rangle,
+   \qquad
+   w_{\rm obs}(\alpha) = \sum_{AB} {\rm Win}_{AB}(\alpha)\, w_{AB}(\alpha)
+
+where :math:`{\rm Win}_{AB} = R_A R_B / R_{\rm tot} R_{\rm tot}` is built from randoms
+binned by systematics-map value.
+
+.. rubric:: Pros and cons
+
+**Pros:**
+Identifies a residual that no cross-correlation-based mitigation can find, because it
+does not correlate with the templates: it is second order in them.  Gives a
+forward-modelling route to estimating it from synthetic source injection.
+
+**Cons:**
+Cannot be corrected, only bounded --- there are too many galaxy sub-samples to fit
+each one.  The estimate needs source injection or a deep-field truth catalogue, which
+this package does not have.
+
+.. rubric:: Implementation status in sys_mapping
+
+- Sub-sample systematics diagnostic
+  :math:`\sum h_k h_{k'} \langle f_k, f_{k'}\rangle \langle \delta_k, \delta_{k'}\rangle`:
+  **planned**.
+- Window-decomposed estimator :math:`w_{\rm obs} = \sum_{AB} {\rm Win}_{AB} w_{AB}`:
+  **planned** --- ``utils.measure_cross_two_point_function`` already reuses ``dr``/``rr``
+  pair counts, which is most of the machinery.
+- Spatially varying :math:`n(z, {\rm sys})`, :math:`b(z, {\rm sys})` model: **planned**
+  (with Baleato Lizancos & White 2023 and Hang et al. 2024).
+- Synthetic source injection: **not planned** --- needs images, not catalogues.
+
+----
+
+DeRose et al. 2026
+-------------------
+
+| **DeRose, J., Weaverdyck, N., White, M., Chen, S.-F., Schlegel, D., Slosar, A.** (2026). *Steeling Weak Lensing Source Galaxy Samples against Systematics using Wide Field Spectroscopy.*
+| arXiv:2603.10113.
+| `arXiv:2603.10113 <https://arxiv.org/abs/2603.10113>`__
+
+**Methods:**
+A :math:`3\times2`-point forecast whose relevance here is methodological rather than
+topical: systematic residuals are propagated to *parameter* bias through a Fisher
+matrix built by automatic differentiation (``gholax``), so a residual is judged by how
+far it moves :math:`S_8`, not by how large it is.  The physical result --- that
+constraining power saturates at a source density of about
+5 arcmin\ :sup:`-2` once baryonic uncertainty is included --- is what motivates
+selecting a sparser, spectroscopically calibratable sample rather than a denser one.
+
+**Fisher bias:**
+
+.. math::
+
+   F_{\alpha\beta} = \frac{1}{2}\partial_\alpha \mu_k\, C^{-1}_{kl}\, \partial_\beta \mu_l
+       + C^{-1}_{\alpha\beta,{\rm prior}},
+   \qquad
+   \delta\theta_\alpha = F^{-1}_{\alpha\beta}\,
+       \partial_\beta \mu_k\, C^{-1}_{kl}\, \Delta\mu_l
+
+.. rubric:: Pros and cons
+
+**Pros:**
+States the break-even question in the units that decide it.  Automatic
+differentiation makes the derivatives exact and cheap, with no finite-difference step
+to tune.
+
+**Cons:**
+Fisher forecasting linearises the likelihood, so it understates degeneracies far from
+the fiducial point.  The propagation is only as good as the residual estimate fed
+into it.
+
+.. rubric:: Implementation status in sys_mapping
+
+- Fisher-bias propagation of the residual :math:`\Delta C_\ell` to :math:`\Omega_m`
+  and :math:`b\sigma_8`: **planned**.  The likelihood is already differentiable under
+  ``jax`` (``likelihood.make_log_likelihood``, ``nuts.build_logdensity``), so
+  ``jax.jacfwd`` supplies the derivatives; what is missing is a theory data vector to
+  differentiate.
+- Flexible :math:`n(z)` parameterisation (shift, stretch, outlier fraction and
+  location): **planned**, jointly with the Kong et al. 2026 :math:`n(z, {\rm sys})`
+  item.
+- Weak-lensing source selection, intrinsic alignments, baryons: **out of scope** ---
+  this package models galaxy density, not shear.
