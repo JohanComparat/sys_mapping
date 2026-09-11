@@ -50,7 +50,7 @@ def measure_pseudo_cl(
     Notes
     -----
     The pseudo-Cℓ is related to the true power spectrum via the mode-coupling
-    matrix :math:`M_{\ell\ell'}` (MASTER equation):
+    matrix :math:`M_{\\ell\\ell^\\prime}` (MASTER equation):
 
     .. math::
 
@@ -90,7 +90,15 @@ def subtract_template_cl(
     .. math::
 
         \\tilde C_\\ell^{\\rm TS} = \\hat C_\\ell^{d\\times d}
-        - \\sum_i \\hat\\alpha_i\\,\\hat C_\\ell^{t_i \\times t_i}
+        - \\sum_i \\hat\\alpha_i^2\\,\\hat C_\\ell^{t_i \\times t_i}
+
+    The amplitude enters **squared**.  A contaminating field
+    :math:`\\sum_i \\alpha_i t_i` contributes :math:`\\alpha_i^2 C_\\ell^{t_i}` to the
+    power spectrum, because a power spectrum is quadratic in the field.  This is
+    the same quadratic dependence that the configuration-space correction
+    (:func:`~sys_mapping.contamination.compute_two_point_correction`) applies as
+    :math:`\\tilde a_i^2 \\xi_i(\\theta)`, and the two are now Hankel transforms of
+    one another.  Subtracting a term linear in :math:`\\alpha` would not be.
 
     Parameters
     ----------
@@ -130,10 +138,10 @@ def subtract_template_cl(
     mask_float = np.asarray(mask, dtype=float)
     cl_cleaned = pseudo_cl.copy()
 
-    for i, (a_i, t_i) in enumerate(zip(alpha, delta_t)):
+    for a_i, t_i in zip(alpha, delta_t):
         masked_template = t_i * mask_float
         cl_t = hp.anafast(masked_template, lmax=lmax, use_pixel_weights=True)
-        cl_cleaned -= a_i * cl_t
+        cl_cleaned -= (a_i ** 2) * cl_t
 
     return cl_cleaned
 
@@ -257,8 +265,12 @@ def mode_projection_bias(
         # Template-to-signal ratio proxy: use the expected bias per mode
         template_ratio = np.abs(harmonic_bias(1, ell)) / (cl_signal / n_templates + 1e-30)
         project_mask = template_ratio > threshold
-        n_projected = int(np.sum(project_mask))
-        bias = np.where(project_mask, harmonic_bias(n_projected, ell), 0.0)
+        n_projected = int(np.sum(project_mask))   # multipoles retained (diagnostic)
+        # harmonic_bias' first argument is a count of TEMPLATES.  Passing
+        # n_projected -- a count of multipoles -- inflated the subtracted bias by
+        # their ratio, which at NSIDE 64 is 190 to 11.  project_mask still selects
+        # WHICH multipoles are corrected; that part is right.
+        bias = np.where(project_mask, harmonic_bias(n_templates, ell), 0.0)
         bias_pseudo = coupling_matrix @ bias
         cl_deproj = pseudo_cl - bias_pseudo
         return cl_deproj, bias_pseudo

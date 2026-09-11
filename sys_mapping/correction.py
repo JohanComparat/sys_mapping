@@ -9,6 +9,8 @@ Implements:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import jax.numpy as jnp
 from jax import Array
@@ -66,6 +68,58 @@ def debias_params(
     a_sq = np.maximum(a_hat**2 - var_a, 0.0)
     b_sq = np.maximum(b_hat**2 - var_b, 0.0)
     return a_sq, b_sq
+
+
+def debias_params_matrix(
+    a_hat: np.ndarray,
+    b_hat: np.ndarray,
+    cov_a: np.ndarray,
+    cov_b: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Debiased outer products :math:`\\tilde A = \\hat a\\hat a^\\top - {\\rm Cov}[\\hat a]`.
+
+    The matrix form of :func:`debias_params`, for a two-point correction that keeps
+    the cross-template terms.  Since
+    :math:`\\mathbb{E}[\\hat a_i \\hat a_j] = a_i a_j + {\\rm Cov}_{ij}`, subtracting
+    the full covariance is what makes every entry unbiased --- not just the
+    diagonal, which is all :func:`debias_params` corrects.
+
+    The diagonal clip ``max(x, 0)`` has no elementwise analogue here: a squared
+    *matrix* is constrained to be positive semi-definite, not merely
+    positive-entried.  The debiased matrix is therefore projected onto the PSD
+    cone by clipping its eigenvalues at zero, which reduces exactly to
+    ``max(a^2 - var, 0)`` when ``n_sys == 1``.
+
+    Parameters
+    ----------
+    a_hat, b_hat : ``(n_sys,)`` point estimates.
+    cov_a, cov_b : ``(n_sys, n_sys)`` parameter covariances, e.g. from
+        :func:`~sys_mapping.inference.get_param_covariance_from_chain` or
+        :func:`~sys_mapping.covariance.mock_sandwich_covariance`.
+
+    Returns
+    -------
+    ``(A, B)``, each ``(n_sys, n_sys)`` and positive semi-definite.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.correction import debias_params, debias_params_matrix
+    >>> a = np.array([0.1]); var = np.array([0.002])
+    >>> A, _ = debias_params_matrix(a, a * 0, np.diag(var), np.diag(var))
+    >>> a_sq, _ = debias_params(a, a * 0, var, var * 0)
+    >>> bool(np.allclose(A[0, 0], a_sq[0]))
+    True
+    """
+    def _psd(x_hat: np.ndarray, cov: np.ndarray) -> np.ndarray:
+        x_hat = np.asarray(x_hat, dtype=float)
+        cov = np.atleast_2d(np.asarray(cov, dtype=float))
+        m = np.outer(x_hat, x_hat) - cov
+        m = 0.5 * (m + m.T)                       # kill asymmetry from round-off
+        w, v = np.linalg.eigh(m)
+        return (v * np.maximum(w, 0.0)) @ v.T
+
+    return _psd(a_hat, cov_a), _psd(b_hat, cov_b)
 
 
 def rotate_templates(
@@ -177,6 +231,35 @@ def transform_params_from_rotated(
     return a_orig, b_orig
 
 
+def _warn_if_overcorrected(w_obs: np.ndarray, w_corr: np.ndarray) -> None:
+    """Warn where the subtracted template term exceeds the measured signal.
+
+    :math:`\\sum_i \\tilde a_i^2 \\xi_i(\\theta)` is a sum of squares against
+    auto-correlations, so it is positive wherever the templates are correlated at
+    all.  Nothing bounds it by :math:`w_{\\rm obs}(\\theta)`, and at separations
+    where the galaxy signal has decayed but the survey-property maps are still
+    coherent it can exceed it, leaving a negative "corrected" correlation
+    function.  That is a failure of the estimator, not a measurement, and it is
+    silent unless someone plots the wide-angle bins.
+
+    The caller is left to decide what to do -- discarding the bins, restricting
+    the fitted range, or refusing the cell are all defensible -- but it is never
+    right for the value to be used without anyone noticing.
+    """
+    w_obs = np.asarray(w_obs, float)
+    w_corr = np.asarray(w_corr, float)
+    bad = np.isfinite(w_obs) & (w_obs > 0) & np.isfinite(w_corr) & (w_corr < 0)
+    if not bad.any():
+        return
+    worst = float(np.min(w_corr[bad] / w_obs[bad]))
+    warnings.warn(
+        f"two-point correction overshoots the signal in {int(bad.sum())} of "
+        f"{w_obs.size} bins: w_corr < 0 there, worst w_corr/w_obs = {worst:.3g}. "
+        f"The subtracted template term exceeds w_obs; those bins are not usable.",
+        RuntimeWarning, stacklevel=3,
+    )
+
+
 def correct_two_point_function(
     w_obs: np.ndarray,
     a_hat: np.ndarray,
@@ -265,10 +348,17 @@ def correct_two_point_function(
     >>> np.allclose(w_corr2, w_corr)   # point estimate unchanged
     True
     """
-    a_sq, b_sq = debias_params(a_hat, b_hat, var_a, var_b)
     tcorr = np.asarray(template_correlations)
+    if tcorr.ndim == 3:
+        # Full correlation matrix: debias the outer product, not the square.
+        _Ca = np.atleast_2d(cov_a) if cov_a is not None else np.diag(np.asarray(var_a, float))
+        _Cb = np.atleast_2d(cov_b) if cov_b is not None else np.diag(np.asarray(var_b, float))
+        a_sq, b_sq = debias_params_matrix(a_hat, b_hat, _Ca, _Cb)
+    else:
+        a_sq, b_sq = debias_params(a_hat, b_hat, var_a, var_b)
     w_corr = np.asarray(compute_two_point_correction(
         jnp.asarray(w_obs), jnp.asarray(a_sq), jnp.asarray(b_sq), jnp.asarray(tcorr)))
+    _warn_if_overcorrected(np.asarray(w_obs, float), w_corr)
     if not return_cov:
         return w_corr
 
@@ -291,11 +381,154 @@ def correct_two_point_function(
                                           size=n_mc)                       # (n_mc, n_bins)
     else:
         w_obs_k = np.asarray(w_obs, float)[None, :]
-    add_k = a_sq_k @ tcorr                                                 # (n_mc, n_bins)
-    mult_k = b_sq_k @ tcorr
+    # Same contraction as compute_two_point_correction, and it has to follow the
+    # same rank rule: with the full (n_sys, n_sys, n_bins) correlation matrix the
+    # per-draw debiased quantity is an outer product, not a squared vector.
+    if tcorr.ndim == 3:
+        A_k = a_draws[:, :, None] * a_draws[:, None, :] - Ca[None, :, :]
+        B_k = b_draws[:, :, None] * b_draws[:, None, :] - Cb[None, :, :]
+        add_k = np.einsum("kij,ijb->kb", A_k, tcorr)                       # (n_mc, n_bins)
+        mult_k = np.einsum("kij,ijb->kb", B_k, tcorr)
+    else:
+        add_k = a_sq_k @ tcorr                                             # (n_mc, n_bins)
+        mult_k = b_sq_k @ tcorr
     w_corr_k = (w_obs_k - add_k) / (1.0 + mult_k)
     cov_w_corr = sample_covariance(w_corr_k)
     return w_corr, cov_w_corr
+
+
+def estimate_overcorrection_bias(
+    mock_fields: np.ndarray,
+    delta_t: np.ndarray,
+    w_estimator,
+    *,
+    method: str = "ElasticNet",
+    return_scatter: bool = False,
+    **method_kwargs,
+) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
+    """Bias that systematic weights impart on :math:`w(\\theta)` in the *absence*
+    of contamination.
+
+    Any regression with enough freedom removes some genuine large-scale structure
+    along with the systematics, and the residual suppression of :math:`w(\\theta)`
+    does not average away: it is a bias, not scatter.  It is measurable because
+    contamination-free mocks are available -- run the same weighting on a field
+    known to be clean, and whatever the weights change is over-correction:
+
+    .. math::
+
+        b(\\theta) = \\frac{1}{N}\\sum_{i=1}^{N}
+            \\bigl[\\tilde w_i^{\\rm cleaned}(\\theta)
+                  - \\tilde w_i^{\\rm true}(\\theta)\\bigr],
+
+    to be subtracted from the measured data vector via
+    :func:`debias_two_point_function`.
+
+    The estimator is deliberately agnostic about how :math:`w(\\theta)` is
+    measured: pass whatever the analysis uses, so the debias term is computed with
+    the same binning, mask and estimator as the data vector it corrects.
+
+    Parameters
+    ----------
+    mock_fields:
+        Contamination-free mock overdensity fields (shape ``(n_mocks, n_pix)``),
+        on the same footprint pixels as ``delta_t``.  GLASS lognormal realisations
+        matched to the sample are the intended source; see
+        :func:`~sys_mapping.glass_mocks.generate_glass_delta_map`.
+    delta_t:
+        Template maps at those pixels (shape ``(n_sys, n_pix)``).
+    w_estimator:
+        Callable mapping an overdensity field ``(n_pix,)`` to a
+        :math:`w(\\theta)` vector ``(n_theta,)``.
+    method:
+        Any method name accepted by
+        :func:`~sys_mapping.regression.run_decontamination`.
+    return_scatter:
+        Also return the per-:math:`\\theta` standard deviation across mocks, which
+        is what tells you whether ``n_mocks`` was enough.
+    **method_kwargs:
+        Forwarded to ``run_decontamination``.  For the ISD methods pass
+        ``isd_chi2_68`` here, or every mock will be fitted with an uncalibrated
+        stopping threshold and the bias estimate will not describe the run it is
+        meant to correct.
+
+    Returns
+    -------
+    b_add : ``(n_theta,)``
+        The mean bias.  Subtract it from the measured :math:`w(\\theta)`.
+    scatter : ``(n_theta,)``
+        Returned only when ``return_scatter=True``.
+
+    Precision
+    ---------
+    The mean over ``N`` mocks has standard error ``scatter / sqrt(N)``; with the
+    ``N ~ 300`` of a DES-scale analysis this is small compared with the bias
+    itself in the bins that matter.  Below that, check ``scatter`` before
+    subtracting -- a debias term dominated by its own noise adds variance rather
+    than removing bias.
+
+    References
+    ----------
+    Weaverdyck et al. 2026, arXiv:2601.14484, Eqs. 21-23.
+
+    See Also
+    --------
+    debias_two_point_function : applies the correction.
+    """
+    from .regression import run_decontamination
+
+    mock_fields = np.atleast_2d(np.asarray(mock_fields, dtype=float))
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    if mock_fields.shape[1] != delta_t.shape[1]:
+        raise ValueError(
+            f"mock_fields has {mock_fields.shape[1]} pixels but delta_t has "
+            f"{delta_t.shape[1]}; both must be on the same footprint")
+
+    diffs = []
+    for field in mock_fields:
+        res = run_decontamination(method, field, delta_t, **method_kwargs)
+        cleaned = (1.0 + field) * np.asarray(res["weights"]) - 1.0
+        diffs.append(np.asarray(w_estimator(cleaned)) - np.asarray(w_estimator(field)))
+
+    diffs = np.asarray(diffs)
+    b_add = diffs.mean(axis=0)
+    if return_scatter:
+        return b_add, diffs.std(axis=0, ddof=1) if len(diffs) > 1 else np.zeros_like(b_add)
+    return b_add
+
+
+def debias_two_point_function(
+    w_obs: np.ndarray,
+    b_add: np.ndarray,
+) -> np.ndarray:
+    """Subtract the over-correction bias from a measured :math:`w(\\theta)`.
+
+    Parameters
+    ----------
+    w_obs:
+        Measured (weighted) correlation function, shape ``(n_theta,)``.
+    b_add:
+        Bias from :func:`estimate_overcorrection_bias`, same shape.
+
+    Returns
+    -------
+    ``(n_theta,)`` debiased correlation function.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import debias_two_point_function
+    >>> w = np.array([0.10, 0.05, 0.02])
+    >>> b = np.array([-0.002, -0.001, -0.0005])
+    >>> debias_two_point_function(w, b)
+    array([0.102 , 0.051 , 0.0205])
+    """
+    w_obs = np.asarray(w_obs, dtype=float)
+    b_add = np.asarray(b_add, dtype=float)
+    if w_obs.shape != b_add.shape:
+        raise ValueError(
+            f"w_obs {w_obs.shape} and b_add {b_add.shape} must have the same shape")
+    return w_obs - b_add
 
 
 def correct_power_spectrum_harmonic(
@@ -364,9 +597,13 @@ def correct_power_spectrum_harmonic(
     ell = np.asarray(ell, dtype=float)
     cl_corrected = pseudo_cl.copy()
 
-    # Step 1: subtract weighted template pseudo-Cls
+    # Step 1: subtract weighted template pseudo-Cls.  The amplitude enters
+    # squared: a power spectrum is quadratic in the field, so a contaminant
+    # sum_i alpha_i t_i contributes sum_i alpha_i^2 C_l^{t_i}.  This matches the
+    # configuration-space correction's a_tilde^2 xi_i, which is what makes the two
+    # Hankel transforms of one another.
     for a_i, cl_t_i in zip(alpha, template_cls):
-        cl_corrected -= a_i * cl_t_i
+        cl_corrected -= (a_i ** 2) * cl_t_i
 
     # Step 2: subtract harmonic bias from template subtraction
     cl_corrected -= harmonic_bias(n_templates, ell)

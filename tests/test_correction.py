@@ -1,7 +1,12 @@
 """Tests for correction.py: debiasing, template rotation, two-point correction."""
 
+import warnings
+
 import numpy as np
 import pytest
+import jax.numpy as jnp
+
+import sys_mapping as sm
 
 from sys_mapping.correction import (
     debias_params,
@@ -215,3 +220,207 @@ class TestCorrectPowerSpectrumHarmonic:
         t_cls = np.ones((n_sys, n_ell)) * 5e-5
         cl_corr = correct_power_spectrum_harmonic(cl_obs, ell, n_sys, alpha, t_cls)
         np.testing.assert_allclose(cl_corr, cl_obs - harmonic_bias(n_sys, ell), rtol=1e-10)
+
+
+class TestHarmonicMatchesConfiguration:
+    """The harmonic and configuration corrections must remove the same quantity.
+
+    A power spectrum is quadratic in the field, so a contaminant sum_i a_i t_i
+    contributes sum_i a_i^2 C_l^{t_i} -- the same quadratic dependence the
+    configuration-space correction applies as a_tilde_i^2 xi_i.  Subtracting a
+    term *linear* in the amplitude, as the harmonic path used to, makes the two
+    paths correct different quantities, and nothing tested that they agreed.
+    """
+
+    @staticmethod
+    def _cl_to_wtheta(cl, theta_rad):
+        """Legendre sum: w(theta) = sum_l (2l+1)/(4pi) C_l P_l(cos theta)."""
+        from numpy.polynomial.legendre import legval
+        ell = np.arange(len(cl))
+        coef = (2 * ell + 1) / (4 * np.pi) * cl
+        return legval(np.cos(theta_rad), coef)
+
+    def test_amplitude_enters_squared(self):
+        """Doubling the amplitude must quadruple what is subtracted."""
+        import healpy as hp
+        from sys_mapping.power_spectrum import subtract_template_cl
+
+        nside, lmax = 16, 24
+        rng = np.random.default_rng(0)
+        npix = hp.nside2npix(nside)
+        t = rng.standard_normal((1, npix))
+        mask = np.ones(npix, dtype=bool)
+        cl0 = np.ones(lmax + 1)
+
+        d1 = cl0 - subtract_template_cl(cl0, t, mask, np.array([0.1]), lmax=lmax)
+        d2 = cl0 - subtract_template_cl(cl0, t, mask, np.array([0.2]), lmax=lmax)
+        np.testing.assert_allclose(d2, 4.0 * d1, rtol=1e-10)
+
+    def test_harmonic_and_configuration_agree(self):
+        """Round trip: both paths, on one field, must land on the same w(theta)."""
+        import healpy as hp
+        from sys_mapping.power_spectrum import subtract_template_cl
+
+        nside, lmax = 32, 48
+        rng = np.random.default_rng(1)
+        npix = hp.nside2npix(nside)
+        t = rng.standard_normal((1, npix))
+        t = (t - t.mean(1, keepdims=True)) / t.std(1, keepdims=True)
+        mask = np.ones(npix, dtype=bool)
+        a = np.array([0.25])
+
+        cl_obs = np.ones(lmax + 1) * 1e-3
+        cl_corr = subtract_template_cl(cl_obs, t, mask, a, lmax=lmax)
+
+        theta = np.radians(np.linspace(1.0, 20.0, 8))
+        w_harm = self._cl_to_wtheta(cl_corr, theta)
+
+        # Configuration space: subtract a^2 * xi_t, with xi_t the Legendre
+        # transform of the same template spectrum.  var_a = 0, so a_sq = a^2.
+        cl_t = hp.anafast(t[0] * mask.astype(float), lmax=lmax, use_pixel_weights=True)
+        xi_t = self._cl_to_wtheta(cl_t, theta)
+        w_obs = self._cl_to_wtheta(cl_obs, theta)
+        w_conf = np.asarray(sm.compute_two_point_correction(
+            jnp.asarray(w_obs), jnp.asarray(a**2), jnp.asarray(np.zeros(1)),
+            jnp.asarray(xi_t[np.newaxis, :])))
+
+        np.testing.assert_allclose(w_harm, w_conf, rtol=1e-8, atol=1e-12)
+
+
+class TestEMPModeCount:
+    def test_bias_scales_with_templates_not_multipoles(self):
+        """harmonic_bias' first argument is a template count, not a mode count.
+
+        The extended branch used to pass the number of multipoles that survived
+        the cut, inflating the subtracted bias by their ratio -- 190 to 11 at
+        NSIDE 64.
+        """
+        from sys_mapping.power_spectrum import mode_projection_bias
+
+        ell = np.arange(2, 60)
+        pseudo_cl = np.full(ell.size, 1e-4)
+        coupling = np.eye(ell.size)
+
+        _, bias_a = mode_projection_bias(pseudo_cl, coupling, ell, n_templates=4,
+                                         mode="extended", threshold=1e-12)
+        _, bias_b = mode_projection_bias(pseudo_cl, coupling, ell, n_templates=8,
+                                         mode="extended", threshold=1e-12)
+        nz = bias_a != 0
+        assert nz.any(), "threshold should retain some multipoles"
+        # Doubling the templates doubles the bias; the multipole count is unchanged.
+        np.testing.assert_allclose(bias_b[nz], 2.0 * bias_a[nz], rtol=1e-10)
+
+
+class TestCrossTemplateTerms:
+    """The correction keeps xi_ij, not only xi_ii."""
+
+    def test_matrix_debias_reduces_to_scalar_for_one_template(self):
+        from sys_mapping.correction import debias_params_matrix
+
+        a = np.array([0.1])
+        var = np.array([0.002])
+        A, _ = debias_params_matrix(a, np.zeros(1), np.diag(var), np.zeros((1, 1)))
+        a_sq, _ = debias_params(a, np.zeros(1), var, np.zeros(1))
+        assert A[0, 0] == pytest.approx(a_sq[0], rel=1e-12)
+
+    def test_matrix_debias_is_psd(self):
+        """A squared matrix is PSD-constrained, not entrywise-positive."""
+        from sys_mapping.correction import debias_params_matrix
+
+        rng = np.random.default_rng(0)
+        n = 5
+        a = rng.normal(0, 0.05, n)
+        C = rng.standard_normal((n, n))
+        C = C @ C.T * 1e-3          # large enough that naive subtraction goes negative
+        A, _ = debias_params_matrix(a, np.zeros(n), C, np.zeros((n, n)))
+        assert np.linalg.eigvalsh(A).min() >= -1e-12
+        np.testing.assert_allclose(A, A.T, atol=1e-14)
+
+    def test_full_form_reduces_to_auto_form_on_a_diagonal_matrix(self):
+        rng = np.random.default_rng(1)
+        n, nb = 4, 6
+        xi = rng.standard_normal((n, n, nb)) * 1e-3
+        xi = 0.5 * (xi + xi.transpose(1, 0, 2))
+        autos = np.array([xi[i, i] for i in range(n)])
+        A = np.diag(rng.uniform(0, 1e-3, n))
+        w = np.full(nb, 1e-2)
+
+        full = np.asarray(sm.compute_two_point_correction(
+            jnp.asarray(w), jnp.asarray(A), jnp.asarray(np.zeros_like(A)),
+            jnp.asarray(xi)))
+        auto = np.asarray(sm.compute_two_point_correction(
+            jnp.asarray(w), jnp.asarray(np.diag(A)), jnp.asarray(np.zeros(n)),
+            jnp.asarray(autos)))
+        np.testing.assert_allclose(full, auto, rtol=1e-12)
+
+    def test_cross_terms_change_the_answer(self):
+        """If they did not, dropping them would have been free."""
+        rng = np.random.default_rng(2)
+        n, nb = 4, 6
+        xi = rng.standard_normal((n, n, nb)) * 1e-3
+        xi = 0.5 * (xi + xi.transpose(1, 0, 2))
+        autos = np.array([xi[i, i] for i in range(n)])
+        a = rng.normal(0, 0.05, n)
+        kw = dict(var_a=np.full(n, 1e-4), var_b=np.zeros(n))
+        w = np.full(nb, 1e-2)
+        full = correct_two_point_function(w, a, np.zeros(n),
+                                          template_correlations=xi, **kw)
+        auto = correct_two_point_function(w, a, np.zeros(n),
+                                          template_correlations=autos, **kw)
+        assert not np.allclose(full, auto)
+
+    @pytest.mark.parametrize("bad", ["matrix_amp_auto_corr", "vector_amp_full_corr"])
+    def test_rank_mismatch_is_named_not_broadcast(self, bad):
+        n, nb = 3, 4
+        xi3 = np.zeros((n, n, nb))
+        xi2 = np.zeros((n, nb))
+        A = np.zeros((n, n))
+        v = np.zeros(n)
+        amp, corr = ((A, xi2) if bad == "matrix_amp_auto_corr" else (v, xi3))
+        with pytest.raises(ValueError, match="ranks disagree"):
+            sm.compute_two_point_correction(jnp.asarray(np.zeros(nb)),
+                                            jnp.asarray(amp), jnp.asarray(amp),
+                                            jnp.asarray(corr))
+
+
+class TestOvercorrectionGuard:
+    """A corrected w(theta) that has gone negative must not be silent.
+
+    ``sum_i a_i^2 xi_i(theta)`` is a sum of squares against auto-correlations,
+    so nothing bounds it by ``w_obs``.  Where the galaxy signal has decayed but
+    the survey-property maps are still coherent, the subtracted term can exceed
+    the measurement and leave a negative correlation function.
+    """
+
+    @staticmethod
+    def _inputs():
+        w_obs = np.array([1.0, 0.5, 0.2, 0.05, 0.01])
+        a_hat = np.array([0.2, 0.0])
+        b_hat = np.zeros(2)
+        zeros = np.zeros(2)
+        # xi rises with theta, which is what a template basis restricted to a
+        # footprint does at separations the galaxy signal has already left.
+        xi = np.array([[0.0, 0.0, 0.0, 0.5, 2.0], [0.0, 0.0, 0.0, 0.0, 0.0]])
+        return w_obs, a_hat, b_hat, zeros, xi
+
+    def test_negative_corrected_value_warns(self):
+        w_obs, a_hat, b_hat, zeros, xi = self._inputs()
+        with pytest.warns(RuntimeWarning, match="overshoots the signal"):
+            w_corr = sm.correct_two_point_function(w_obs, a_hat, b_hat, zeros, zeros, xi)
+        assert np.any(w_corr < 0.0)
+
+    def test_a_benign_correction_is_silent(self):
+        w_obs, a_hat, b_hat, zeros, xi = self._inputs()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            w_corr = sm.correct_two_point_function(
+                w_obs, 0.01 * a_hat, b_hat, zeros, zeros, xi)
+        assert np.all(w_corr > 0.0)
+
+    def test_warning_reports_the_worst_bin(self):
+        w_obs, a_hat, b_hat, zeros, xi = self._inputs()
+        with pytest.warns(RuntimeWarning) as rec:
+            sm.correct_two_point_function(w_obs, a_hat, b_hat, zeros, zeros, xi)
+        message = str(rec[0].message)
+        assert "1 of 5 bins" in message
+        assert "w_corr/w_obs" in message

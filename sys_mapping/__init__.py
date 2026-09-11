@@ -40,10 +40,13 @@ from .inference import make_log_prob, run_mcmc, run_additive_analytic, get_mle_p
 from .nuts import run_nuts, build_logdensity, default_n_chains
 from .correction import (
     debias_params,
+    debias_params_matrix,
     rotate_templates,
     transform_params_from_rotated,
     correct_two_point_function,
     correct_power_spectrum_harmonic,
+    estimate_overcorrection_bias,
+    debias_two_point_function,
 )
 from .model_selection import (
     likelihood_ratio_test,
@@ -172,10 +175,13 @@ __all__ = [
     "default_n_chains",
     # correction
     "debias_params",
+    "debias_params_matrix",
     "rotate_templates",
     "transform_params_from_rotated",
     "correct_two_point_function",
     "correct_power_spectrum_harmonic",
+    "estimate_overcorrection_bias",
+    "debias_two_point_function",
     # model_selection
     "likelihood_ratio_test",
     "lrt_null_distribution",
