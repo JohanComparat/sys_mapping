@@ -4,7 +4,339 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- **`apply_nonlinear_contamination`, `TemplateResponse`, `evaluate_response`,
+  `RESPONSE_KINDS`** — injection of a template response that is not linear.
+
+  Every simulation this package ships injects `apply_contamination`, i.e.
+  `δ_g(1 + Σ b_i t_i) + Σ a_i t_i`, which is linear in every template. A linear
+  marginal fit is already sufficient for that, so no campaign run to date can
+  separate `ISD-1` from `ISD-3` — and none does: across all 900 NSIDE-64 cells of
+  campaign `20260907c` the two recover the same amplitude to within 1%, and
+  `ISD-3`'s only measurable difference is a *worse* false-positive rate. That is a
+  property of the injection, not of the method.
+
+  The new path injects `1 + δ_obs = (1 + δ_true)·Π_i (1 + F_i(t_i))` — the
+  per-template selection efficiency that ISD's weight `Π_j 1/(1 + F̂_j)` actually
+  inverts, and which is *not* Eq. 13. Six response shapes: `linear`, `quadratic`,
+  `cubic` (inside a cubic marginal basis) and `tanh`, `threshold`, `exp` (outside
+  it). Every shape is rescaled to the same `rms(F)`, or a ranking of shapes is a
+  ranking of amplitudes.
+
+  Measured over a 50-seed campaign at NSIDE 32 on the real LS10 templates, two of
+  five contaminated, scoring by the fractional L2 error of the recovered `w(θ)` and
+  comparing **per seed** (the two methods see the same mock and the same injection):
+
+  | injected `F(t)` | low | medium | high | in a cubic basis? |
+  |---|---|---|---|---|
+  | `t` (control) | 1.07 / 42% | 0.83 / 76% | 0.82 / 92% | exactly |
+  | `t + κt²` | 0.89 / 78% | 0.68 / 98% | 0.53 / 100% | exactly |
+  | `t + κt³` | 0.96 / 64% | 0.85 / 96% | 0.73 / 100% | exactly |
+  | `tanh(αt)/α` | 0.93 / 56% | 0.53 / 92% | **0.22** / 100% | no |
+  | `t·1[t>t₀]` | 0.69 / 84% | 0.39 / 100% | **0.36** / 100% | no |
+  | `(e^{αt}−1)/α` | 1.00 / 46% | 0.89 / 84% | 0.86 / 84% | no |
+
+  *median ratio of ISD-3's error to ISD-1's on the same seed / fraction of seeds
+  ISD-3 wins.* Every medium- and high-amplitude cell is significant at p < 0.02
+  (Wilcoxon signed-rank); none of the low-amplitude cells below 60% is significant.
+
+  The advantage appears with amplitude, is largest on the shapes a cubic *cannot*
+  represent (`tanh`, `threshold`), and is present even on the linear control,
+  because binning a lognormal density against a skewed survey-property map curves
+  the marginal relation before any contamination is applied.
+
+  The exponential is the exception and it locates the real limit: rescaled to fixed
+  `rms(F)` on a template as skewed as `GALDEPTH_Z` (skew +5.9, reaching +19σ), an
+  exponential response puts `|F| > 0.1` in 0.03% of pixels — all inside the
+  outermost quantile bin, where a binned fit of any order has one degree of freedom.
+  Splitting the seeds: 1.03 where a contaminated template has skew > 3, 0.32 where
+  neither does. **The binding constraint on ISD is `n_bins`, not `poly_order`.**
+
+- **`characterisation/isd_hyperparameter_sweep.py`** (benchmark repo) — the first scan
+  of the ISD parameters. 50 settings x 18 configs x 20 seeds. Two results:
+
+  * **`n_bins = 20` strictly dominates the shipped `n_bins = 10`** at `poly_order = 3`:
+    better residual (0.028 vs 0.032), better selection precision (0.925 vs 0.870) and
+    better recall (0.835 vs 0.808). Not applied yet — 20 bins has not been tested on
+    the sparse LS10 samples at NSIDE >= 128, where the `N_beta >= 2` bin-admission rule
+    could start rejecting bins.
+  * **The usable polynomial order is set by the bin count**, not chosen independently.
+    At 5 bins the best order is 2 and a cubic is already worse than a *linear* fit at
+    20 bins; at 40 bins a quartic wins. `d=5` at 10 bins (0.200) is worse than `d=2` at
+    10 bins (0.052). This is the practical content of the DES Y6 choice of `d=3`: it is
+    the highest order ten bins support.
+
+  Also measured: equal-occupancy binning beats equal-width by 2-3x at `d=1`;
+  `threshold` is a clean monotone precision/recall dial (T=1 → 0.717/0.899,
+  T=5 → 0.991/0.700); `max_reuse=1` triples the residual and above 3 changes nothing;
+  `w_max` and `bad_pixel_frac` changed nothing on any metric at any setting, so they
+  are insurance rather than knobs. Dropping the calibration gives the *lowest* residual
+  in the whole scan (0.009) and the worst precision (0.516) — it removes more because
+  it removes things that are not there.
+
+- **`simulation.make_response_grid`** and `run_simulation_tests.py --responses`,
+  `--response-kinds`, `--n-contaminated`. The last is what makes greedy *selection*
+  measurable: the existing grid contaminates all five templates at equal amplitude,
+  so there is no true negative for a selection rule to get wrong.
+
+- **`run_simulation_tests.py --isd-null-cl-file`** — the ISD calibration null can
+  now be a matched spectrum. Without it the null is the parametric power law at
+  `cl_amplitude=5e-4`, which under-clusters LS10 by ~25× and leaves the calibrated
+  threshold anticonservative.
+
+- **`run_simulation_tests.py --isd-kwargs`** and the `isd_poly_order`,
+  `isd_max_reuse`, `isd_w_max`, `isd_bad_pixel_frac` arguments to
+  `run_decontamination`. `poly_order` was previously pinned by the method name and
+  the other three were unreachable from any driver, so no hyper-parameter sweep was
+  possible. `ISD-<d>` is now accepted for any degree.
+
+### Added
+
+- **`standardise_on_footprint`** — standardise a template basis over the pixels it
+  is about to be fitted on.
+
+  `load_real_template` and `load_templates_from_dir` normalise each survey-property
+  map over that map's own valid region, which is larger than any one sample's
+  footprint. Restricted to the footprint the basis is no longer standardised: the
+  eleven LS10 maps at NSIDE 64 have per-template rms spanning 0.905 to 5.77 and a
+  relative mean of 0.729, so the covariance eigenvalues sum to 44.4 rather than
+  `n_sys = 11` with a leading eigenvalue of 37.5. Calling this after masking gives
+  exactly 11.00 with a leading eigenvalue of 5.39, and drops the basis condition
+  number from 1443 to 208.
+
+  It cannot be done at load time: the loader does not know which pixels the fit will
+  use. Both production scripts now call it after `assign_template_values`, record
+  the means and rms they divided out in `params.json` under `template_basis`, and
+  stamp `TPLBASIS` into the FITS header. `WEIGHTVER` goes to **3** for a
+  footprint-standardised product. `--no-footprint-standardise` reproduces the old
+  basis and keeps `WEIGHTVER = 2`.
+
+  Synthetic bases are barely affected — 0.971 to 1.030 under a Galactic cut at both
+  resolutions, eigenvalues summing to 4.93–5.05 against 5 — so the simulation-based
+  results are unchanged. Only the real-template LS10 results move.
+
 ### Fixed
+
+- **The template two-point functions are measured from the galaxies.**
+  `run_ls10_analysis.py` ran TreeCorr KK on the rotated templates at the HEALPix
+  pixel centres. No pair of distinct pixels is separated by less than the pixel
+  scale, so `xi_i` came back as exactly zero below it while `w(theta)` is measured
+  from the catalogue down to 0.5'. The correction was therefore identically zero
+  over 21 of 30 bins at NSIDE 64 (below 49') and 24 of 30 at NSIDE 32 (below 94'),
+  the range carrying most of the signal. A template is constant within a pixel, so
+  its correct `xi_i` at sub-pixel separations is its *variance*, not zero.
+
+  Each galaxy now carries the rotated-template value of its pixel and the KK
+  correlation runs on the galaxy positions, over the same bins as `w(theta)`.
+  Validated against the pixel version on a synthetic footprint: the two agree to
+  within 2% above the pixel scale (0.752 against 0.737 at 115', 0.195 against 0.198
+  at 270') and the galaxy measurement returns 0.93 to 1.01 of the template variance
+  below it, where the pixel one returns zero in 21 of 30 bins. Cost is 29 s per
+  template at 3M galaxies. `--ct-from-pixels` restores the old behaviour.
+
+- **`correct_two_point_function` warns where the correction overshoots the
+  signal.** `Σ_i ã_i² ξ_i(θ)` is a sum of squares against auto-correlations, so
+  nothing bounds it by `w_obs(θ)`. At separations where the galaxy signal has
+  decayed but the survey-property maps are still coherent it exceeds it, and the
+  "corrected" correlation function comes back negative with no error. On the
+  shipped LS10 grid this happens for `ISD-3` in all 18 cells, reaching
+  `w_corr/w_obs = -39` at NSIDE 64 and `-232` at NSIDE 32, while the other five
+  methods stay between 0.60 and 0.88. The bins are not usable; the caller decides
+  whether to drop them, restrict the fitted range, or refuse the cell.
+
+- **`compute_covariance_matrix` warns on a basis that is not standardised over
+  the pixels supplied.** `load_templates_from_dir` normalises each survey-property
+  map over that map's own valid region, which is larger than any one sample's
+  footprint. Restricted to the pixels the fit uses, the eleven LS10 maps at
+  NSIDE 64 have rms spanning 0.905 to 5.77 and a relative mean of 0.729, so the
+  eigenvalues sum to 44.4 rather than `n_sys = 11` with a leading eigenvalue of
+  37.5. Amplitudes fitted against that basis are not in units of one standard
+  deviation of the template, and it is the same scaling that makes the two-point
+  correction overshoot above.
+
+- **The zero-mean warning no longer fires on every centred sample.** The sample
+  mean of `n_pix` unit-variance values has standard error `1/sqrt(n_pix)`, so the
+  fixed relative threshold of `1e-3` fired on any finite draw of a genuinely
+  centred basis. The tolerance is now `max(1e-3, 5/sqrt(n_pix))`.
+
+- **`run_ls10_analysis.py` gained the `--skewed` flag**, defaulting off, matching
+  `compute_sys_weights.py`. Previously one script defaulted the skew-normal
+  likelihood on and the other had no flag at all, so a column named `WEIGHT_SYS`
+  meant a different model depending on which script wrote it. `run_decontamination`
+  now also returns `gamma_hat`, which a caller refining the fit to an MLE needs in
+  order to pack a starting point.
+
+- **`plot_ls10_wtheta_corrected.py` no longer crops the correction away.** The
+  ratio panel was gated on `w_corr > 0` and the x-axis fixed at 70', which between
+  them hid every bin where the correction overshoots — the only bins where it acts
+  at all. The axis now spans the measured range and the binning in the title is
+  read from the data rather than restated.
+
+- **The paper Makefile rebuilds on a figure or archive edit.** `figures/*.tex` and
+  `findings_archive.tex` were not prerequisites of the PDF, so editing a figure
+  source left a stale build that still passed `make check`.
+
+- `run_wtheta_recovery` kept only `a_hat`, `b_hat` and `elapsed_s`, discarding the
+  per-step coefficients, `n_steps`, `stopped_on`, `significance` and `calibrated`
+  that `run_decontamination` returns. On a non-linear response the curvature lives
+  entirely in those coefficients, so the results files could not have answered the
+  question even with the right injection. `n_floored` was computed by `ISDResult`
+  and dropped by `run_decontamination`; it is now returned.
+
+- `null_test_cross_correlations` gained a warning that `max_i |r(w, t_i)|` is not a
+  scalar goodness-of-fit. For an additive correction the statistic depends on the
+  *support* of `â`, not its size: a single-template correction gives `|r| → 1` at
+  any amplitude (1.0000 at `â = 1e-6`, 0.9886 at `â = 1e-1`), so a sparser and more
+  accurate correction scores *worse*, and a method that fits nothing scores zero.
+
+### Changed — breaking
+
+- **`iterative_systematics_decontamination` now implements ISD.** Up to and
+  including v1.2 this function — cited to Rodríguez-Monroy et al. in its own
+  docstring, and exposed as the methods `ISD-1` and `ISD-3` — implemented a
+  different algorithm from the one that paper and its DES Y1/Y3/Y6 predecessors
+  describe.
+
+  *What it did:* expand the template set into every monomial
+  `t_i·t_j·t_k` up to total degree `d` — cross-products between different
+  templates included, `binom(n_s+d, d) − 1` columns, 55 for `n_s = 5` and
+  `d = 3` — fit them all simultaneously by unregularised iteratively reweighted
+  least squares, and then build the weight from the first `n_s` linear
+  coefficients alone. The fifty discarded columns are strongly collinear with the
+  five retained ones, so fitting and dropping them inflated the variance of
+  precisely the coefficients that determined the weight. On LS10 this gave
+  `rms|â| ≈ 7.6`, some 35× the OLS solution on the same data, and a weight map
+  saturated across the whole footprint.
+
+  *What it does now:* for each template independently, bin the footprint into 10
+  equal-occupancy bins of that template's value, fit the binned mean density with
+  a polynomial of degree `d` **in that one template's value**, score it against a
+  mock-calibrated `Δχ²/Δχ²₆₈`, apply the inverse of the single most significant
+  fit as a weight, re-measure, and repeat until every template falls below
+  `threshold` (default 2, the DES Y6 value). The design matrix of every fit is
+  `n_bins × (d+1)` however many templates there are.
+
+  `ISD-1` and `ISD-3` keep their names; `poly_order` keeps its name and now means
+  what it means in the literature. The v1.2 routine survives as
+  **`polynomial_ols_decontamination`**, documented as not being ISD, so the v1.2
+  benchmark and timings stay reproducible.
+
+  *Signature changes.* `iterative_systematics_decontamination` returns an
+  `ISDResult` dataclass (`weights`, `a_hat`, `steps`, `significance`, `n_steps`,
+  `stopped_on`, `calibrated`, `n_floored`) instead of the tuple
+  `(weights, alpha_hat_all, n_iterations)`; `max_iter`, `tol`, `lambda_poly` and
+  `backend` are gone, replaced by `n_bins`, `binning`, `threshold`, `chi2_68`,
+  `max_steps`, `max_reuse`, `fracdet`, `w_max` and `bad_pixel_frac`. In
+  `run_decontamination`, `isd_max_iter` and `isd_lambda_poly` are replaced by
+  `isd_n_bins`, `isd_binning`, `isd_threshold`, `isd_chi2_68`, `isd_max_steps`
+  and `isd_fracdet`; the result dict gains `isd_steps`, `isd_significance`,
+  `isd_stopped_on` and `isd_calibrated`, and loses `isd_outlier_mask` and
+  `isd_masked_fraction` (the two-pass outlier scheme is unnecessary now that the
+  iteration stops on insignificance).
+
+  *Never extrapolate a binned fit.* `F̂` is evaluated at `clip(t, t_lo, t_hi)`,
+  the outermost bin centres it was constrained by. On real LS10 templates this is
+  the difference between convergence and divergence: `GALDEPTH_Z` reaches +26
+  standardised units while its outermost bin centre sits near +2, so an unclipped
+  cubic is evaluated three orders of magnitude beyond its support. Without
+  clipping the significances *rise* along the iteration (`S = 9.0 → 14.8 → 36.2`
+  on one template) as each over-corrected step manufactures a larger trend for the
+  next, and 339 of 22 000 pixels hit the weight floor; with clipping the same run
+  floors none and stops on the threshold. `isd_marginal_fit` therefore returns the
+  supported range alongside the coefficients.
+
+  *The reported amplitude is a projection, not a coefficient.* `a_hat[i]` is
+  `<F̂_i(clip(t_i)) t_i> / <t_i²>`, summed over the steps that selected template
+  *i*. Taking the degree-1 polynomial coefficient instead is correct for
+  `poly_order=1` but not for `poly_order=3`: equal-occupancy bin centres of a
+  skewed template span a narrow range, so the Vandermonde is poorly conditioned
+  and the coefficients are large even when the curve is small. On a GLASS null
+  with no injected contamination one accepted step returned
+  `c = (0.026, 0.681, 3.343, 4.365)` — `rms|â| = 0.44` for a field whose true
+  amplitude is zero. The projection gives `6e-4` on the same data.
+
+  *Calibration.* Without `chi2_68` the threshold is in raw `Δχ²` units and the
+  value 2 means nothing, so the function warns. When Stage-1 pre-selection has
+  already run with `preselect_method="isd"`, `run_decontamination` takes
+  `Δχ²₆₈` from the GLASS null it already generated rather than paying for it
+  twice.
+
+### Added
+
+- **`data/glass_match/` — 25 validated per-setup GLASS spectra.** Retrieved from the
+  cluster campaign: all nine LS10 samples at NSIDE 32 and 64, seven at NSIDE 128,
+  each fitted band by band and validated on 8 or 16 seeds held out of the fit. 24 of
+  25 pass, with large-scale power ratios in 0.912–1.020 against a 10 % tolerance.
+  `sigma_hat_mock` now spans 0.27–1.22 per sample where the default power law gave
+  0.078 against a data value of 0.387. These are what `--lrt-null-cl-file` should
+  point at; without them every `load_matched_cl` call returned `None` and every run
+  silently fell back to the power law.
+
+- **`sys_mapping.diagnostics.isd_marginal_fit`** — the per-template binned
+  polynomial fit ISD is built from, returning both `Δχ²` and the fitted
+  coefficients (ascending powers). `snr_template_ranking(method="isd")` returns
+  only the former and is unchanged.
+
+- **`sys_mapping.diagnostics.vet_templates_against_tracer`** — weighted Spearman
+  rank correlation of each template against an external tracer of true structure
+  (CMB lensing κ, Compton-*y*, weak-lensing convergence), with delete-one-patch
+  jackknife errors. A template that correlates with real structure lets the
+  regression fit the signal, and no care in the fit will reveal it: the
+  contamination is detected at high significance and the clustering comes out low,
+  on mocks as well as data. Eggert & Leistedt (2023) demonstrate exactly this for
+  templates built from Legacy Survey image stacks, which is the data this package
+  is applied to. (Weaverdyck et al. 2026, Sec. III A.)
+
+- **`sys_mapping.correction.estimate_overcorrection_bias`** and
+  **`debias_two_point_function`** — run the weighting on contamination-free mocks;
+  whatever it changes there is over-correction, not systematics, and is subtracted
+  from the data vector. Estimator-agnostic: the caller supplies the `w(θ)`
+  measurement so the debias term uses the same binning and mask as the data.
+  (Weaverdyck et al. 2026, Eqs. 21–23.)
+
+- **`sys_mapping.covariance.method_marginalised_covariance`** — adds
+  `Δᵢ Δⱼ` to the covariance, with `Δ` the difference between two methods'
+  `w(θ)`. This package offers six methods and they disagree; reporting one of them
+  with its own error bar prices that disagreement at zero. Supports block-diagonal
+  application so each tomographic bin can prefer a different method.
+  (Weaverdyck et al. 2026, Eq. 24.)
+
+- **`sys_mapping.bootstrap.assign_spatial_patches`** — the patch labelling used by
+  the bootstrap and jackknife, made public so the same partition can serve as
+  cross-validation groups and as jackknife patches.
+
+- **`sys_mapping.maps.inverse_variance_pixel_weights`** — the per-pixel weight
+  `A_k²/(N_k + 2)`: coverage area squared over Poisson variance, with the
+  regulariser keeping empty pixels finite. (Weaverdyck et al. 2026, Eq. 8.)
+
+- **Spatially compact cross-validation for ElasticNet.** `patch_ids=` and
+  `pixel_weights=` on `elasticnet_contamination_fit`. `ElasticNetCV` splits into
+  contiguous index chunks by default, which mix spatially; on a clustered field
+  the held-out pixels are then correlated with the training pixels, the prediction
+  error is under-estimated, and the cross-validation picks too weak a penalty.
+  With `patch_ids` the folds are whole patches (`GroupKFold`) and are spatially
+  disjoint. `cv_info["cv_spatial"]` records which was used. DES Y6 uses ~200
+  patches of about 5° diameter.
+
+- **`--isd-n-mocks` in `scripts/run_simulation_tests.py`**, and `ISD-3` added to
+  its `--methods` choices (it was absent, which is why no ISD-3 column appears in
+  `data/simulations/*/results_summary.json`). The ISD `Δχ²₆₈` is calibrated once
+  per mock source — the null depends on the footprint, resolution and surface
+  density, not on the injected contamination — and reused across all nine
+  configurations. `run_wtheta_recovery` gains `method_kwargs=` to carry it.
+
+### Fixed
+
+- **`load_matched_cl` preferred a failed fit over a validated one.** The exact-NSIDE
+  file won whenever it existed, even when its `validation.passed` was false, so a
+  sample whose fit failed at the requested resolution raised instead of using a
+  spectrum that had passed at another. That contradicts the function's own stated
+  rationale — the spectrum belongs to the sample and its footprint, and resolution
+  limits what can be *checked*, not what can be *used* — and it is not hypothetical:
+  LS10 `logM ≥ 11.5` fails at NSIDE 64 and passes at 128, so the NSIDE-64 LRT for that
+  sample would have crashed. It now prefers the finest *validated* candidate and warns
+  when it falls through, while still refusing outright when nothing passed.
 
 - **ISD template SNR could rank a pure-noise template above a contaminated
   one.** The two JAX ISD kernels estimated the per-bin variance as
@@ -88,8 +420,8 @@ committed snapshots, with no external checkout required.
   per-function API, the HEALPix utilities, all four Stage-1 ranking statistics and
   all six Stage-2 methods. Writes `benchmarks.csv` plus a `machine.json` provenance
   record (CPU, cores, RAM, library versions, commit, date, load average),
-  superseding the undated benchmark table in `Claude.md`. Results are rendered in
-  `docs/results_benchmark.rst`.
+  superseding the undated benchmark table in the developer notes. Results are
+  rendered in `docs/results_benchmark.rst`.
 - **`docs/roadmap.rst`** — prioritised next steps.
 - **`docs/api/nuts.rst`, `docs/api/plotting.rst`** — both modules are public and
   exported but had no API page.
