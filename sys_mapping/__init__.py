@@ -36,7 +36,11 @@ from .maps import (
     standardise_on_footprint,
     inverse_variance_pixel_weights,
 )
-from .inference import make_log_prob, run_mcmc, run_additive_analytic, get_mle_params, get_param_variance_from_chain, get_param_covariance_from_chain
+from .inference import (
+    make_log_prob, run_mcmc, run_additive_analytic, get_mle_params,
+    posterior_median_params, refine_to_mle,
+    get_param_variance_from_chain, get_param_covariance_from_chain,
+)
 from .nuts import run_nuts, build_logdensity, default_n_chains
 from .correction import (
     debias_params,
@@ -167,6 +171,8 @@ __all__ = [
     "run_mcmc",
     "run_additive_analytic",
     "get_mle_params",
+    "posterior_median_params",
+    "refine_to_mle",
     "get_param_variance_from_chain",
     "get_param_covariance_from_chain",
     # nuts

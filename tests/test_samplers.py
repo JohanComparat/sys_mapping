@@ -13,11 +13,12 @@ import jax.numpy as jnp
 from sys_mapping.inference import (
     run_additive_analytic,
     run_mcmc,
-    get_mle_params,
+    posterior_median_params,
     get_param_covariance_from_chain,
 )
 from sys_mapping.nuts import run_nuts, default_n_chains
 from sys_mapping.contamination import apply_contamination
+import sys_mapping as sm
 from sys_mapping import run_decontamination
 
 
@@ -58,20 +59,26 @@ class TestAnalyticAdditive:
         assert chain.shape == (5000, n_sys + 1)
         assert np.all(chain[:, -1] > 0)  # sigma column strictly positive
 
-    def test_diagnostics_are_perfect(self, additive_data):
+    def test_convergence_diagnostics_are_not_applicable(self, additive_data):
+        """Exact i.i.d. draws have nothing to converge, so nothing to report.
+
+        These used to be 1.0 and n_samples.  In a results table beside real NUTS
+        values that is indistinguishable from a diagnostic that was measured and
+        passed, so None is the honest value.
+        """
         dg, dt, _ = additive_data
         _, sampler = run_additive_analytic(dt.shape[0], delta_g_obs=dg, delta_t=dt, n_samples=2000)
         assert float(np.mean(sampler.acceptance_fraction)) == 1.0
-        assert sampler.rhat == 1.0
         assert sampler.num_divergences == 0
-        assert sampler.ess == 2000.0
+        assert sampler.rhat is None
+        assert sampler.ess is None
 
     def test_median_matches_ols(self, additive_data):
         dg, dt, _ = additive_data
         n_sys = dt.shape[0]
         chain, _ = run_additive_analytic(n_sys, delta_g_obs=dg, delta_t=dt, n_samples=50000)
         a_ols = np.linalg.lstsq(dt.T, dg, rcond=None)[0]
-        a_med = get_mle_params(chain)[:n_sys]
+        a_med = posterior_median_params(chain)[:n_sys]
         assert np.allclose(a_med, a_ols, atol=5e-4)
 
     def test_reproducible(self, additive_data):
@@ -90,8 +97,8 @@ class TestAnalyticAdditive:
         cov_a, _ = get_param_covariance_from_chain(chain_a, n_sys, "additive")
         cov_e, _ = get_param_covariance_from_chain(chain_e, n_sys, "additive")
         # posterior means agree to MC error, std agree to ~10%
-        assert np.allclose(get_mle_params(chain_a)[:n_sys],
-                           get_mle_params(chain_e)[:n_sys], atol=1e-3)
+        assert np.allclose(posterior_median_params(chain_a)[:n_sys],
+                           posterior_median_params(chain_e)[:n_sys], atol=1e-3)
         assert np.allclose(np.sqrt(np.diag(cov_a)), np.sqrt(np.diag(cov_e)), rtol=0.15)
 
 
@@ -109,7 +116,7 @@ class TestNuts:
         n_sys = dt.shape[0]
         chain, sampler = run_nuts(n_sys, model="combined", delta_g_obs=dg, delta_t=dt,
                                   n_chains=2, n_warmup=500, n_samples=800, seed=3)
-        mle = get_mle_params(chain)
+        mle = posterior_median_params(chain)
         cov_a, cov_b = get_param_covariance_from_chain(chain, n_sys, "combined")
         # additive coefficients recovered within 4 sigma (b is weakly constrained)
         assert np.all(np.abs(mle[:n_sys] - a_true) < 4 * np.sqrt(np.diag(cov_a)) + 1e-3)
@@ -126,8 +133,8 @@ class TestNuts:
         chain_e, _ = run_mcmc(n_sys=n_sys, model="combined", delta_g_obs=dg, delta_t=dt,
                               n_walkers=40, n_steps=3000, n_burn=1000, seed=3, progress=False)
         # a is tightly constrained: means agree to MC error
-        assert np.allclose(get_mle_params(chain_n)[:n_sys],
-                           get_mle_params(chain_e)[:n_sys], atol=2e-3)
+        assert np.allclose(posterior_median_params(chain_n)[:n_sys],
+                           posterior_median_params(chain_e)[:n_sys], atol=2e-3)
 
 
 class TestChainMethod:
@@ -153,7 +160,7 @@ class TestChainMethod:
                   n_chains=2, n_warmup=400, n_samples=800, seed=3)
         chain_v, samp_v = run_nuts(n_sys, chain_method="vmap", **kw)
         chain_s, samp_s = run_nuts(n_sys, chain_method="sequential", **kw)
-        mle_v, mle_s = get_mle_params(chain_v), get_mle_params(chain_s)
+        mle_v, mle_s = posterior_median_params(chain_v), posterior_median_params(chain_s)
         # tightly-constrained additive coefficients agree to Monte-Carlo error
         assert np.allclose(mle_v[:n_sys], mle_s[:n_sys], atol=3e-3)
         # sigma (last column) is very tightly constrained
@@ -214,3 +221,40 @@ class TestSamplerDispatch:
 
     def test_default_n_chains_positive(self):
         assert default_n_chains() >= 1
+
+
+class TestAnalyticSamplerDiagnosticsAreOptional:
+    """``rhat`` and ``ess`` are ``None`` for i.i.d. draws, and callers must cope.
+
+    ``_AnalyticSampler`` reports neither diagnostic, because neither is defined
+    for exact independent draws and a perfect score would read as a passed
+    check.  Any caller that coerces with ``float(...)`` raises ``TypeError`` on
+    the default additive-Gaussian path instead of writing a result.
+    """
+
+    def test_library_reports_none_rather_than_a_perfect_score(self):
+        rng = np.random.default_rng(0)
+        delta_t = rng.standard_normal((3, 2000))
+        delta_g = np.array([0.05, -0.02, 0.01]) @ delta_t
+        delta_g = delta_g + rng.standard_normal(2000) * 0.1
+        res = sm.run_decontamination("MCMC-add", delta_g, delta_t, sampler="analytic")
+        assert res["rhat"] is None
+        assert res["ess"] is None
+        assert res["sampler_backend"] == "analytic"
+
+    def test_the_weights_script_coerces_without_raising(self):
+        import importlib.util
+        import sys as _sys
+        from pathlib import Path
+
+        path = Path(__file__).resolve().parent.parent / "scripts" / "compute_sys_weights.py"
+        spec = importlib.util.spec_from_file_location("_csw_diag", path)
+        module = importlib.util.module_from_spec(spec)
+        _sys.modules["_csw_diag"] = module
+        spec.loader.exec_module(module)
+
+        # The regression: float(None) is a TypeError, so a default run of the
+        # script died after the fit and before writing anything.
+        assert module._as_float_or_none(None) is None
+        assert module._as_float_or_none(1.01) == pytest.approx(1.01)
+        assert module._as_float_or_none("not a number") is None

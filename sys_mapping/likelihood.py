@@ -89,6 +89,17 @@ def make_log_likelihood(
     >>> ll = float(log_lik(theta, jnp.asarray(delta_g), jnp.asarray(delta_t)))
     >>> ll  # typical value: large negative number
     """
+    if use_skewed and precision is not None:
+        raise ValueError(
+            "use_skewed=True with a non-trivial precision R is not a normalised "
+            "density and is refused. The skew branch keeps a factor 2^N and N "
+            "univariate Phi terms beside a *correlated* quadratic form r^T R^-1 r; "
+            "a multivariate skew-normal has a single factor of 2 and one Phi_1 of a "
+            "linear form. The product form is only a density when the pixels are "
+            "independent, i.e. R = I. Use one or the other: skew-normal with "
+            "precision=None, or the Gaussian GLS with use_skewed=False."
+        )
+
     _model = model
     _n_sys = n_sys
     _use_skewed = use_skewed

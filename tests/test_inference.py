@@ -1,9 +1,12 @@
 """Tests for sys_mapping.inference — log_prob, run_mcmc, parameter extraction."""
 
+import warnings
+
 import numpy as np
 import pytest
 import jax.numpy as jnp
 
+import sys_mapping as sm
 from sys_mapping.inference import (
     make_log_prob,
     run_mcmc,
@@ -115,3 +118,122 @@ class TestParamExtraction:
         assert cov_a.shape == (1, 1)
         assert cov_b.shape == (1, 1)
         assert float(cov_b[0, 0]) == 0.0
+
+
+class TestRefineToMLE:
+    """A likelihood ratio needs a maximum, and a posterior median is not one."""
+
+    @staticmethod
+    def _correlated_templates(rng, n_sys, n_pix):
+        """A basis like LS10's: strongly correlated, hence a degenerate posterior."""
+        base = rng.standard_normal((3, n_pix))
+        t = rng.standard_normal((n_sys, 3)) @ base + 0.35 * rng.standard_normal((n_sys, n_pix))
+        return (t - t.mean(1, keepdims=True)) / t.std(1, keepdims=True)
+
+    def test_additive_mle_equals_ols_exactly(self):
+        """For the additive Gaussian model the MLE is OLS, so this is analytic."""
+        rng = np.random.default_rng(0)
+        n_pix, n_sys = 4000, 3
+        dt = rng.standard_normal((n_sys, n_pix))
+        a = np.array([0.05, -0.03, 0.02])
+        dg = a @ dt + rng.standard_normal(n_pix) * 0.1
+
+        theta0 = sm.pack_params(np.zeros(n_sys), None, 0.5, model="additive")
+        theta = sm.refine_to_mle(theta0, dg, dt, model="additive")
+
+        ols, _, _, _ = np.linalg.lstsq(dt.T, dg, rcond=None)
+        np.testing.assert_allclose(theta[:n_sys], ols, atol=1e-5)
+        # sigma_hat is the residual rms (ddof=0), the Gaussian MLE for the scale.
+        assert theta[n_sys] == pytest.approx(np.std(dg - ols @ dt), rel=1e-3)
+
+    def test_result_is_independent_of_the_starting_point(self):
+        """The signature of a real maximum: it depends on the data, not the seed."""
+        rng = np.random.default_rng(1)
+        n_pix, n_sys = 6000, 4
+        dt = self._correlated_templates(rng, n_sys, n_pix)
+        a = rng.normal(0, 0.03, n_sys)
+        dg = a @ dt + rng.standard_normal(n_pix) * 0.2
+
+        thetas = []
+        for k in range(4):
+            r = np.random.default_rng(50 + k)
+            start = sm.pack_params(a + r.normal(0, 0.02, n_sys), None,
+                                   0.2 * (1 + r.normal(0, 0.1)), model="additive")
+            thetas.append(sm.refine_to_mle(start, dg, dt, model="additive"))
+        for t in thetas[1:]:
+            np.testing.assert_allclose(t, thetas[0], atol=1e-5)
+
+    def test_never_returns_a_worse_point_than_it_was_given(self):
+        rng = np.random.default_rng(2)
+        n_pix, n_sys = 3000, 2
+        dt = rng.standard_normal((n_sys, n_pix))
+        dg = rng.standard_normal(n_pix) * 0.3
+        log_lik = sm.make_log_likelihood(n_sys, "additive", False)
+        theta0 = sm.pack_params(np.array([0.4, -0.4]), None, 0.9, model="additive")
+        theta = sm.refine_to_mle(theta0, dg, dt, model="additive")
+        assert float(log_lik(theta, dg, dt)) >= float(log_lik(theta0, dg, dt))
+
+    def test_refinement_removes_negative_lambda_lr(self):
+        """The defect this function exists for.
+
+        On a degenerate posterior a per-coordinate median lands off the ridge, so
+        the 'nested' model can score higher than the full one and lambda_LR goes
+        negative.  Refining both points restores lambda_LR >= 0.
+        """
+        from sys_mapping.model_selection import likelihood_ratio_test
+
+        rng = np.random.default_rng(3)
+        n_pix, n_sys = 8000, 8
+        dt = self._correlated_templates(rng, n_sys, n_pix)
+        a = rng.normal(0, 0.02, n_sys)
+        b = rng.normal(0, 0.02, n_sys)
+        dg = np.asarray(sm.apply_contamination(
+            rng.standard_normal(n_pix) * 0.3, dt, a, b))
+
+        n_neg_raw = n_neg_refined = 0
+        for k in range(6):
+            r = np.random.default_rng(200 + k)
+            th_null = sm.pack_params(a + r.normal(0, 0.01, n_sys), None, 0.3,
+                                     model="additive")
+            th_alt = sm.pack_params(a + r.normal(0, 0.01, n_sys),
+                                    b + r.normal(0, 0.01, n_sys), 0.3,
+                                    model="combined")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                raw = likelihood_ratio_test(dg, dt, th_null, th_alt,
+                                            "additive", "combined").lambda_lr
+                ref = likelihood_ratio_test(
+                    dg, dt,
+                    sm.refine_to_mle(th_null, dg, dt, model="additive"),
+                    sm.refine_to_mle(th_alt, dg, dt, model="combined"),
+                    "additive", "combined").lambda_lr
+            n_neg_raw += raw < 0
+            n_neg_refined += ref < 0
+        assert n_neg_raw > 0, "the failure being guarded against did not reproduce"
+        assert n_neg_refined == 0
+
+    def test_negative_lambda_lr_warns(self):
+        """It must be loud, not clipped: the magnitude is meaningless either way."""
+        from sys_mapping.model_selection import likelihood_ratio_test
+
+        rng = np.random.default_rng(4)
+        n_pix, n_sys = 4000, 3
+        dt = rng.standard_normal((n_sys, n_pix))
+        dg = rng.standard_normal(n_pix) * 0.3
+        # A deliberately bad alt point scores below the null.
+        th_null = sm.pack_params(np.zeros(n_sys), None, 0.3, model="additive")
+        th_alt = sm.pack_params(np.full(n_sys, 0.5), np.full(n_sys, 0.5), 0.3,
+                                model="combined")
+        with pytest.warns(RuntimeWarning, match="lambda_LR"):
+            res = likelihood_ratio_test(dg, dt, th_null, th_alt,
+                                        "additive", "combined")
+        assert res.lambda_lr < 0  # reported, not clipped
+
+
+class TestPosteriorMedianRename:
+    def test_deprecated_alias_warns_and_agrees(self):
+        rng = np.random.default_rng(5)
+        chain = rng.standard_normal((2000, 4))
+        with pytest.warns(DeprecationWarning, match="posterior median"):
+            old = sm.get_mle_params(chain)
+        np.testing.assert_array_equal(old, sm.posterior_median_params(chain))

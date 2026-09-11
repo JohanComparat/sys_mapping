@@ -17,6 +17,8 @@ supports ``EnsembleSampler(vectorize=True)``).
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import emcee
 import jax
@@ -166,7 +168,7 @@ def run_mcmc(
     Precision
     ---------
     Posterior median of the chain is taken as the point estimate via
-    :func:`get_mle_params`. Posterior variance is estimated via
+    :func:`posterior_median_params`. Posterior variance is estimated via
     :func:`get_param_variance_from_chain`.
 
     Examples
@@ -213,17 +215,19 @@ def run_mcmc(
 class _AnalyticSampler:
     """Lightweight stand-in for :class:`emcee.EnsembleSampler`.
 
-    Exposes the single attribute downstream code reads from a real sampler
-    (``acceptance_fraction``) plus the convergence diagnostics
-    (``rhat``, ``ess``, ``num_divergences``) used by the sampler-diagnostics
-    contract.  All are trivially perfect for exact i.i.d. analytic draws.
+    Exposes the attributes downstream code reads from a real sampler.  The
+    convergence diagnostics are ``None`` rather than perfect scores: these draws
+    are exact and i.i.d., so there is nothing to converge and no quantity to
+    measure.  Reporting ``rhat = 1.0`` and ``ess = n_samples`` was worse than
+    reporting nothing, because a diagnostic that cannot fail reads, in a summary
+    table beside real NUTS values, as evidence that it passed.
     """
 
     def __init__(self, n_samples: int, n_dim: int):
-        self.acceptance_fraction = 1.0        # every draw accepted
-        self.num_divergences = 0
-        self.rhat = 1.0                        # exact draws => perfect mixing
-        self.ess = float(n_samples)            # i.i.d. => ESS == n_samples
+        self.acceptance_fraction = 1.0   # exact draws: not a measurement, but true
+        self.num_divergences = 0         # no trajectory to diverge
+        self.rhat = None                 # not applicable to i.i.d. draws
+        self.ess = None                  # not applicable to i.i.d. draws
         self.n_samples = n_samples
         self.n_dim = n_dim
 
@@ -307,8 +311,16 @@ def run_additive_analytic(
     return np.asarray(flat_chain), _AnalyticSampler(n_samples, n_sys + 1)
 
 
-def get_mle_params(flat_chain: np.ndarray) -> np.ndarray:
-    """Return the posterior median as a robust point estimate.
+def posterior_median_params(flat_chain: np.ndarray) -> np.ndarray:
+    """Per-parameter posterior median of a chain.
+
+    A robust point estimate, and the right one for reporting an amplitude.  It is
+    **not** a maximum-likelihood point: the median is taken coordinate by
+    coordinate, so on a correlated posterior the result need not lie near the
+    mode, and for two *nested* models the two medians are not guaranteed to
+    satisfy :math:`\\ell_{\\rm alt} \\ge \\ell_{\\rm null}`.  Anything that
+    differences two log-likelihoods --- a likelihood ratio above all --- must use
+    :func:`refine_to_mle` instead.
 
     Parameters
     ----------
@@ -327,18 +339,187 @@ def get_mle_params(flat_chain: np.ndarray) -> np.ndarray:
     Median is a robust estimator; for symmetric posteriors it converges to
     the true parameter at rate O(1/√n_samples).
 
+    See Also
+    --------
+    refine_to_mle : maximises the likelihood, for statistics that need a maximum.
+
     Examples
     --------
     >>> import numpy as np
-    >>> from sys_mapping import get_mle_params
+    >>> from sys_mapping import posterior_median_params
     >>> rng = np.random.default_rng(0)
     >>> flat_chain = rng.standard_normal((5000, 4))  # mock chain
-    >>> theta_hat = get_mle_params(flat_chain)
+    >>> theta_hat = posterior_median_params(flat_chain)
     >>> theta_hat.shape
     (4,)
     """
     # Use posterior median as a robust point estimate
     return np.median(flat_chain, axis=0)
+
+
+def get_mle_params(flat_chain: np.ndarray) -> np.ndarray:
+    """Deprecated alias for :func:`posterior_median_params`.
+
+    The name is wrong: this function has always returned a posterior median, and
+    reading it as a maximum-likelihood estimate is what allowed a likelihood ratio
+    to be built from two medians and come out negative.  Use
+    :func:`posterior_median_params` to report an amplitude, or
+    :func:`refine_to_mle` where a maximum is actually required.
+    """
+    warnings.warn(
+        "get_mle_params returns a posterior median, not an MLE; it is deprecated. "
+        "Use posterior_median_params to report an amplitude, or refine_to_mle "
+        "where a likelihood maximum is required.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return posterior_median_params(flat_chain)
+
+
+def refine_to_mle(
+    theta0: np.ndarray,
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    *,
+    model: str = "combined",
+    use_skewed: bool = False,
+    precision=None,
+    max_iter: int = 500,
+) -> np.ndarray:
+    """Maximise the likelihood, starting from ``theta0``.
+
+    A likelihood ratio differences two log-likelihoods, so it is only guaranteed
+    non-negative between *nested* models when both are evaluated at their maxima.
+    Evaluated at posterior medians instead, the guarantee is lost and the
+    statistic goes negative: on the LS10 grid at :math:`NSIDE 64` four of eight
+    cells return a majority of negative null draws, with minima of order
+    :math:`-10^{6}`.  This function is what makes that statistic a likelihood
+    ratio again.
+
+    The optimiser works on :math:`\\log\\sigma` rather than :math:`\\sigma`, which
+    keeps the scale positive without a bound and conditions the problem; the
+    returned vector is in the ordinary :func:`~sys_mapping.pack_params` layout.
+
+    Parameters
+    ----------
+    theta0:
+        Starting point, in the packed layout for ``model``.  A posterior median
+        is a good one.
+    delta_g_obs:
+        Observed overdensity at the fitted pixels, shape ``(n_pix,)``.
+    delta_t:
+        Templates, shape ``(n_sys, n_pix)``.
+    model:
+        ``"additive"``, ``"multiplicative"`` or ``"combined"``.
+    use_skewed:
+        Whether ``theta0`` carries a trailing skewness parameter.
+    precision:
+        Optional pixel correlation operator, passed through to
+        :func:`~sys_mapping.likelihood.make_log_likelihood`.
+    max_iter:
+        Cap on L-BFGS-B iterations.
+
+    Returns
+    -------
+    ``(n_dim,)`` parameter vector at the maximum.  Falls back to ``theta0`` with a
+    warning if the optimiser does not improve on it, so a caller never silently
+    receives a worse point than it supplied.
+
+    Notes
+    -----
+    This maximises the *likelihood*, not the NUTS log-density of
+    :func:`~sys_mapping.nuts.build_logdensity` --- that adds the
+    :math:`+\\log\\sigma` Jacobian of its own reparametrisation and any priors, so
+    its maximiser is a MAP in the transformed variable rather than an MLE.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import refine_to_mle, pack_params
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix, n_sys = 4000, 2
+    >>> delta_t = rng.standard_normal((n_sys, n_pix))
+    >>> a = np.array([0.05, -0.03])
+    >>> dg = a @ delta_t + rng.standard_normal(n_pix) * 0.1
+    >>> theta0 = pack_params(np.zeros(n_sys), None, 0.5, model="additive")
+    >>> theta = refine_to_mle(theta0, dg, delta_t, model="additive")
+    >>> bool(np.allclose(theta[:n_sys], a, atol=0.01))
+    True
+    """
+    from scipy.optimize import minimize
+
+    theta0 = np.asarray(theta0, dtype=float)
+    n_sys = int(np.asarray(delta_t).shape[0])
+    log_lik = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
+
+    _dg = jnp.asarray(delta_g_obs)
+    _dt = jnp.asarray(delta_t)
+    # sigma sits immediately after the amplitude block; gamma, when present, last.
+    i_sigma = n_free_params(n_sys, model)
+
+    def _to_u(theta: np.ndarray) -> np.ndarray:
+        u = np.array(theta, dtype=float)
+        u[i_sigma] = np.log(max(float(theta[i_sigma]), 1e-12))
+        return u
+
+    def _to_theta(u):
+        return u.at[i_sigma].set(jnp.exp(u[i_sigma]))
+
+    @jax.jit
+    def _neg(u):
+        return -log_lik(_to_theta(u), _dg, _dt)
+
+    _neg_grad = jax.jit(jax.grad(_neg))
+
+    def _fun(u):
+        return float(_neg(jnp.asarray(u))), np.asarray(_neg_grad(jnp.asarray(u)), dtype=float)
+
+    # Two starts, because one is not reliably enough.  A posterior median of a
+    # near-degenerate 23-parameter posterior can sit in a region where L-BFGS-B
+    # stalls, and a stalled refinement silently leaves the statistic median-based
+    # -- which is the whole defect this function exists to remove.  The second
+    # start is analytic: for the additive model OLS *is* the MLE, and for the
+    # combined model (a = OLS, b = 0) is on the ridge by construction.
+    starts = [np.asarray(theta0, dtype=float)]
+    try:
+        a_ols, *_ = np.linalg.lstsq(np.asarray(delta_t).T,
+                                    np.asarray(delta_g_obs), rcond=None)
+        resid = np.asarray(delta_g_obs) - a_ols @ np.asarray(delta_t)
+        sig = max(float(np.std(resid)), 1e-9)
+        b0 = None if model == "multiplicative" else np.zeros(n_sys)
+        analytic = pack_params(
+            a_ols if model != "multiplicative" else np.zeros(n_sys),
+            b0 if model == "combined" else None,
+            sig,
+            gamma=(float(theta0[-1]) if use_skewed else None),
+            model=model,
+        )
+        if analytic.shape == theta0.shape:
+            starts.append(np.asarray(analytic, dtype=float))
+    except np.linalg.LinAlgError:
+        pass
+
+    ll0 = float(log_lik(jnp.asarray(theta0), _dg, _dt))
+    best_theta, best_ll, messages = theta0, ll0, []
+    for start in starts:
+        res = minimize(_fun, _to_u(start), jac=True, method="L-BFGS-B",
+                       options={"maxiter": int(max_iter)})
+        cand = np.asarray(_to_theta(jnp.asarray(res.x)), dtype=float)
+        ll = float(log_lik(jnp.asarray(cand), _dg, _dt))
+        messages.append(res.message)
+        if np.isfinite(ll) and ll > best_ll:
+            best_theta, best_ll = cand, ll
+
+    if best_ll <= ll0:
+        warnings.warn(
+            f"refine_to_mle did not improve the log-likelihood from any of "
+            f"{len(starts)} starts ({ll0:.6g}); returning the starting point. "
+            f"Optimiser messages: {messages}",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+        return theta0
+    return best_theta
 
 
 def get_param_variance_from_chain(
@@ -424,6 +605,13 @@ def get_param_covariance_from_chain(
     else:  # additive
         a_arr = flat_chain[:, :n_sys]
         b_arr = np.zeros_like(a_arr)
-    cov_a = np.cov(a_arr, rowvar=False) if n_sys > 1 else np.atleast_2d(np.var(a_arr))
-    cov_b = np.cov(b_arr, rowvar=False) if n_sys > 1 else np.atleast_2d(np.var(b_arr))
+    # ddof=1 in both branches: np.cov defaults to ddof=1, np.var to ddof=0, so
+    # taking the defaults made the n_sys == 1 variance smaller by (N-1)/N than the
+    # same quantity for n_sys > 1.  axis=0 is explicit because a bare np.var on a
+    # (n_samples, 1) slice flattens, which is only harmless while the slice is one
+    # column wide.
+    cov_a = (np.cov(a_arr, rowvar=False) if n_sys > 1
+             else np.atleast_2d(np.var(a_arr, axis=0, ddof=1)))
+    cov_b = (np.cov(b_arr, rowvar=False) if n_sys > 1
+             else np.atleast_2d(np.var(b_arr, axis=0, ddof=1)))
     return cov_a, cov_b

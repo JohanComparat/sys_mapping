@@ -9,6 +9,7 @@ r = dim(Θ̂) - dim(Θ̂_0) is the number of additional free parameters.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -65,7 +66,8 @@ def likelihood_ratio_test(
     ----------
     delta_g_obs : (n_pix,) observed overdensity
     delta_t : ``(n_sys, n_pix)`` template values
-    theta_null : flat parameter vector for the null model (from :func:`~inference.get_mle_params`)
+    theta_null : flat parameter vector for the null model, at its maximum
+        (see :func:`~sys_mapping.inference.refine_to_mle`)
     theta_alt  : flat parameter vector for the alternative model
     null_model : str  ``'additive'`` or ``'multiplicative'`` (must be nested in alt_model)
     alt_model  : str  ``'combined'`` (must have more free parameters than null_model)
@@ -81,7 +83,8 @@ def likelihood_ratio_test(
     Returns
     -------
     LikelihoodRatioResult
-        ``lambda_lr`` : test statistic (≥ 0 only when both theta are at their MLEs)
+        ``lambda_lr`` : test statistic (>= 0 only when both theta are at their MLEs;
+        a warning is issued when it is not)
         ``n_dof``     : degrees of freedom ``r = n_free_params(alt) − n_free_params(null)``
         ``p_value``   : null-tail probability (``χ²`` or mock-calibrated per ``null_lambda``)
         ``reject_null``: True when ``p_value < significance``
@@ -132,6 +135,23 @@ def likelihood_ratio_test(
     ll_alt = float(log_L_alt(jnp.asarray(theta_alt), _delta_g, _delta_t))
 
     lambda_lr = 2.0 * (ll_alt - ll_null)
+
+    # Between nested models a likelihood ratio cannot be negative -- but only when
+    # both points are maxima.  Evaluated at posterior medians it can be, and has
+    # been by six orders of magnitude, which is a statement about the estimator and
+    # not about the data.  Warn rather than clip: clipping would hide it, and the
+    # magnitude is meaningless either way.  Refine with
+    # :func:`~sys_mapping.inference.refine_to_mle` before calling this.
+    if lambda_lr < 0.0:
+        warnings.warn(
+            f"lambda_LR = {lambda_lr:.6g} < 0 between nested models "
+            f"('{null_model}' in '{alt_model}'). The supplied theta are not both "
+            "at their maxima; pass points from refine_to_mle. The mock-calibrated "
+            "p-value stays valid (data and null share the estimator) but the "
+            "magnitude of lambda_LR does not.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     # Degrees of freedom = difference in number of free parameters
     n_dof_null = n_free_params(n_sys, null_model) + 1 + (1 if use_skewed else 0)
@@ -284,8 +304,18 @@ def _lrt_p_add_one(
     lv_null = float(ll_null_fn(jnp.asarray(theta_null, dtype=jnp.float64), _dg, _tc))
     lv_alt  = float(ll_alt_fn( jnp.asarray(theta_alt,  dtype=jnp.float64), _dg, _ta))
 
-    lambda_lr = max(2.0 * (lv_alt - lv_null), 0.0)
-    return float(chi2.sf(lambda_lr, df=1))
+    # theta here are exact OLS maxima, so lambda_lr >= 0 analytically; the clip
+    # only absorbs float noise at the 1e-12 level.  Anything larger is a real
+    # regression and must not be silently flattened.
+    lambda_lr = 2.0 * (lv_alt - lv_null)
+    if lambda_lr < -1e-6:
+        warnings.warn(
+            f"forward selection: lambda_LR = {lambda_lr:.6g} < 0 between nested "
+            "OLS fits, which is analytically impossible; check _ols_mle_theta.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
+    return float(chi2.sf(max(lambda_lr, 0.0), df=1))
 
 
 @dataclass
