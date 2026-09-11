@@ -72,6 +72,8 @@ from .diagnostics import (
     snr_template_ranking,
     footprint_mask_diagnostics,
     isd_template_significance,
+    isd_marginal_fit,
+    vet_templates_against_tracer,
 )
 from .mocks import (
     generate_lognormal_field,
@@ -202,6 +204,8 @@ __all__ = [
     "snr_template_ranking",
     "footprint_mask_diagnostics",
     "isd_template_significance",
+    "isd_marginal_fit",
+    "vet_templates_against_tracer",
     # mocks
     "generate_lognormal_field",
     "make_galactic_mask",

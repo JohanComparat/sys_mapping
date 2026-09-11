@@ -8,6 +8,8 @@ Implements:
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 
 try:
@@ -145,11 +147,27 @@ if _JAX_AVAILABLE:
         chi2_model = jnp.sum(inv_s2 * (n_arr - f_s) ** 2)
 
         n_valid = jnp.sum(valid)
-        return jnp.where(n_valid < 2, 0.0, jnp.maximum(chi2_null - chi2_model, 0.0))
+        ok = n_valid >= 2
+        # The range the fit is actually supported on: the outermost *valid* bin
+        # centres.  A polynomial fitted to binned means says nothing beyond them,
+        # and survey-property maps are skewed enough that evaluating a cubic out
+        # in the tail is not a small extrapolation -- it is the difference between
+        # a correction and a divergence.
+        s_lo = jnp.min(jnp.where(valid, s_arr, jnp.inf))
+        s_hi = jnp.max(jnp.where(valid, s_arr, -jnp.inf))
+        # Coefficients are returned alongside Delta chi^2 because the ISD *fit*
+        # (regression.iterative_systematics_decontamination) needs the fitted
+        # curve, not only its significance.  They are ascending in power:
+        # F(t) = coeffs[0] + coeffs[1] t + ... + coeffs[order] t**order.
+        return (jnp.where(ok, jnp.maximum(chi2_null - chi2_model, 0.0), 0.0),
+                jnp.where(ok, coeffs, jnp.zeros_like(coeffs)),
+                jnp.where(ok, s_lo, 0.0),
+                jnp.where(ok, s_hi, 0.0))
 
     _jax_isd_poly_cache: dict[tuple[int, int, bool], object] = {}
 
-    def _get_jax_isd_poly(n_bins: int, order: int, quantile: bool = False):
+    def _get_jax_isd_poly_full(n_bins: int, order: int, quantile: bool = False):
+        """vmapped kernel returning ``(delta_chi2, coeffs, t_lo, t_hi)``."""
         key = (n_bins, order, quantile)
         if key not in _jax_isd_poly_cache:
             _jax_isd_poly_cache[key] = jax.jit(
@@ -157,6 +175,11 @@ if _JAX_AVAILABLE:
                          in_axes=(0, None, None))
             )
         return _jax_isd_poly_cache[key]
+
+    def _get_jax_isd_poly(n_bins: int, order: int, quantile: bool = False):
+        """vmapped kernel returning Delta chi^2 only (ranking call sites)."""
+        full = _get_jax_isd_poly_full(n_bins, order, quantile)
+        return lambda t, g, w: full(t, g, w)[0]
 
     # --- null test: signed corr + permutation p-values, vmapped over resamples ---
     def _null_test_jax(weights, delta_t, n_bootstrap, seed):
@@ -187,6 +210,19 @@ def null_test_cross_correlations(
     statistically independent of all template maps.  A significant
     Pearson correlation between ``weights`` and ``delta_t[i]`` indicates
     residual contamination from template ``i``.
+
+    .. warning::
+       Read these per template.  ``max_i |r(w, t_i)|`` is **not** a scalar
+       goodness-of-fit and no threshold on it is meaningful, because for an
+       additive correction ``w = 1/(1 + sum_i a_i t_i)`` the statistic depends on
+       the *support* of ``a``, not its size.  If ``a`` has one non-zero entry then
+       ``w`` is a monotone function of that template and ``|r| -> 1`` identically,
+       however small the amplitude: on three independent unit-variance templates,
+       an amplitude of 1e-1 on one of them gives 0.9886 and an amplitude of 1e-6
+       gives 1.0000.  Spreading the same amplitude over all three gives 0.57.  So a
+       sparser and more accurate correction scores *worse*, and a method that fits
+       nothing scores a perfect zero.  To ask whether a correction is over-fitted,
+       compare the recovered amplitudes against a known truth instead.
 
     Parameters
     ----------
@@ -340,6 +376,17 @@ def snr_template_ranking(
     snr:
         SNR value for each template (shape ``(n_sys,)``).  Higher values
         indicate a more contaminating template.
+
+    .. warning::
+       For ``method="template"`` and ``method="data"`` the denominator is the
+       independent-pixel error, and on a clustered field that is too small by a
+       factor of 5--13.  Measured on contamination-free simulations, a
+       :math:`3\sigma` cut on these values fires on 76--96 % of realisations
+       against the 0.27 % it should.  **Use them to rank templates, not to claim
+       a detection.**  A calibrated significance needs
+       :func:`~sys_mapping.covariance.mock_sandwich_covariance` in the
+       denominator, or the mock-calibrated ``method="isd"`` route, which
+       normalises by :math:`\Delta\chi^2_{68}` measured on nulls.
 
     Notes
     -----
@@ -506,11 +553,325 @@ def snr_template_ranking(
         raise ValueError(f"method must be 'template', 'data', 'peak', or 'isd', got '{method}'")
 
 
+def vet_templates_against_tracer(
+    delta_t: np.ndarray,
+    tracer: np.ndarray,
+    *,
+    patch_ids: np.ndarray | None = None,
+    fracdet: np.ndarray | None = None,
+    template_names: list[str] | None = None,
+) -> dict[str, np.ndarray]:
+    """Test each template for correlation with an external tracer of true LSS.
+
+    A systematics template is only usable if it traces the *observing conditions*
+    and not the structure being measured.  When it carries large-scale structure
+    of its own -- because it was built from the same images the catalogue was
+    detected in, or because it correlates with a genuine foreground -- the
+    regression that removes it also removes signal, and no amount of care in the
+    fit will reveal that: the contamination is detected at high significance and
+    the clustering is biased low, consistently, on mocks as well as data.
+
+    The test is to correlate each template against a map that traces the matter
+    field independently of the survey -- CMB lensing convergence, a Compton-*y*
+    map, a weak-lensing mass map -- and reject templates that correlate.  A
+    detection is ambiguous in principle (the tracer may itself carry residual
+    systematics that the template picks up), so use more than one tracer and do
+    not over-read a single one.
+
+    Spearman rank correlation is used rather than Pearson: it is insensitive to
+    the extreme values that survey-property maps routinely carry, and it responds
+    to monotonic non-linear dependence, which a linear coefficient would miss.
+
+    Parameters
+    ----------
+    delta_t:
+        Template maps at footprint pixels (shape ``(n_sys, n_pix)``).
+    tracer:
+        External tracer map at the same pixels (shape ``(n_pix,)``).
+    patch_ids:
+        Spatial patch label per pixel, from
+        :func:`~sys_mapping.bootstrap.assign_spatial_patches`.  When given, the
+        uncertainty is the delete-one-patch jackknife over patches, which is the
+        only honest error bar here -- pixel-level errors would treat a correlated
+        field as independent samples and overstate every significance.  When
+        ``None`` the Gaussian approximation
+        :math:`\\sigma = 1/\\sqrt{n_{\\rm pix} - 3}` is used and flagged.
+    fracdet:
+        Per-pixel coverage weights (shape ``(n_pix,)``), used to weight the
+        jackknife patches by their observed area.
+    template_names:
+        Optional names, echoed back in the result for reporting.
+
+    Returns
+    -------
+    dict with keys
+
+        - ``"rho"`` -- ``(n_sys,)`` Spearman coefficient per template.
+        - ``"sigma"`` -- ``(n_sys,)`` uncertainty on ``rho``.
+        - ``"significance"`` -- ``(n_sys,)`` ``|rho| / sigma``.
+        - ``"jackknife"`` -- bool, whether the errors are jackknife or Gaussian.
+        - ``"names"`` -- the names passed in, or ``None``.
+
+    Precision
+    ---------
+    The jackknife uncertainty is
+    :math:`\\sigma^2 = \\frac{K-1}{K}\\sum_k (\\rho_k - \\bar\\rho)^2` over the
+    ``K`` delete-one-patch estimates, the standard form for a statistic that is
+    not a simple mean.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.diagnostics import vet_templates_against_tracer
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix = 5000
+    >>> tracer = rng.standard_normal(n_pix)
+    >>> clean = rng.standard_normal(n_pix)
+    >>> dirty = 0.5 * tracer + 0.5 * rng.standard_normal(n_pix)
+    >>> out = vet_templates_against_tracer(np.vstack([clean, dirty]), tracer)
+    >>> bool(out["significance"][1] > out["significance"][0])
+    True
+
+    References
+    ----------
+    Weaverdyck et al. 2026, arXiv:2601.14484, Sec. III A and Fig. 7.
+    Eggert & Leistedt 2023, ApJS 265, 30 (Legacy Survey image stacks).
+    """
+    from scipy.stats import rankdata
+
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    tracer = np.asarray(tracer, dtype=float)
+    n_sys, n_pix = delta_t.shape
+    if tracer.shape != (n_pix,):
+        raise ValueError(
+            f"tracer has shape {tracer.shape}, expected ({n_pix},) to match "
+            f"delta_t {delta_t.shape}")
+
+    w = np.ones(n_pix) if fracdet is None else np.asarray(fracdet, dtype=float)
+
+    def _spearman(idx: np.ndarray) -> np.ndarray:
+        """Weighted Spearman rho of every template against the tracer on ``idx``."""
+        ww = w[idx]
+        w_sum = float(np.sum(ww))
+        if w_sum <= 0 or idx.size < 3:
+            return np.zeros(n_sys)
+        r_tr = rankdata(tracer[idx])
+        r_tr = r_tr - np.dot(ww, r_tr) / w_sum
+        den_tr = np.sqrt(np.dot(ww, r_tr ** 2)) + 1e-30
+        out = np.empty(n_sys)
+        for i in range(n_sys):
+            r_t = rankdata(delta_t[i, idx])
+            r_t = r_t - np.dot(ww, r_t) / w_sum
+            den_t = np.sqrt(np.dot(ww, r_t ** 2)) + 1e-30
+            out[i] = float(np.dot(ww, r_t * r_tr) / (den_t * den_tr))
+        return out
+
+    all_idx = np.arange(n_pix)
+    rho = _spearman(all_idx)
+
+    if patch_ids is not None:
+        patch_ids = np.asarray(patch_ids)
+        labels = np.unique(patch_ids)
+        k = labels.size
+        if k >= 2:
+            jk = np.array([_spearman(all_idx[patch_ids != lab]) for lab in labels])
+            sigma = np.sqrt((k - 1) / k * np.sum((jk - jk.mean(axis=0)) ** 2, axis=0))
+            jackknife = True
+        else:
+            warnings.warn(
+                "patch_ids defines fewer than two patches; falling back to the "
+                "Gaussian error, which ignores the correlation of the field and "
+                "will overstate every significance.",
+                UserWarning, stacklevel=2,
+            )
+            sigma = np.full(n_sys, 1.0 / np.sqrt(max(n_pix - 3, 1)))
+            jackknife = False
+    else:
+        sigma = np.full(n_sys, 1.0 / np.sqrt(max(n_pix - 3, 1)))
+        jackknife = False
+
+    return {
+        "rho": rho,
+        "sigma": sigma,
+        "significance": np.abs(rho) / (sigma + 1e-30),
+        "jackknife": jackknife,
+        "names": template_names,
+    }
+
+
+def isd_marginal_fit(
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    *,
+    n_bins: int = 10,
+    poly_order: int = 1,
+    fracdet: np.ndarray | None = None,
+    binning: str = "quantile",
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Marginal (one-template-at-a-time) binned polynomial fit of the density.
+
+    This is the fit that Iterative Systematics Decontamination actually performs:
+    for each template independently, bin the footprint by that template's value,
+    take the mean overdensity per bin, and fit a degree-``poly_order`` polynomial
+    to the binned relation.  Nothing is fitted jointly and no cross-products
+    between templates are formed, so the design matrix is
+    ``(n_bins, poly_order+1)`` regardless of how many templates there are.
+
+    :func:`snr_template_ranking` with ``method="isd"`` returns only the
+    :math:`\Delta\chi^2` of this fit; this function additionally returns the
+    fitted coefficients, which is what
+    :func:`~sys_mapping.regression.iterative_systematics_decontamination` needs to
+    build the intermediate weight.
+
+    Parameters
+    ----------
+    delta_g_obs:
+        Observed galaxy overdensity at footprint pixels (shape ``(n_pix,)``).
+    delta_t:
+        Template maps at footprint pixels (shape ``(n_sys, n_pix)``).
+    n_bins:
+        Number of template-value bins.
+    poly_order:
+        Degree of the 1D polynomial in the template value.  ``1`` is the DES Y1/Y3
+        choice, ``3`` the DES Y6 choice.  Note that this is the order *in a single
+        template's value*, not a multivariate polynomial order.
+    fracdet:
+        Per-pixel fractional coverage weights (shape ``(n_pix,)``); uniform if
+        ``None``.
+    binning:
+        ``"quantile"`` (default, equal occupancy) or ``"width"`` (equal width).
+        Equal occupancy is the robust choice for skewed templates, where
+        equal-width bins collapse most pixels into a single bin.
+
+    Returns
+    -------
+    delta_chi2 : ``(n_sys,)``
+        :math:`\\chi^2_{\\rm null} - \\chi^2_{\\rm model}` per template, clipped at
+        zero.  Zero for a template whose binned relation has fewer than two usable
+        bins.
+    coeffs : ``(n_sys, poly_order + 1)``
+        Fitted polynomial coefficients in **ascending** power order, so that
+        ``F_i(t) = sum_k coeffs[i, k] * t**k``.  All zero for a template that
+        could not be fitted.
+    t_range : ``(n_sys, 2)``
+        The outermost valid bin centres, ``(t_lo, t_hi)`` per template.  The fit
+        is supported only here; evaluating it outside is extrapolation, and for a
+        cubic on a skewed template that is not a small effect.  Callers should
+        clip the template value into this range before evaluating ``coeffs``.
+
+    Precision
+    ---------
+    The JAX path solves the sqrt-weighted Vandermonde system rather than the
+    normal equations, so the condition number is not squared.  It agrees with the
+    NumPy fallback to ``~1e-12`` on well-conditioned inputs.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.diagnostics import isd_marginal_fit
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix = 20000
+    >>> t = rng.standard_normal((2, n_pix))
+    >>> g = 0.3 * t[0] + rng.standard_normal(n_pix) * 0.05
+    >>> dchi2, coeffs, t_range = isd_marginal_fit(g, t, poly_order=1)
+    >>> bool(dchi2[0] > dchi2[1])
+    True
+    >>> bool(abs(coeffs[0, 1] - 0.3) < 0.05)
+    True
+    >>> bool(t_range[0, 0] < 0 < t_range[0, 1])
+    True
+
+    References
+    ----------
+    Elvin-Poole et al. 2018, PRD 98, 042006 (DES Y1).
+    Rodriguez-Monroy et al. 2022, MNRAS 511, 2665 (DES Y3).
+    Weaverdyck et al. 2026, arXiv:2601.14484, Sec. III B (DES Y6, cubic fits).
+    """
+    if binning not in ("width", "quantile", "equal_occupancy"):
+        raise ValueError("binning must be 'width', 'quantile', or 'equal_occupancy'")
+    quantile = binning in ("quantile", "equal_occupancy")
+
+    delta_g_obs = np.asarray(delta_g_obs, dtype=float)
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    n_sys, n_pix = delta_t.shape
+    order = int(poly_order)
+
+    if _JAX_AVAILABLE:
+        w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
+             else jnp.asarray(fracdet, dtype=jnp.float64))
+        dchi2, coeffs, t_lo, t_hi = _get_jax_isd_poly_full(n_bins, order, quantile)(
+            jnp.asarray(delta_t, dtype=jnp.float64),
+            jnp.asarray(delta_g_obs, dtype=jnp.float64),
+            w,
+        )
+        return (np.asarray(dchi2), np.asarray(coeffs),
+                np.stack([np.asarray(t_lo), np.asarray(t_hi)], axis=1))
+
+    # NumPy fallback (JAX unavailable)
+    w = np.ones(n_pix, dtype=float) if fracdet is None else np.asarray(fracdet, dtype=float)
+    w_total = float(np.sum(w))
+    g_bar = float(np.dot(w, delta_g_obs) / w_total) if w_total > 1e-30 else 0.0
+
+    dchi2 = np.zeros(n_sys)
+    coeffs = np.zeros((n_sys, order + 1))
+    t_range = np.zeros((n_sys, 2))
+    for i, t_i in enumerate(delta_t):
+        t_min, t_max = float(t_i.min()), float(t_i.max())
+        if t_min >= t_max:
+            continue
+
+        if quantile:
+            edges = np.quantile(t_i, np.linspace(0.0, 1.0, n_bins + 1))
+            bin_idx = np.clip(np.searchsorted(edges[1:-1], t_i, side="right"),
+                              0, n_bins - 1)
+        else:
+            bin_idx = np.clip(
+                np.floor((t_i - t_min) / (t_max - t_min) * n_bins).astype(int),
+                0, n_bins - 1)
+
+        s_b, n_b, sig_b = [], [], []
+        for b in range(n_bins):
+            m = bin_idx == b
+            if not np.any(m):
+                continue
+            w_b = w[m]
+            w_b_sum = float(np.sum(w_b))
+            if w_b_sum < 1e-30:
+                continue
+            std_g = float(np.std(delta_g_obs[m]))
+            if std_g < 1e-10:
+                continue
+            s_b.append(float(np.dot(w_b, t_i[m]) / w_b_sum))
+            n_b.append(float(np.dot(w_b, delta_g_obs[m]) / w_b_sum))
+            sig_b.append(std_g / np.sqrt(int(np.sum(m))))
+
+        if len(s_b) < 2:
+            continue
+
+        s_arr, n_arr, sig_arr = np.array(s_b), np.array(n_b), np.array(sig_b)
+        inv_s2 = 1.0 / sig_arr ** 2
+        chi2_null = float(np.dot((n_arr - g_bar) ** 2, inv_s2))
+
+        eff_order = min(order, len(s_arr) - 1)
+        import warnings as _warnings
+        with _warnings.catch_warnings():
+            _warnings.filterwarnings("ignore")
+            c_desc = np.polyfit(s_arr, n_arr, eff_order, w=1.0 / sig_arr)
+        f_s = np.polyval(c_desc, s_arr)
+        chi2_model = float(np.dot((n_arr - f_s) ** 2, inv_s2))
+
+        dchi2[i] = max(chi2_null - chi2_model, 0.0)
+        coeffs[i, : eff_order + 1] = c_desc[::-1]   # ascending powers
+        t_range[i] = (s_arr.min(), s_arr.max())
+
+    return dchi2, coeffs, t_range
+
+
 def footprint_mask_diagnostics(
     delta_g_obs: np.ndarray,
     delta_t: np.ndarray,
     mask_fractions: np.ndarray,
-    good_pixels: np.ndarray,
+    good_pixels: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """Quantify sensitivity of systematic parameters to the masking threshold.
 
@@ -533,9 +894,10 @@ def footprint_mask_diagnostics(
         Array of additional pixel fractions to mask on top of the baseline,
         in increasing order (e.g. ``[0.05, 0.10, 0.15, 0.20]``).
     good_pixels:
-        Boolean mask over the full footprint (shape ``(n_full_pix,)``).
-        Used only for computing a pixel-quality ranking (template variance
-        at each pixel).
+        Unused, accepted for backward compatibility only.  ``delta_g_obs`` and
+        ``delta_t`` are already restricted to the fitted pixels, and the
+        pixel-quality ranking is computed from ``delta_t`` itself, so a
+        full-footprint mask has nothing to contribute here.  Passing one warns.
 
     Returns
     -------
@@ -576,6 +938,16 @@ def footprint_mask_diagnostics(
     ----------
     Rodríguez-Monroy et al. 2025, arXiv:2509.07943.
     """
+    if good_pixels is not None:
+        warnings.warn(
+            "footprint_mask_diagnostics ignores good_pixels: delta_g_obs and "
+            "delta_t are already restricted to the fitted pixels and the "
+            "pixel-quality ranking comes from delta_t. The argument is accepted "
+            "for backward compatibility and will be removed.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     n_sys, n_pix = delta_t.shape
     n_thresholds = len(mask_fractions)
 
