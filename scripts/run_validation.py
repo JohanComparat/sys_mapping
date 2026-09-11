@@ -26,7 +26,7 @@ For each method the following metrics are computed:
   - corr_with_true: Pearson r between recovered and true δ_g
   - rms_delta_error: RMS of (recovered - true) δ_g
   - amplitude recovery bias and scatter (MCMC methods, compared to injected truth)
-  - null_test r: maximum |r(weights, template)| after weighting
+  - null test: |r(weights, template_i)| after weighting, per template
 
 Usage
 -----
@@ -141,12 +141,36 @@ _METHOD_ORDER = [
 # Per-scenario analysis
 # ---------------------------------------------------------------------------
 
+def calibrate_isd(mock: MockCatalog, delta_t, good_pix, n_mocks: int, seed: int):
+    """Mock-calibrated Delta chi^2_68 for the ISD stopping rule.
+
+    Without this the threshold ``S < 2`` is in raw Delta chi^2 units and means
+    nothing, so ISD keeps selecting templates it has already corrected.  The null
+    is a systematic-free GLASS ensemble on this footprint, exactly as
+    ``run_simulation_tests.py`` and ``run_ls10_analysis.py`` build it.
+    """
+    gal = sm.pixelize_catalog(mock.ra_gal, mock.dec_gal, mock.nside)
+    ran = sm.pixelize_catalog(mock.ra_rand, mock.dec_rand, mock.nside)
+    delta_clean, good_clean = sm.compute_overdensity(gal, ran)
+    out = sm.isd_template_significance(
+        delta_clean, sm.assign_template_values(mock.templates, good_clean),
+        good_clean, mock.nside,
+        n_total=0, z_edges=np.array([0.0, 1.0]),
+        nz=np.array([float(len(mock.ra_gal))]),
+        n_total_footprint=len(mock.ra_gal),
+        n_mocks=n_mocks, poly_order=3, binning="quantile",
+        seed=seed, rand_factor=2,
+    )
+    return np.percentile(out["delta_chi2_mocks"], 68, axis=0)
+
+
 def analyse_scenario(
     mock: MockCatalog,
     n_walkers: int,
     n_steps: int,
     n_burn: int,
     seed: int,
+    isd_chi2_68=None,
 ) -> dict:
     """Run all methods on one mock and collect results."""
     nside = mock.nside
@@ -176,10 +200,12 @@ def analyse_scenario(
     for key, sm_method in _METHOD_ORDER:
         seed_kw = seed + 1 if key == "mcmc_comb" else seed
         try:
+            extra = ({"isd_chi2_68": isd_chi2_68}
+                     if key in ("isd1", "isd3") and isd_chi2_68 is not None else {})
             res = sm.run_decontamination(
                 sm_method, delta_g_obs, delta_t,
                 n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-                seed=seed_kw, progress=False,
+                seed=seed_kw, progress=False, **extra,
             )
         except ImportError:
             continue  # scikit-learn missing
@@ -190,9 +216,17 @@ def analyse_scenario(
             "weights": w,
             "delta_recovered": delta_rec,
             "metrics": recovery_metrics(delta_g_obs, delta_rec, delta_g_true),
-            "null_test": float(np.max(np.abs(
-                sm.null_test_cross_correlations(w, delta_t, n_bootstrap=50, seed=0)["correlations"]
-            ))),
+            # Per template, not the maximum over templates: max_i |r(w, t_i)|
+            # depends on the *support* of a_hat rather than its size, so a
+            # single-template correction scores 1.0 at any amplitude and a method
+            # that fits nothing scores 0.  Keeping the vector lets a reader see
+            # which template still has leverage, which is the question the
+            # statistic can actually answer.
+            "null_test_per_template": np.abs(np.asarray(
+                sm.null_test_cross_correlations(
+                    w, delta_t, n_bootstrap=50, seed=0)["correlations"]
+            )).tolist(),
+            "n_templates_fitted": int(np.count_nonzero(res["a_hat"])),
         }
         if key in ("mcmc_add", "mcmc_comb"):
             entry.update({
@@ -490,7 +524,12 @@ def plot_null_tests(all_results, outdir):
         axes = [axes]
 
     for ax, res in zip(axes, all_results):
-        null_vals = [res["methods"][k]["null_test"] for k in method_keys]
+        # Median over templates rather than the maximum: the maximum saturates at
+        # 1 for any weight built from a single template, so it ranks methods by
+        # how many templates they used rather than by how much residual
+        # correlation they left.
+        null_vals = [float(np.median(res["methods"][k]["null_test_per_template"]))
+                     for k in method_keys]
         bars = ax.bar(range(len(method_keys)), null_vals,
                       color=[METHOD_COLORS[k] for k in method_keys], edgecolor="k", lw=0.5)
         ax.set_xticks(range(len(method_keys)))
@@ -500,8 +539,9 @@ def plot_null_tests(all_results, outdir):
         ax.set_title(res["scenario"], fontsize=11)
         ax.set_ylim(0, None)
 
-    axes[0].set_ylabel(r"max $|r(w,\, t_i)|$ (null test)", fontsize=11)
-    plt.suptitle("Null test: max correlation of weights with templates", fontsize=13)
+    axes[0].set_ylabel(r"median$_i$ $|r(w,\, t_i)|$ (null test)", fontsize=11)
+    plt.suptitle("Null test: residual weight-template correlation, per template",
+             fontsize=13)
     plt.tight_layout()
     out = outdir / "null_tests.png"
     plt.savefig(out, dpi=110, bbox_inches="tight")
@@ -576,6 +616,10 @@ def main():
     parser.add_argument("--scenarios", nargs="+", default=SCENARIOS,
                         choices=SCENARIOS)
     parser.add_argument("--output-dir", default="docs/_static/results_validation")
+    parser.add_argument("--isd-n-mocks", type=int, default=30,
+                        help="Systematic-free mocks for the ISD Delta chi^2_68 "
+                             "calibration.  0 disables it, which leaves the ISD "
+                             "stopping threshold in raw units and meaningless.")
     args = parser.parse_args()
 
     outdir = Path(args.output_dir)
@@ -604,6 +648,23 @@ def main():
         print(f"  {sc}: {mock.n_gal:,} galaxies, "
               f"{mock.n_good_pix:,} good pixels")
 
+    # The ISD stopping rule needs a calibrated Delta chi^2_68.  One footprint
+    # serves every scenario: the null is systematic-free by construction, so it
+    # does not depend on what was injected.
+    isd_chi2_68 = None
+    if args.isd_n_mocks > 0:
+        ref = suite[args.scenarios[0]]
+        print(f"\nCalibrating ISD threshold on {args.isd_n_mocks} "
+              f"systematic-free mocks...")
+        gal = sm.pixelize_catalog(ref.ra_gal, ref.dec_gal, ref.nside)
+        ran = sm.pixelize_catalog(ref.ra_rand, ref.dec_rand, ref.nside)
+        _, good_ref = sm.compute_overdensity(gal, ran)
+        isd_chi2_68 = calibrate_isd(
+            ref, sm.assign_template_values(ref.templates, good_ref),
+            good_ref, args.isd_n_mocks, args.seed,
+        )
+        print(f"  chi2_68 = {np.array2string(isd_chi2_68, precision=1)}")
+
     # Analyse each scenario
     all_results = []
     results_by_scenario = {}
@@ -611,7 +672,8 @@ def main():
         mock = suite[sc]
         print(f"\n=== Scenario: {sc} ===")
         res = analyse_scenario(mock, args.n_walkers, args.n_steps,
-                               args.n_burn, seed=args.seed)
+                               args.n_burn, seed=args.seed,
+                               isd_chi2_68=isd_chi2_68)
         all_results.append(res)
         results_by_scenario[sc] = res
 
@@ -620,7 +682,7 @@ def main():
             print(f"  {METHOD_LABELS[k]:20s}: "
                   f"RMS={mres['metrics']['rms_delta_error']:.4f}  "
                   f"r={mres['metrics']['corr_with_true']:.4f}  "
-                  f"null={mres['null_test']:.4f}")
+                  f"null(med)={np.median(mres['null_test_per_template']):.4f}")
 
         # Per-scenario plots
         plot_density_maps(res, args.nside, outdir, sc)

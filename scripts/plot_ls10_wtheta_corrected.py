@@ -137,9 +137,13 @@ def plot_sample(ax_top, ax_bot, sample):
         kw = dict(color=color, ls=ls, marker=marker, lw=1.5, ms=4, zorder=3)
         ax_top.plot(theta[pos], w_corr[pos], label=label, **kw)
 
+        # The ratio panel uses pos_obs alone.  Gating it on w_corr > 0 as well
+        # would silently drop exactly the bins where the correction overshoots
+        # the signal and drives w_corr negative, which is the failure this
+        # panel exists to show.
         w_safe = np.where(pos_obs, w_obs, np.nan)
         ratio  = w_corr / w_safe
-        ax_bot.plot(theta[pos], ratio[pos],
+        ax_bot.plot(theta[pos_obs], ratio[pos_obs],
                     color=color, ls=ls, marker=marker, lw=1.3, ms=3)
 
     ax_top.set_xscale("log")
@@ -151,10 +155,27 @@ def plot_sample(ax_top, ax_bot, sample):
 
     ax_bot.set_xscale("log")
     ax_bot.set_ylabel(r"$w_{\rm corr}\,/\,w_{\rm obs}$", labelpad=4, fontsize=8)
-    ax_bot.set_xlim(0.4, 70)
+    # Span the measured range.  A fixed upper limit of 70' cropped the decade
+    # beyond it, where the template auto-correlation stays coherent while the
+    # galaxy signal has decayed and the correction can exceed it.
+    ax_bot.set_xlim(0.8 * theta.min(), 1.25 * theta.max())
+    ax_top.set_xlim(*ax_bot.get_xlim())
+    ax_bot.axhline(0.0, color="0.6", lw=0.6, ls=":")
+
+
+# The binning is a property of the measurement, so read it off one sample
+# rather than restating it in the title and letting the two drift apart.
+def _binning_label() -> str:
+    for s_ in SAMPLES:
+        d = load_json(s_["sample_id"])
+        if d:
+            th = np.asarray(d["theta_arcmin"], float)
+            return f"{th.min():.1f}–{th.max():.0f} arcmin, {len(th)} bins"
+    return "binning unavailable"
 
 
 # ── build figure ─────────────────────────────────────────────────────────────
+_BINNING = _binning_label()
 N      = len(SAMPLES)
 N_COLS = 3
 N_ROWS = (N + N_COLS - 1) // N_COLS
@@ -179,7 +200,7 @@ for i, sample in enumerate(SAMPLES):
 
 fig.suptitle(
     "LS10 BGS: $w(\\theta)$ before and after systematic correction — all methods\n"
-    "(NSIDE = 64, analytical correction Eq. 15–16, 0.5–60 arcmin, 20 bins)",
+    f"(NSIDE = 64, analytical correction Eq. 15–16, {_BINNING})",
     fontsize=10, y=1.01,
 )
 

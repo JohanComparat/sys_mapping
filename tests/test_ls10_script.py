@@ -13,6 +13,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import sys_mapping as sm
+
 _SCRIPT = Path(__file__).resolve().parent.parent / "scripts" / "run_ls10_analysis.py"
 
 
@@ -72,3 +74,103 @@ class TestExpandPreselectedParams:
             _w.simplefilter("error")
             out = ls10.expand_preselected_params(np.zeros(4), 4, [0, 2])
         np.testing.assert_array_equal(out, np.zeros(4))
+
+
+class TestWeightConvention:
+    """The shipped weight must be the library's, not a linear reconstruction.
+
+    For OLS the two agree by construction.  For ISD they do not: the library's
+    weight is the cumulative product of the per-step corrections
+    ``prod_j 1/(1 + F_j(t_j))``, which carries the curvature a cubic marginal fit
+    found, while ``1/(1 + a_hat . t)`` is the linear projection of it.
+    """
+
+    @staticmethod
+    def _setup(seed=0, n_sys=4, n_pix=6000):
+        rng = np.random.default_rng(seed)
+        dt = rng.standard_normal((n_sys, n_pix))
+        dt = (dt - dt.mean(1, keepdims=True)) / dt.std(1, keepdims=True)
+        # A curved response, so the two conventions genuinely differ.
+        f = 0.12 * dt[0] + 0.06 * dt[0] ** 2 - 0.03 * dt[0] ** 3
+        dg = (1.0 + rng.standard_normal(n_pix) * 0.3) * (1.0 + f) - 1.0
+        return dg, dt
+
+    def test_library_weight_differs_from_linear_reconstruction_for_isd(self):
+        dg, dt = self._setup()
+        res = sm.run_decontamination("ISD-3", dg, dt, isd_chi2_68=50.0)
+        w_lib = np.asarray(res["weights"])
+        w_lin = 1.0 / np.maximum(1.0 + np.asarray(res["a_hat"]) @ dt, 1.0 / 20.0)
+        assert not np.allclose(w_lib, w_lin, rtol=1e-3), (
+            "the two conventions must differ for ISD, or this fix is untested")
+
+    def test_ols_weight_agrees_with_the_linear_form(self):
+        """The control: where the model IS linear, the conventions coincide."""
+        dg, dt = self._setup(seed=1)
+        res = sm.run_decontamination("OLS", dg, dt)
+        w_lib = np.asarray(res["weights"])
+        w_lin = 1.0 / np.maximum(1.0 + np.asarray(res["a_hat"]) @ dt, 1.0 / 20.0)
+        np.testing.assert_allclose(w_lib, w_lin, rtol=1e-6)
+
+    @pytest.mark.parametrize("method", ["OLS", "ISD-1", "ISD-3", "ElasticNet"])
+    def test_weights_respect_the_library_clip(self, method):
+        """One floor everywhere: 1/20, not the scripts' old 1/100."""
+        dg, dt = self._setup(seed=2)
+        kw = {"isd_chi2_68": 50.0} if method.startswith("ISD") else {}
+        w = np.asarray(sm.run_decontamination(method, dg, dt, **kw)["weights"])
+        assert w.min() >= 1.0 / 20.0 - 1e-12
+        assert w.max() <= 20.0 + 1e-12
+
+    def test_weight_map_scatters_onto_the_footprint(self):
+        mod = _load_script()
+
+        n_pix = 100
+        good = np.zeros(n_pix, dtype=bool)
+        good[10:40] = True
+        w = np.linspace(0.5, 1.5, 30)
+        wm = mod.method_weight_map({"weights": w}, good, n_pix, label="t")
+        np.testing.assert_allclose(wm[good], w)
+        assert np.all(wm[~good] == 1.0)      # unfitted pixels are uncorrected
+
+        with pytest.raises(ValueError, match="one per fitted pixel"):
+            mod.method_weight_map({"weights": w[:5]}, good, n_pix, label="t")
+
+
+class TestSkewedFlagParity:
+    """Both production scripts expose the same opt-in skew-normal likelihood.
+
+    ``compute_sys_weights.py`` used to default it *on* while
+    ``run_ls10_analysis.py`` had no flag at all and was Gaussian always, so a
+    column named ``WEIGHT_SYS`` meant a different model depending on which
+    script wrote it.  Enabling the skew-normal also routes the additive model
+    off its exact analytic posterior onto NUTS, which is why it is opt-in.
+    """
+
+    def test_flag_exists_and_defaults_off(self, ls10, monkeypatch):
+        # The parser is built inside main(), so capture it as it is constructed.
+        import argparse
+
+        captured = {}
+        real_parse = argparse.ArgumentParser.parse_args
+
+        def _capture(self, *a, **kw):
+            captured["parser"] = self
+            raise SystemExit(0)
+
+        monkeypatch.setattr(argparse.ArgumentParser, "parse_args", _capture)
+        monkeypatch.setattr(sys, "argv", ["run_ls10_analysis.py"])
+        with pytest.raises(SystemExit):
+            ls10.main()
+        monkeypatch.setattr(argparse.ArgumentParser, "parse_args", real_parse)
+
+        parser = captured["parser"]
+        skewed = [a for a in parser._actions if "--skewed" in a.option_strings]
+        assert skewed, "run_ls10_analysis.py has no --skewed flag"
+        assert skewed[0].default is False
+        assert skewed[0].dest == "skewed"
+
+    def test_gamma_hat_is_reported_and_is_none_when_gaussian(self):
+        rng = np.random.default_rng(4)
+        delta_t = rng.standard_normal((2, 1500))
+        delta_g = np.array([0.05, -0.02]) @ delta_t + rng.standard_normal(1500) * 0.1
+        res = sm.run_decontamination("OLS", delta_g, delta_t)
+        assert "gamma_hat" in res and res["gamma_hat"] is None

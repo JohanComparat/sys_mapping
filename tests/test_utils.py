@@ -208,3 +208,85 @@ class TestUnstandardisedBasisGuard:
         delta_t = rng.standard_normal((3, 5000)) + 0.2
         with pytest.warns(RuntimeWarning, match="zero mean"):
             sm.compute_covariance_matrix(delta_t)
+
+
+@pytest.mark.slow
+class TestTemplateCorrelationSupport:
+    """xi_i(theta) must have support below the pixel scale.
+
+    A template is constant within a pixel, so its correct auto-correlation at
+    sub-pixel separations is its variance.  Measured on the pixel centres it
+    comes back as exactly zero instead, because no pair of distinct pixels is
+    that close, and the two-point correction then subtracts nothing over the
+    range carrying most of the signal.
+    """
+
+    NSIDE = 32
+
+    @staticmethod
+    def _setup(nside=32, n_gal=120_000, seed=0):
+        import healpy as hp
+
+        rng = np.random.default_rng(seed)
+        npix = hp.nside2npix(nside)
+        _, lat = hp.pix2ang(nside, np.arange(npix), lonlat=True)
+        idx = np.where(np.abs(lat) > 30)[0]
+        smooth = hp.smoothing(rng.standard_normal(npix), fwhm=np.radians(6))
+        t = smooth[idx]
+        t = (t - t.mean()) / t.std()
+
+        # Galaxies drawn uniformly on the sphere and kept where they land in the
+        # footprint, so they populate each pixel's area rather than its centre.
+        slot = np.full(npix, -1, dtype=np.int64)
+        slot[idx] = np.arange(idx.size)
+        lon_r = rng.uniform(0.0, 360.0, 6 * n_gal)
+        lat_r = np.degrees(np.arcsin(rng.uniform(-1.0, 1.0, 6 * n_gal)))
+        sl = slot[hp.ang2pix(nside, lon_r, lat_r, lonlat=True)]
+        keep = sl >= 0
+        lon_r, lat_r, sl = lon_r[keep][:n_gal], lat_r[keep][:n_gal], sl[keep][:n_gal]
+
+        p_lon, p_lat = hp.pix2ang(nside, idx, lonlat=True)
+        return t, (p_lon, p_lat), (lon_r, lat_r, t[sl]), nside
+
+    @staticmethod
+    def _kk(lon, lat, k):
+        treecorr = pytest.importorskip("treecorr")
+        cat = treecorr.Catalog(ra=lon, dec=lat, ra_units="degrees",
+                               dec_units="degrees", k=k)
+        corr = treecorr.KKCorrelation(min_sep=0.5, max_sep=300.0, nbins=30,
+                                      sep_units="arcmin", bin_slop=0.01)
+        corr.process(cat)
+        return corr.rnom, corr.xi
+
+    def test_pixel_grid_has_no_support_below_the_pixel_scale(self):
+        import healpy as hp
+
+        t, (p_lon, p_lat), _, nside = self._setup(self.NSIDE)
+        theta, xi = self._kk(p_lon, p_lat, t)
+        # The zero boundary sits at the nearest-neighbour spacing between pixel
+        # centres, which is below nside2resol (a mean spacing); compare well
+        # inside it rather than at the boundary bin.
+        sub = theta < 0.7 * hp.nside2resol(nside, arcmin=True)
+        assert sub.sum() > 15, "test needs bins below the pixel scale"
+        assert np.all(xi[sub] == 0.0)
+        assert np.sum(xi == 0.0) >= 20
+
+    def test_galaxy_measurement_recovers_the_variance_there(self):
+        import healpy as hp
+
+        t, _, (g_lon, g_lat, g_k), nside = self._setup(self.NSIDE)
+        theta, xi = self._kk(g_lon, g_lat, g_k)
+        sub = theta < 0.7 * hp.nside2resol(nside, arcmin=True)
+        # Non-zero everywhere, and equal to the variance below the pixel scale.
+        assert np.sum(xi == 0.0) == 0
+        assert np.allclose(xi[sub] / float(np.var(t)), 1.0, rtol=0.25)
+
+    def test_the_two_agree_above_the_pixel_scale(self):
+        import healpy as hp
+
+        t, (p_lon, p_lat), (g_lon, g_lat, g_k), nside = self._setup(self.NSIDE)
+        theta, xi_pix = self._kk(p_lon, p_lat, t)
+        _, xi_gal = self._kk(g_lon, g_lat, g_k)
+        over = (theta > 1.5 * hp.nside2resol(nside, arcmin=True)) & (xi_pix > 0.05)
+        assert over.sum() > 2
+        assert np.allclose(xi_gal[over], xi_pix[over], rtol=0.2)

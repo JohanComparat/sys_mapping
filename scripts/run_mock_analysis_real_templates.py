@@ -112,7 +112,8 @@ def make_mock_real_templates(nside, templates, footprint_mask, a_true, b_true,
 
 def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
                               templates, nside, n_walkers, n_steps, n_burn,
-                              a_true, b_true, *, run_regression=True):
+                              a_true, b_true, *, run_regression=True,
+                              isd_chi2_68=None):
     """Run all implemented methods on one mock and return a flat result dict."""
     n_sys = templates.shape[0]
 
@@ -154,10 +155,10 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
 
         # ── ISD poly_order=1 ───────────────────────────────────────────────
         try:
-            _, a_isd1, _ = sm.iterative_systematics_decontamination(
-                delta_g, delta_t, poly_order=1  # delta_t: (n_sys, n_good)
-            )
-            a_isd1_final = np.asarray(a_isd1)[:n_sys]
+            a_isd1_final = sm.iterative_systematics_decontamination(
+                delta_g, delta_t, poly_order=1,  # delta_t: (n_sys, n_good)
+                chi2_68=isd_chi2_68,
+            ).a_hat
             result["a_isd1"] = a_isd1_final.tolist()
             result["a_isd1_bias"] = (a_isd1_final - np.asarray(a_true)).tolist()
         except Exception as e:
@@ -165,10 +166,10 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
 
         # ── ISD poly_order=3 ───────────────────────────────────────────────
         try:
-            _, a_isd3, _ = sm.iterative_systematics_decontamination(
-                delta_g, delta_t, poly_order=3  # delta_t: (n_sys, n_good)
-            )
-            a_isd3_final = np.asarray(a_isd3)[:n_sys]
+            a_isd3_final = sm.iterative_systematics_decontamination(
+                delta_g, delta_t, poly_order=3,  # delta_t: (n_sys, n_good)
+                chi2_68=isd_chi2_68,
+            ).a_hat
             result["a_isd3"] = a_isd3_final.tolist()
             result["a_isd3_bias"] = (a_isd3_final - np.asarray(a_true)).tolist()
         except Exception as e:
@@ -241,7 +242,12 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
         null = sm.null_test_cross_correlations(
             weights_comb, delta_t, n_bootstrap=50, seed=mock_id  # (n_sys, n_good)
         )
-        result["null_corr_max"] = float(np.max(np.abs(null["correlations"])))
+        # Per template.  The maximum over templates is not a goodness-of-fit:
+        # it measures how many templates the weight depends on, not how large
+        # the residual correlation is.
+        _r = np.abs(np.asarray(null["correlations"]))
+        result["null_corr_per_template"] = _r.tolist()
+        result["null_corr_median"] = float(np.median(_r))
     except Exception:
         pass
 

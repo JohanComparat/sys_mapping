@@ -47,8 +47,16 @@ import sys_mapping as sm
 from sys_mapping.plotting import METHOD_COLORS, METHOD_LINESTYLES, METHOD_LABELS
 from sys_mapping.correction import correct_two_point_function
 
-warnings.filterwarnings("ignore", category=UserWarning)
-warnings.filterwarnings("ignore", category=RuntimeWarning)
+# Silence the third-party noise this pipeline generates by the thousand -- numpy
+# divide-by-zero on empty pixels, healpy's UNSEEN handling -- but NOT
+# sys_mapping's own warnings.  A blanket ignore here made the package unable to
+# report its own problems in the one script that matters: the negative-lambda_LR
+# warning and refine_to_mle's non-convergence warning were both being swallowed,
+# which is why a null distribution with 15 of 50 draws negative produced no
+# diagnostic at all.
+warnings.filterwarnings("ignore", category=UserWarning, module=r"(?!sys_mapping)")
+warnings.filterwarnings("ignore", category=RuntimeWarning, module=r"(?!sys_mapping)")
+warnings.filterwarnings("always", category=RuntimeWarning, module=r"sys_mapping.*")
 
 
 def _parse_z_range(sample_id: str) -> tuple[float, float]:
@@ -57,6 +65,38 @@ def _parse_z_range(sample_id: str) -> tuple[float, float]:
     if m:
         return float(m.group(1)), float(m.group(2))
     return 0.05, 0.35  # BGS fallback
+
+
+def method_weight_map(result, good_pix, n_pix, label=""):
+    """Full-sky weight map for one method, taken from the library.
+
+    ``run_decontamination`` already returns the canonical per-pixel weight in
+    ``result["weights"]``, and it is not always ``1/(1 + a_hat . t)``: for ISD it
+    is the cumulative product of the per-step corrections
+    ``prod_j 1/(1 + F_j(t_j))``, and for MCMC-comb it is the exact inverse
+    ``(1 + delta_clean)/(1 + delta_obs)``, which uses ``b_hat`` *and* ``a_hat``.
+    Rebuilding a linear approximation from ``a_hat`` alone discards the curvature
+    ISD found and the additive term the combined model fitted, so this reads the
+    library's value instead of recomputing one.
+
+    Weights outside the fitted footprint are 1 (no correction applied).
+    """
+    w = result.get("weights")
+    if w is None:
+        warnings.warn(f"no weights returned for {label}; writing unity",
+                      RuntimeWarning, stacklevel=2)
+        return np.ones(n_pix)
+    w = np.asarray(w, dtype=float)
+    n_good = int(np.count_nonzero(good_pix))
+    if w.shape != (n_good,):
+        raise ValueError(
+            f"{label}: weights have shape {w.shape}, expected ({n_good},) -- one "
+            "per fitted pixel. A mismatch here means the weight was computed on a "
+            "different footprint than the one being written."
+        )
+    wm = np.ones(n_pix)
+    wm[good_pix] = w
+    return wm
 
 
 def expand_preselected_params(
@@ -135,7 +175,7 @@ def synthetic_templates(nside, n_families=5, seed=0):
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
-                   k_start=0, cl_amplitude=5e-4, cl_input=None):
+                   k_start=0, cl_amplitude=5e-4, cl_input=None, use_skewed=False):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -181,13 +221,22 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
         method = "MCMC-add" if model == "additive" else "MCMC-comb"
         res = sm.run_decontamination(method, dg, dt, sampler=sampler,
                                      nuts_n_warmup=nuts_warmup, nuts_n_samples=nuts_samples,
-                                     n_chains=n_chains)
-        # original-basis MLE/posterior-median theta (rotation-invariant λ_LR)
+                                     n_chains=n_chains, use_skewed=use_skewed)
+        # Original-basis theta (lambda_LR is rotation-invariant), refined to a true
+        # maximum.  A likelihood ratio between nested models is only guaranteed
+        # non-negative when both points are maxima; a posterior median is not one,
+        # and on this grid that produced null ensembles that were majority-negative.
+        # The data path below refines identically, so the two remain comparable.
         if model == "additive":
-            return sm.pack_params(np.asarray(res["a_hat"]), None, float(res["sigma_hat"]),
-                                  model="additive")
-        return sm.pack_params(np.asarray(res["a_hat"]), np.asarray(res["b_hat"]),
-                              float(res["sigma_hat"]), model="combined")
+            theta0 = sm.pack_params(np.asarray(res["a_hat"]), None,
+                                    float(res["sigma_hat"]), model="additive")
+            return sm.refine_to_mle(theta0, dg, dt, model="additive")
+        theta0 = sm.pack_params(np.asarray(res["a_hat"]), np.asarray(res["b_hat"]),
+                                float(res["sigma_hat"]),
+                                float(res.get("gamma_hat") or 0.0) if use_skewed else None,
+                                model="combined")
+        return sm.refine_to_mle(theta0, dg, dt, model="combined",
+                                use_skewed=use_skewed)
 
     return sm.lrt_null_distribution(mock_fields, delta_t, fit_theta)
 
@@ -252,7 +301,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         np.array([_z_min, _z_max]), np.array([float(n_total_footprint)]), n_total_footprint,
         args.lrt_null_seed, args.sampler, args.nuts_warmup, args.nuts_samples, args.n_chains,
         k_start=m, cl_amplitude=args.lrt_null_cl_amplitude,
-        cl_input=null_cl_input,
+        cl_input=null_cl_input, use_skewed=bool(getattr(args, "skewed", False)),
     )
     merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
     n_ge = int(np.sum(merged >= lam))
@@ -306,9 +355,13 @@ def _regen_weight_figures(sample_id, nside, templates, good_pix,
                                      np.zeros(n_sys)))
         if len(_params) != n_sys:
             _params = np.zeros(n_sys)
+        # Visualisation only: a linear reconstruction from a_hat, on the library's
+        # denominator floor (1/20).  The weight actually written to the FITS file
+        # comes from method_weight_map, which reads the library's own value; for
+        # ISD and MCMC-comb the two differ, and this map is the approximation.
         _t_full = np.einsum("i,ij->j", _params, templates)
         _wm = np.full(n_pix, np.nan)
-        _wm[good_pix] = 1.0 / np.maximum(1.0 + _t_full[good_pix], 0.01)
+        _wm[good_pix] = 1.0 / np.maximum(1.0 + _t_full[good_pix], 1.0 / 20.0)
         _wmap_full[_mf] = _wm
 
     _all_weights_good = np.concatenate([
@@ -526,15 +579,31 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 _pw_fo = np.zeros(n_sys)
             _cont_fo = np.einsum("i,ij->j", _pw_fo, templates)
             _wm_fo = np.ones(n_pix)
-            _wm_fo[_good_pix_fo] = 1.0 / np.maximum(1.0 + _cont_fo[_good_pix_fo], 0.01)
-            _wg_fo = np.where(_good_pix_fo[_pix_gal_fo], _wm_fo[_pix_gal_fo],
-                               1.0).astype(np.float32)
-            _fits_cols_fo.append(fits.Column(name=_cn_fo, format="E", array=_wg_fo))
-        _fits_cols_fo.append(fits.Column(name="WEIGHT_SYS", format="E",
-                                          array=_fits_cols_fo[-1].array.copy()))
+            _wm_fo[_good_pix_fo] = 1.0 / np.maximum(
+                1.0 + _cont_fo[_good_pix_fo], 1.0 / 20.0)
+            _wg_fo = np.where(_good_pix_fo[_pix_gal_fo], _wm_fo[_pix_gal_fo], 1.0)
+            _fits_cols_fo.append(fits.Column(name=_cn_fo, format="D", array=_wg_fo))
+        _i_comb_fo = next(i for i, c in enumerate(_fits_cols_fo)
+                          if c.name == "WEIGHT_COMB")
+        _fits_cols_fo.append(fits.Column(name="WEIGHT_SYS", format="D",
+                                          array=_fits_cols_fo[_i_comb_fo].array.copy()))
+        # This path rebuilds weights from the partial JSON files, which carry
+        # a_hat/b_hat but not the per-pixel weight the library computed.  A linear
+        # reconstruction 1/(1 + a.t) is NOT the canonical weight for ISD (a
+        # cumulative product over steps) or for MCMC-comb (an exact inverse using
+        # both a_hat and b_hat), so writing it into the shipped file would
+        # silently downgrade those columns.  Figures are fine; the FITS file is
+        # not, and a stale one is worse than none.
         _fp_fo = outdir / f"{sample_id}_NSIDE{nside:04d}_WEIGHTS.fits"
-        fits.BinTableHDU.from_columns(_fits_cols_fo).writeto(str(_fp_fo), overwrite=True)
-        print(f"All-method weights (re)generated: {_fp_fo}")
+        if _fp_fo.exists():
+            print(f"!! --figures-only: leaving {_fp_fo.name} untouched. It cannot be "
+                  f"rebuilt from the partial JSON, which has no per-pixel weights; "
+                  f"re-run without --figures-only to regenerate it.")
+        else:
+            print(f"!! --figures-only: not writing {_fp_fo.name}. The partial JSON "
+                  f"carries only a_hat/b_hat, and a linear reconstruction from them "
+                  f"is not the ISD or MCMC-comb weight. Re-run without "
+                  f"--figures-only.")
         # Regenerate wtheta figure using TreeCorr (approximate: zero covariance)
         try:
             print(f"  Measuring w(θ) for {sample_id} …")
@@ -626,8 +695,26 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     print(f"Unmasked pixels: {n_good:,} / {n_pix:,}  ({100*n_good/n_pix:.1f}%)")
     print(f"δ_g  mean={delta_g.mean():.4f}  std={delta_g.std():.4f}")
 
-    # Template values at good pixels
+    # Template values at good pixels, standardised THERE rather than at load
+    # time.  load_templates_from_dir normalises each map over that map's own
+    # valid region, which is larger than this sample's footprint; restricted to
+    # the footprint the basis is not standardised, and the amplitudes, the
+    # condition number and the template auto-correlations the two-point
+    # correction subtracts all stop being in units of one template sigma.
     delta_t = sm.assign_template_values(templates, good_pix)
+    _tpl_mean_raw = delta_t.mean(axis=1)
+    _tpl_rms_raw = delta_t.std(axis=1)
+    if not args.no_footprint_standardise:
+        delta_t, _tpl_mean_raw, _tpl_rms_raw = sm.standardise_on_footprint(
+            delta_t, return_scales=True)
+        print(f"Footprint-standardised {delta_t.shape[0]} templates: "
+              f"rms was {_tpl_rms_raw.min():.3f}-{_tpl_rms_raw.max():.3f}, "
+              f"|mean| up to {np.abs(_tpl_mean_raw).max():.3f}", flush=True)
+    else:
+        print(f"!! --no-footprint-standardise: basis rms is "
+              f"{_tpl_rms_raw.min():.3f}-{_tpl_rms_raw.max():.3f} on this "
+              f"footprint; amplitudes are not in units of one template sigma",
+              flush=True)
 
     # ── Optional: top up the mock-calibrated LRT null in place (no data re-fit) ──
     if getattr(args, "resume_null", False):
@@ -682,6 +769,33 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         _presel_indices  = _selected
         delta_t_decontam = delta_t[_selected]
 
+    # ISD needs a mock-calibrated Delta chi^2_68 for its stopping rule; without
+    # one the threshold is in raw Delta chi^2 units and the iteration keeps
+    # re-selecting templates it has already corrected.  Pre-selection, when it ran
+    # with method="isd", already built the GLASS null; otherwise build it here for
+    # the full template set, once, if any ISD method is requested.
+    _isd_chi2_68 = None
+    if any(m in _methods_to_run for m in ("ISD-1", "ISD-3")):
+        if _presel_isd is not None and len(_presel_indices or []) == len(delta_t_decontam):
+            _isd_chi2_68 = np.percentile(_presel_isd["delta_chi2_mocks"], 68, axis=0)
+            print(f"  ISD chi2_68 from pre-selection null: "
+                  f"{np.array2string(_isd_chi2_68, precision=1)}")
+        elif args.isd_n_mocks > 0:
+            from sys_mapping.diagnostics import isd_template_significance as _isd_sig_fn
+            _z_min_i, _z_max_i = _parse_z_range(sample_id)
+            print(f"  Calibrating ISD threshold on {args.isd_n_mocks} "
+                  "systematic-free GLASS mocks ...")
+            _isd_null = _isd_sig_fn(
+                delta_g, delta_t_decontam, good_pix, nside,
+                n_total=0, n_total_footprint=int(len(ra_gal)),
+                z_edges=np.array([_z_min_i, _z_max_i]),
+                nz=np.array([float(len(ra_gal))]),
+                n_mocks=args.isd_n_mocks, poly_order=3, binning="quantile",
+                seed=0, rand_factor=2, n_jobs=args.preselect_n_jobs,
+            )
+            _isd_chi2_68 = np.percentile(_isd_null["delta_chi2_mocks"], 68, axis=0)
+            print(f"  ISD chi2_68 = {np.array2string(_isd_chi2_68, precision=1)}")
+
     all_method_results = {}
     for _meth in _METHOD_ORDER:
         if _meth not in _methods_to_run:
@@ -694,6 +808,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 seed=42, progress=_meth.startswith("MCMC"),
                 sampler=args.sampler, n_chains=args.n_chains,
                 nuts_n_warmup=args.nuts_warmup, nuts_n_samples=args.nuts_samples,
+                isd_chi2_68=_isd_chi2_68, use_skewed=bool(getattr(args, "skewed", False)),
             )
             # Store pre-selection metadata in each method result
             if preselect:
@@ -727,6 +842,14 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             "n_good": int(n_good),
             "n_galaxies": int(len(ra_gal)),
             "template_names": template_names,
+            # The basis the amplitudes below are in.  An amplitude quoted without
+            # it is not comparable between templates, let alone between runs.
+            "template_basis": {
+                "standardised_on": ("load-time" if args.no_footprint_standardise
+                                                else "footprint"),
+                "rms_before": [float(v) for v in _tpl_rms_raw],
+                "mean_before": [float(v) for v in _tpl_mean_raw],
+            },
         }
         for meth in sorted(_methods_to_run):
             res = all_method_results.get(meth, {})
@@ -793,8 +916,16 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     # (e.g. NaN acceptance on a stale/float32 env → no flat_chain → the else branch).
     _null_lambda = None
     if res_add.get("flat_chain") is not None and res_comb.get("flat_chain") is not None:
-        theta_add  = sm.get_mle_params(res_add["flat_chain"])
-        theta_comb = sm.get_mle_params(res_comb["flat_chain"])
+        # Refine both to true maxima before differencing their log-likelihoods.
+        # The chains live in the PCA-rotated basis, which is the basis
+        # delta_t_rot supplies below, so refine there.
+        theta_add = sm.refine_to_mle(
+            sm.posterior_median_params(res_add["flat_chain"]),
+            delta_g, delta_t_rot, model="additive")
+        theta_comb = sm.refine_to_mle(
+            sm.posterior_median_params(res_comb["flat_chain"]),
+            delta_g, delta_t_rot, model="combined",
+            use_skewed=bool(getattr(args, "skewed", False)))
         # Mock-calibrated null (opt-in): the Wilks χ² is overconfident on the correlated field.
         if getattr(args, "lrt_null_mocks", 0) > 0:
             print(f"\nBuilding LRT mock null ({args.lrt_null_mocks} uncontaminated fits) …", flush=True)
@@ -807,6 +938,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 args.nuts_warmup, args.nuts_samples, args.n_chains,
                 cl_amplitude=args.lrt_null_cl_amplitude,
                 cl_input=null_cl_input,
+                use_skewed=bool(getattr(args, "skewed", False)),
             )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
@@ -834,15 +966,35 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         min_sep=0.5, max_sep=300.0, nbins=30, sep_units="arcmin",
     )
 
-    # Template 2PCFs in rotated basis
-    lon_obs, lat_obs = hp.pix2ang(nside, np.where(good_pix)[0], lonlat=True)
+    # Template 2PCFs in the rotated basis, measured on the GALAXIES rather than
+    # on the pixel centres.  No pair of distinct pixels is separated by less than
+    # the pixel scale, so a pixel-grid measurement returns xi_i as exactly zero
+    # inside one pixel -- 21 of 30 bins at NSIDE 64, 24 of 30 at NSIDE 32 -- and
+    # Eq. 15-16 then subtracts nothing over the range carrying most of the
+    # signal.  The template is constant within a pixel, so its correct xi_i below
+    # the pixel scale is its variance, not zero, and the galaxies carry it there.
+    _pix_gal = hp.ang2pix(nside, ra_gal, dec_gal, lonlat=True)
+    _slot = np.full(hp.nside2npix(nside), -1, dtype=np.int64)
+    _slot[np.where(good_pix)[0]] = np.arange(int(good_pix.sum()))
+    _gal_slot = _slot[_pix_gal]
+    _in_fp = _gal_slot >= 0
     try:
         import treecorr
         ct_rot = np.zeros((n_sys, len(theta_arcmin)))
+        if args.ct_from_pixels:
+            _lon, _lat = hp.pix2ang(nside, np.where(good_pix)[0], lonlat=True)
+            _k_of = lambda i: delta_t_rot[i]
+            print("!! --ct-from-pixels: xi_i is zero below the pixel scale")
+        else:
+            _lon, _lat = ra_gal[_in_fp], dec_gal[_in_fp]
+            _sl = _gal_slot[_in_fp]
+            _k_of = lambda i: delta_t_rot[i][_sl]
+            print(f"Template 2PCF from {_in_fp.sum():,} galaxies "
+                  f"({(~_in_fp).sum():,} outside the footprint)", flush=True)
         for i in range(n_sys):
-            cat_t = treecorr.Catalog(ra=lon_obs, dec=lat_obs,
+            cat_t = treecorr.Catalog(ra=_lon, dec=_lat,
                                       ra_units="degrees", dec_units="degrees",
-                                      k=delta_t_rot[i])
+                                      k=_k_of(i))
             kk = treecorr.KKCorrelation(min_sep=0.5, max_sep=300.0, nbins=30,
                                          sep_units="arcmin", bin_slop=0.01)
             kk.process(cat_t)
@@ -878,18 +1030,17 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     pix_gal = hp.ang2pix(nside, np.radians(90 - dec_gal), np.radians(ra_gal))
     fits_cols = []
     for _mw, _pk, _cn in _METHOD_COL_W:
-        _rw = all_method_results.get(_mw, {})
-        _pw = expand_preselected_params(
-            np.asarray(_rw.get(_pk, np.zeros(n_sys))),
-            n_sys, _presel_indices, label=f"{_mw}.{_pk}->{_cn}",
-        )
-        _cont = np.einsum("i,ij->j", _pw, templates)
-        _wm = np.ones(n_pix)
-        _wm[good_pix] = 1.0 / np.maximum(1.0 + _cont[good_pix], 0.01)
-        _wg = np.where(good_pix[pix_gal], _wm[pix_gal], 1.0).astype(np.float32)
-        fits_cols.append(fits.Column(name=_cn, format="E", array=_wg))
-    fits_cols.append(fits.Column(name="WEIGHT_SYS", format="E",
-                                 array=fits_cols[-1].array.copy()))
+        _wm = method_weight_map(all_method_results.get(_mw, {}), good_pix, n_pix,
+                                label=f"{_mw}->{_cn}")
+        _wg = np.where(good_pix[pix_gal], _wm[pix_gal], 1.0)
+        fits_cols.append(fits.Column(name=_cn, format="D", array=_wg))
+    # WEIGHT_SYS is an alias for WEIGHT_COMB, selected by name rather than by
+    # position: taking fits_cols[-1] made it depend on the ordering of the loop
+    # above, so reordering _METHOD_COL_W would silently change which method the
+    # recommended default column carried.
+    _i_comb = next(i for i, c in enumerate(fits_cols) if c.name == "WEIGHT_COMB")
+    fits_cols.append(fits.Column(name="WEIGHT_SYS", format="D",
+                                 array=fits_cols[_i_comb].array.copy()))
 
     def _safe_float(v, fallback=-999.0):
         f = float(v)
@@ -897,6 +1048,15 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
 
     fits_path = outdir / f"{sample_id}_NSIDE{nside:04d}_WEIGHTS.fits"
     _hdr = fits.Header()
+    # Version the weight convention so a file can be told apart from one written
+    # under the older linear reconstruction, which differed for ISD and
+    # MCMC-comb and used a denominator floor of 0.01 rather than 0.05.
+    _hdr["WEIGHTVER"] = (2 if args.no_footprint_standardise else 3,
+                        "weight convention version")
+    _hdr["TPLBASIS"] = ("load-time" if args.no_footprint_standardise else "footprint",
+                        "where the template basis was standardised")
+    _hdr["WEIGHTCON"] = ("library", "weights taken from run_decontamination")
+    _hdr["WMAXCLIP"]  = (20.0, "max weight; denominator floor 1/WMAXCLIP")
     _hdr["SAMPLE"]  = sample_id[:68]
     _hdr["NSIDE"]   = nside
     _hdr["N_SYS"]   = n_sys
@@ -915,6 +1075,14 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         "nside": nside,
         "n_sys": n_sys,
         "template_names": template_names,
+        # The basis the amplitudes below are in.  An amplitude quoted without
+        # it is not comparable between templates, let alone between runs.
+        "template_basis": {
+            "standardised_on": ("load-time" if args.no_footprint_standardise
+                                else "footprint"),
+            "rms_before": [float(v) for v in _tpl_rms_raw],
+            "mean_before": [float(v) for v in _tpl_mean_raw],
+        },
         "a_hat_add": a_hat_add.tolist(),
         "b_hat_comb": b_hat_comb.tolist(),
         "var_a_add": var_a_add.tolist(),
@@ -944,6 +1112,39 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         "sigma_hat_comb": _safe_float(res_comb.get("sigma_hat", float("nan"))),
         "n_galaxies": int(len(ra_gal)),
         "n_good_pix": int(n_good),
+        # Every method's amplitudes, not only the two MCMC ones.  Without this the
+        # ISD and ElasticNet columns of the results tables have no persisted
+        # provenance: they were printed to stdout, used to build the weights, and
+        # then discarded, so no published ISD amplitude could be re-derived from a
+        # campaign output.  ISD's step record goes with them, because a_hat is the
+        # linear projection of the fitted curve and cannot show what a cubic found.
+        "methods": {
+            _m: {
+                "a_hat": np.asarray(_r.get("a_hat", [])).tolist(),
+                "b_hat": np.asarray(_r.get("b_hat", [])).tolist(),
+                "sigma_hat": _safe_float(_r.get("sigma_hat", float("nan"))),
+                "elapsed_s": _safe_float(_r.get("elapsed_s", float("nan"))),
+                "rms_a_hat": _safe_float(
+                    float(np.sqrt(np.mean(np.square(
+                        np.asarray(_r.get("a_hat", [0.0]), dtype=float)))))),
+                **({
+                    "isd_poly_order": _r.get("isd_poly_order"),
+                    "n_steps": _r.get("n_iterations"),
+                    "stopped_on": _r.get("isd_stopped_on"),
+                    "calibrated": _r.get("isd_calibrated"),
+                    "n_floored": _r.get("isd_n_floored"),
+                    "significance": np.asarray(
+                        _r.get("isd_significance", [])).tolist(),
+                    "steps": [
+                        {"template": int(_st["template"]),
+                         "significance": float(_st["significance"]),
+                         "coeffs": np.asarray(_st["coeffs"], dtype=float).tolist()}
+                        for _st in (_r.get("isd_steps") or [])
+                    ],
+                } if _r.get("isd_steps") is not None else {}),
+            }
+            for _m, _r in sorted(all_method_results.items())
+        },
     }
     json_path.write_text(json.dumps(params_dict, indent=2))
     print(f"Params saved: {json_path}")
@@ -980,6 +1181,20 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     # ── Diagnostic plot: all 6 methods (shared helper) ────────────────────
     _plot_wtheta_figure(theta_arcmin, w_obs, _all_w_corr_ls10,
                         sample_id, nside, len(ra_gal), outdir, docs_dir)
+
+    # Persist the corrected curves, not only the figure.  Only --figures-only
+    # wrote them, so a full run left the one quantity a post-condition needs to
+    # check -- whether the correction overshot the signal -- recoverable only by
+    # re-deriving it.  The negative-w_corr guard fires in the log; this is what
+    # lets a campaign check every cell afterwards.
+    _wdata_path = outdir / f"{sample_id}_NSIDE{nside:04d}_wtheta_data.json"
+    _wdata_path.write_text(json.dumps({
+        "theta_arcmin": np.asarray(theta_arcmin).tolist(),
+        "w_obs": np.asarray(w_obs).tolist(),
+        "all_w_corr": {m: np.asarray(v).tolist()
+                       for m, v in _all_w_corr_ls10.items()},
+    }))
+    print(f"w(θ) data saved: {_wdata_path}", flush=True)
 
     # ── Weight maps and histograms: all 6 methods ────────────────────────
     _regen_weight_figures(sample_id, nside, templates, good_pix,
@@ -1445,6 +1660,23 @@ def main():
                              "analytic, nuts, or emcee (legacy baseline).")
     parser.add_argument("--n-chains", type=int, default=None,
                         help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
+    parser.add_argument("--ct-from-pixels", action="store_true",
+                        help="Measure the template 2PCFs on the pixel centres "
+                             "rather than on the galaxies. Reproduces "
+                             "WEIGHTVER<=2 products; xi_i is then identically "
+                             "zero below the pixel scale, so the two-point "
+                             "correction does nothing over most of the range.")
+    parser.add_argument("--no-footprint-standardise", action="store_true",
+                        help="Keep the load-time normalisation instead of "
+                             "re-standardising the basis on the analysis "
+                             "footprint. Reproduces WEIGHTVER<=2 products; the "
+                             "amplitudes are then not in units of one template "
+                             "standard deviation on the pixels fitted.")
+    parser.add_argument("--skewed", action="store_true",
+                        help="Skew-normal likelihood for the combined model "
+                             "(default: Gaussian).  Matches compute_sys_weights.py's "
+                             "flag of the same name; opt-in because it also moves the "
+                             "additive model off its exact analytic posterior onto NUTS.")
     parser.add_argument("--nuts-warmup", type=int, default=1000,
                         help="NUTS window-adaptation steps.")
     parser.add_argument("--nuts-samples", type=int, default=1000,
@@ -1505,6 +1737,10 @@ def main():
                         help="Number of GLASS mocks for ISD significance (default 100).")
     parser.add_argument("--preselect-n-jobs", type=int, default=1,
                         help="Parallel workers for the GLASS mock loop (default 1; -1 = all cores).")
+    parser.add_argument("--isd-n-mocks", type=int, default=30,
+                        help="GLASS null realisations used to calibrate the ISD stopping "
+                             "threshold when pre-selection has not already built one "
+                             "(default 30; 0 leaves the threshold uncalibrated).")
     args = parser.parse_args()
 
     catalog_dir = Path(args.catalog_dir)

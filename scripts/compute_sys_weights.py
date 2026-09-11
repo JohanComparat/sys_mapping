@@ -110,7 +110,10 @@ _NSIDE_ZFILL: dict[str, int] = {
 }
 
 # ── Minimum weight denominator to avoid division by ≈0 ───────────────────────
-_WEIGHT_EPSILON = 0.01
+# Denominator floor, matching the library's _ISD_MAX_WEIGHT = 20.
+# It was 0.01 here (a cap of 100 against the library's 20), so the two
+# paths clipped the same weight differently in the tails.
+_WEIGHT_EPSILON = 1.0 / 20.0
 
 
 # ---------------------------------------------------------------------------
@@ -205,6 +208,34 @@ def compute_pixel_weights(
     return weight_map
 
 
+def weight_map_from_result(result, templates, params, nside, *,
+                           good_pixels=None, label=""):
+    """Full-sky weight map, taken from the library where it is available.
+
+    ``run_decontamination`` returns the canonical per-pixel weight in
+    ``result["weights"]``, and it is not always ``1/(1 + a_hat . t)``: for ISD it
+    is the cumulative product of the per-step corrections, and for MCMC-comb the
+    exact inverse using ``b_hat`` *and* ``a_hat``.  Recomputing a linear form from
+    the amplitudes alone discards both.  ``compute_pixel_weights`` remains as the
+    fallback for a result that carries no weights, and is what the deprecated
+    linear reconstruction looked like.
+    """
+    w = result.get("weights") if isinstance(result, dict) else None
+    good = good_pixels
+    if w is not None and good is not None:
+        w = np.asarray(w, dtype=float)
+        good = np.asarray(good, dtype=bool)
+        if w.shape == (int(good.sum()),):
+            wmap = np.ones(hp.nside2npix(nside))
+            wmap[good] = w
+            return wmap
+        warnings.warn(
+            f"{label}: weights shape {w.shape} does not match the footprint "
+            f"({int(good.sum())} pixels); falling back to the linear form.",
+            RuntimeWarning, stacklevel=2)
+    return compute_pixel_weights(templates, params, nside)
+
+
 def assign_galaxy_weights(
     ra: np.ndarray,
     dec: np.ndarray,
@@ -247,12 +278,22 @@ def write_all_method_weights(
     all_method_results: dict,
     output_dir: Path,
     header_extras: "dict | None" = None,
+    good_pixels: "np.ndarray | None" = None,
+    template_basis: str = "footprint",
 ) -> Path:
     """Write per-galaxy weight columns for all six methods to a FITS file.
 
     Parameters
     ----------
-    all_method_results : dict mapping method name → dict with ``'a_hat'`` and/or ``'b_hat'``
+    all_method_results : dict mapping method name → dict with ``'a_hat'`` and/or
+        ``'b_hat'``, and ideally ``'weights'``
+    good_pixels : boolean footprint mask, required to use the library's own
+        per-pixel weights.  Without it (e.g. when results are re-read from JSON,
+        which cannot hold a pixel array) the weights are reconstructed as
+        ``1/(1 + a_hat . t)``.  That is the correct weight for OLS, ElasticNet and
+        MCMC-add, but **not** for ISD (a cumulative product over steps) or
+        MCMC-comb (an exact inverse using both amplitudes), and the header records
+        which was used.
     header_extras      : additional key/value pairs written into the FITS primary header
     """
     n_sys = templates.shape[0]
@@ -263,14 +304,24 @@ def write_all_method_weights(
         p = np.asarray(res.get(param_key, np.zeros(n_sys)))
         if p.shape != (n_sys,):
             p = np.zeros(n_sys)
-        wmap = compute_pixel_weights(templates, p, nside)
-        wgal = assign_galaxy_weights(ra_gal, dec_gal, wmap, nside).astype(np.float32)
-        cols.append(fits.Column(name=col_name, format="E", array=wgal))
+        wmap = weight_map_from_result(res, templates, p, nside,
+                                      good_pixels=good_pixels,
+                                      label=f"{meth}->{col_name}")
+        wgal = assign_galaxy_weights(ra_gal, dec_gal, wmap, nside)
+        cols.append(fits.Column(name=col_name, format="D", array=wgal))
+
+    _from_library = good_pixels is not None and any(
+        isinstance(r, dict) and r.get("weights") is not None
+        for r in all_method_results.values())
+    if not _from_library:
+        print("  !! weights reconstructed as 1/(1 + a_hat.t): this is not the ISD "
+              "or MCMC-comb weight. Pass good_pixels with live results to use the "
+              "library's own.")
 
     # WEIGHT_SYS = WEIGHT_COMB (recommended default)
     comb_idx = next((i for i, c in enumerate(cols) if c.name == "WEIGHT_COMB"), None)
     if comb_idx is not None:
-        cols.append(fits.Column(name="WEIGHT_SYS", format="E",
+        cols.append(fits.Column(name="WEIGHT_SYS", format="D",
                                 array=cols[comb_idx].array.copy()))
 
     hdr = fits.Header()
@@ -278,6 +329,16 @@ def write_all_method_weights(
     hdr["NSIDE"]  = nside
     hdr["N_SYS"]  = n_sys
     hdr["W_SYS"]  = "alias for WEIGHT_COMB - recommended default"
+    # Version 3 marks a basis standardised on the analysis footprint.  Version 2
+    # products carry the load-time normalisation, so their amplitudes are in
+    # different units and the two must never be compared in one table.
+    hdr["WEIGHTVER"] = (3 if template_basis == "footprint" else 2,
+                        "weight convention version")
+    hdr["TPLBASIS"] = (template_basis,
+                       "where the template basis was standardised")
+    hdr["WEIGHTCON"] = ("library" if _from_library else "linear-from-a_hat",
+                        "source of the per-pixel weight")
+    hdr["WMAXCLIP"]  = (1.0 / _WEIGHT_EPSILON, "max weight; floor 1/WMAXCLIP")
     if header_extras:
         for k, v in header_extras.items():
             hdr[k] = v
@@ -408,9 +469,17 @@ def collect_all_weights_from_jsons(
             print(f"  [SKIP] No result files found — skipping.")
             continue
 
+        # A params.json with no template_basis block predates the footprint
+        # standardisation, so its amplitudes are in the load-time basis.
+        _basis = "load-time"
+        for _r in all_method_results.values():
+            _b = _r.get("template_basis") if isinstance(_r, dict) else None
+            if isinstance(_b, dict) and _b.get("standardised_on"):
+                _basis = str(_b["standardised_on"])
+                break
         write_all_method_weights(
             sample_id, ra_gal, dec_gal, templates, nside,
-            all_method_results, output_dir,
+            all_method_results, output_dir, template_basis=_basis,
         )
         processed += 1
 
@@ -420,6 +489,21 @@ def collect_all_weights_from_jsons(
 # ---------------------------------------------------------------------------
 # MCMC runner with parameter extraction
 # ---------------------------------------------------------------------------
+
+def _as_float_or_none(value):
+    """``float(value)``, or ``None`` where the diagnostic does not apply.
+
+    Mirrors :func:`sys_mapping.regression._as_float_or_none`.  ``_AnalyticSampler``
+    reports ``rhat`` and ``ess`` as ``None`` because neither is defined for exact
+    i.i.d. draws, and ``float(None)`` is a ``TypeError``.
+    """
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
 
 def run_model(
     model: str,
@@ -505,8 +589,11 @@ def run_model(
         acceptance_fraction=float(np.mean(sampler_obj.acceptance_fraction)),
         flat_chain=flat_chain,
         sampler_backend=_sampler,
-        rhat=float(getattr(sampler_obj, "rhat", np.nan)),
-        ess=float(getattr(sampler_obj, "ess", np.nan)),
+        # None where the diagnostic does not apply: the analytic additive
+        # posterior draws i.i.d., so it reports no R-hat and no ESS rather than
+        # a perfect score that would read as a passed check.  float(None) raises.
+        rhat=_as_float_or_none(getattr(sampler_obj, "rhat", None)),
+        ess=_as_float_or_none(getattr(sampler_obj, "ess", None)),
         num_divergences=int(getattr(sampler_obj, "num_divergences", 0)),
     )
 
@@ -581,6 +668,7 @@ def process_sample(
     n_chains: int | None = None,
     nuts_n_warmup: int = 1000,
     nuts_n_samples: int = 1000,
+    no_footprint_standardise: bool = False,
 ) -> dict:
     """Run full systematic analysis for one DATA/RAND pair.
 
@@ -618,7 +706,15 @@ def process_sample(
     print(f"  Unmasked pixels: {good_pix.sum():,} / {hp.nside2npix(nside):,}")
 
     # ── Template values at good pixels + PCA rotation ────────────────────────
+    # Standardised on the footprint, not at load time: the maps are normalised
+    # over each map's own valid region, which is larger than this sample's, so
+    # on the fitted pixels the basis is not in units of one template sigma.
     delta_t = sm.assign_template_values(templates, good_pix)
+    if not no_footprint_standardise:
+        delta_t, _tpl_mean, _tpl_rms = sm.standardise_on_footprint(
+            delta_t, return_scales=True)
+        print(f"  Footprint-standardised {delta_t.shape[0]} templates: "
+              f"rms was {_tpl_rms.min():.3f}-{_tpl_rms.max():.3f}")
     delta_t_rot, R, eigenvalues = sm.rotate_templates(delta_t)
 
     # ── OLS: fast analytic baseline ──────────────────────────────────────────
@@ -679,9 +775,12 @@ def process_sample(
     print(f"\n  LRT  λ={lrt.lambda_lr:.2f}  p={lrt.p_value:.4f}  reject_additive={lrt.reject_null}")
 
     # ── Per-pixel weight maps ────────────────────────────────────────────────
-    wmap_ols  = compute_pixel_weights(templates, res_ols["a_hat"],  nside)
-    wmap_add  = compute_pixel_weights(templates, res_add["a_hat"],  nside)
-    wmap_comb = compute_pixel_weights(templates, res_comb["b_hat"], nside)
+    wmap_ols  = weight_map_from_result(res_ols,  templates, res_ols["a_hat"],
+                                       nside, good_pixels=good_pix, label="OLS")
+    wmap_add  = weight_map_from_result(res_add,  templates, res_add["a_hat"],
+                                       nside, good_pixels=good_pix, label="MCMC-add")
+    wmap_comb = weight_map_from_result(res_comb, templates, res_comb["b_hat"],
+                                       nside, good_pixels=good_pix, label="MCMC-comb")
 
     # ── Per-galaxy weights ───────────────────────────────────────────────────
     w_ols  = assign_galaxy_weights(ra_gal, dec_gal, wmap_ols,  nside)
@@ -728,10 +827,15 @@ def process_sample(
     hdr["LRT_LAM"] = float(lrt.lambda_lr)
     hdr["LRT_PVL"] = float(lrt.p_value)
     hdr["LRT_REJ"] = bool(lrt.reject_null)
-    # Weight scheme documentation
-    hdr["W_OLS"]  = "1/max(1+sum_i a_i_ols*t_i(p), 0.01)"
-    hdr["W_ADD"]  = "1/max(1+sum_i a_i_add*t_i(p), 0.01)"
-    hdr["W_COMB"] = "1/max(1+sum_i b_i_comb*t_i(p), 0.01)"
+    # Weight scheme documentation.  The weights come from the library, so the
+    # formula depends on the method; recording one expression for all of them
+    # would be wrong for ISD and MCMC-comb.
+    hdr["WEIGHTVER"] = (2 if no_footprint_standardise else 3,
+                        "weight convention version")
+    hdr["WEIGHTCON"] = ("library", "weights taken from run_decontamination")
+    hdr["WMAXCLIP"]  = (1.0 / _WEIGHT_EPSILON, "max weight; floor 1/WMAXCLIP")
+    hdr["TPLBASIS"]  = ("load-time" if no_footprint_standardise else "footprint",
+                        "where the template basis was standardised")
     hdr["W_SYS"]  = "alias for WEIGHT_COMB - recommended default weight"
 
     primary = fits.PrimaryHDU(header=hdr)
@@ -886,9 +990,26 @@ def parse_args() -> argparse.Namespace:
         help="Template normalisation method.",
     )
     p.add_argument(
+        "--no-footprint-standardise",
+        action="store_true",
+        help="Keep the load-time normalisation instead of re-standardising the "
+             "basis on the analysis footprint. Reproduces WEIGHTVER<=2 "
+             "products; the amplitudes are then not in units of one template "
+             "standard deviation on the pixels fitted.",
+    )
+    p.add_argument(
+        "--skewed",
+        action="store_true",
+        help="Use the skew-normal likelihood instead of the Gaussian. Off by "
+             "default, matching run_ls10_analysis.py: the two scripts write the "
+             "same column names and must fit the same model. Note that enabling "
+             "it also moves the additive model off its exact analytic posterior "
+             "onto NUTS.",
+    )
+    p.add_argument(
         "--no-skewed",
         action="store_true",
-        help="Disable skew-normal likelihood (use Gaussian).",
+        help="Deprecated no-op: the Gaussian likelihood is now the default.",
     )
     p.add_argument(
         "--device",
@@ -931,6 +1052,10 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    if getattr(args, "no_skewed", False):
+        print("!! --no-skewed is a no-op: the Gaussian likelihood is the default "
+              "and matches run_ls10_analysis.py. Pass --skewed to opt in to the "
+              "skew-normal.", file=_sys.stderr)
 
     catalog_dir  = Path(args.catalog_dir)
     template_dir = Path(args.template_dir)
@@ -1014,7 +1139,7 @@ def main() -> None:
             n_walkers=args.n_walkers,
             n_steps=args.n_steps,
             n_burn=args.n_burn,
-            use_skewed=not args.no_skewed,
+            use_skewed=args.skewed,
             template_sources=args.template_sources,
             norm_method=args.norm_method,
             vectorize=vectorize,
@@ -1022,6 +1147,7 @@ def main() -> None:
             n_chains=args.n_chains,
             nuts_n_warmup=args.nuts_warmup,
             nuts_n_samples=args.nuts_samples,
+            no_footprint_standardise=args.no_footprint_standardise,
         )
         summary_entries.append(entry)
 

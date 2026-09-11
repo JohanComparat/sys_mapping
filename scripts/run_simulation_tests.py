@@ -52,7 +52,11 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--nside", type=int, default=64, help="HEALPix NSIDE for maps (default 64)")
     p.add_argument("--n-glass", type=int, default=500_000, help="Target galaxy count for GLASS mock")
     p.add_argument("--methods", nargs="+", default=["OLS", "ISD-1", "ElasticNet"],
-                   choices=["OLS", "ISD-1", "ElasticNet", "MCMC-add", "MCMC-comb"])
+                   choices=["OLS", "ISD-1", "ISD-2", "ISD-3", "ISD-4", "ISD-5",
+                            "ElasticNet", "MCMC-add", "MCMC-comb"],
+                   help="ISD-<d> runs the marginal fit at polynomial degree d.  "
+                        "1 is the DES Y1/Y3 choice, 3 the Y6 one; the rest are "
+                        "there so the degree can be swept.")
     p.add_argument("--output-dir", default="data/simulations", help="Output directory")
     p.add_argument("--syst-dir", default=_DEFAULT_SYST_DIR)
     p.add_argument("--uchuu-data", default=_DEFAULT_UCHUU_BASE + "_DATA.fits")
@@ -62,6 +66,27 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--max-sep", type=float, default=10.0, help="Max angular separation (degrees)")
     p.add_argument("--nbins", type=int, default=10, help="Number of angular bins")
     p.add_argument("--seed", type=int, default=0, help="Master random seed")
+    p.add_argument("--isd-n-mocks", type=int, default=30,
+                   help="GLASS null realisations for the ISD Delta chi^2_68 calibration "
+                        "(per mock source; 0 disables and leaves the threshold uncalibrated)")
+    p.add_argument("--responses", action="store_true",
+                   help="Inject the non-linear response grid instead of the linear "
+                        "3x3 grid.  The linear grid cannot separate ISD-1 from ISD-3, "
+                        "because a linear marginal fit already suffices for a "
+                        "contamination that is linear in every template.")
+    p.add_argument("--response-kinds", nargs="+", default=None,
+                   help="Subset of response kinds to inject (default: all six).")
+    p.add_argument("--n-contaminated", type=int, default=None,
+                   help="Contaminate only this many templates.  Below n_sys it "
+                        "creates the true negatives that make greedy template "
+                        "selection measurable; the default contaminates all.")
+    p.add_argument("--isd-kwargs", type=str, default=None,
+                   help='JSON dict of extra ISD arguments, e.g. \'{"isd_n_bins": 20}\'.')
+    p.add_argument("--isd-null-cl-file", type=str, default=None,
+                   help="Matched C_l (a *_match.json or a directory of them) for the "
+                        "ISD calibration null.  Without it the null is the parametric "
+                        "power law at cl_amplitude=5e-4, which under-clusters LS10 by "
+                        "~25x and leaves the calibration anticonservative.")
     p.add_argument("--dry-run", action="store_true", help="Validate setup only, no computation")
     return p.parse_args()
 
@@ -95,6 +120,15 @@ def _save_results(results: list[dict], output_dir: Path) -> None:
                     "scenario": v.scenario,
                     "a_true": v.a_true.tolist(),
                     "b_true": v.b_true.tolist(),
+                    "shape": v.shape,
+                    # The true positives a selection rule has to find.  Without
+                    # them precision and recall are not defined.
+                    "contaminated": list(v.contaminated),
+                    "responses": [
+                        None if r is None else
+                        {"kind": r.kind, "shape": r.shape, "amplitude": r.amplitude}
+                        for r in v.responses
+                    ],
                 }
             elif isinstance(v, dict):
                 entry[k] = {kk: _convert(vv) for kk, vv in v.items()}
@@ -155,6 +189,59 @@ def _plot_recovery(results: list[dict], output_dir: Path, methods: list[str]) ->
     print(f"  Plots saved to {plots_dir}/")
 
 
+def _calibrate_isd(catalog, templates, args, *, n_mocks: int = 30):
+    """68th percentile of the ISD Delta chi^2 on contamination-free GLASS mocks.
+
+    Returns ``None`` when ``n_mocks <= 0``, in which case the ISD threshold stays
+    uncalibrated and ``run_decontamination`` warns.
+    """
+    if n_mocks <= 0:
+        return None
+
+    import healpy as hp
+    from sys_mapping import (
+        assign_template_values,
+        compute_overdensity,
+        isd_template_significance,
+        measure_nz,
+        pixelize_catalog,
+    )
+
+    print(f"    Calibrating ISD threshold on {n_mocks} systematic-free GLASS mocks...")
+    t0 = time.perf_counter()
+
+    gal = pixelize_catalog(catalog["ra"], catalog["dec"], args.nside)
+    ran = pixelize_catalog(catalog["ra_rand"], catalog["dec_rand"], args.nside)
+    delta_clean, good = compute_overdensity(gal, ran)
+    delta_t = assign_template_values(templates, good)
+
+    z = np.asarray(catalog.get("z", np.zeros(len(catalog["ra"]))))
+    if np.ptp(z) > 0:
+        z_edges, nz = measure_nz(z, float(z.min()), float(z.max()))
+    else:
+        z_edges, nz = np.array([0.0, 1.0]), np.array([float(len(z))])
+
+    cl_input = None
+    if getattr(args, "isd_null_cl_file", None):
+        from sys_mapping import load_matched_cl
+        cl_input = load_matched_cl(args.isd_null_cl_file, nside=args.nside)
+        print(f"    ISD null: matched spectrum from {args.isd_null_cl_file}"
+              if cl_input is not None else
+              "    !! no matched spectrum; falling back to the parametric null")
+
+    out = isd_template_significance(
+        delta_clean, delta_t, good, args.nside,
+        n_total=0, z_edges=z_edges, nz=nz,
+        n_total_footprint=len(catalog["ra"]),
+        n_mocks=n_mocks, poly_order=3, binning="quantile",
+        seed=args.seed, rand_factor=2, cl_input=cl_input,
+    )
+    chi2_68 = np.percentile(out["delta_chi2_mocks"], 68, axis=0)
+    print(f"    ISD chi2_68 = {np.array2string(chi2_68, precision=1)} "
+          f"({time.perf_counter() - t0:.1f}s)")
+    return chi2_68
+
+
 def main() -> int:
     args = _parse_args()
     output_dir = Path(args.output_dir)
@@ -172,6 +259,7 @@ def main() -> int:
         apply_footprint_mask,
         load_uchuu_mock,
         make_contamination_grid,
+    make_response_grid,
         run_wtheta_recovery,
         save_simulation_catalog,
         inject_systematics,
@@ -246,7 +334,13 @@ def main() -> int:
               f"({n_before:,} → {n_after:,}), {n_rand_after:,} randoms")
 
     # ── Step 4: Contaminate, save, recover ────────────────────────────────────
-    configs = make_contamination_grid(n_sys=n_sys, seed=args.seed)
+    isd_kwargs = json.loads(args.isd_kwargs) if args.isd_kwargs else {}
+    if args.responses:
+        configs = make_response_grid(
+            n_sys=n_sys, seed=args.seed,
+            kinds=args.response_kinds, n_contaminated=args.n_contaminated)
+    else:
+        configs = make_contamination_grid(n_sys=n_sys, seed=args.seed)
     all_results: list[dict] = []
 
     for source_name, catalog in catalogs.items():
@@ -254,8 +348,15 @@ def main() -> int:
         source_dir = run_dir / source_name
         source_dir.mkdir(exist_ok=True)
 
+        # ISD needs a mock-calibrated Delta chi^2_68 for its stopping rule.  The
+        # null depends on the footprint, resolution and surface density but not on
+        # the injected contamination, so it is computed once per mock source and
+        # reused across all 9 configurations.
+        isd_chi2_68 = _calibrate_isd(catalog, templates, args, n_mocks=args.isd_n_mocks)
+
         for cfg_idx, config in enumerate(configs):
-            label = f"{config.level}_{config.scenario}"
+            label = (f"{config.level}_{config.scenario}_{config.shape}"
+                     if config.responses else f"{config.level}_{config.scenario}")
             print(f"\n  [{cfg_idx+1:02d}/{len(configs)}] {source_name} | {label}")
 
             # Inject contamination
@@ -264,6 +365,7 @@ def main() -> int:
                 catalog["ra_rand"], catalog["dec_rand"],
                 templates, config.a_true, config.b_true,
                 nside=args.nside,
+                responses=config.responses or None,
             )
 
             # Save contaminated catalog
@@ -284,6 +386,7 @@ def main() -> int:
                 min_sep=args.min_sep,
                 max_sep=args.max_sep,
                 nbins=args.nbins,
+                method_kwargs={"isd_chi2_68": isd_chi2_68, **isd_kwargs},
             )
             result["source"] = source_name
             elapsed = time.perf_counter() - t0

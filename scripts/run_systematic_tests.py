@@ -179,7 +179,7 @@ def _run_methods_for_config(
             results[method] = sm.run_decontamination(
                 method, delta_g, delta_t,
                 n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-                seed=seed, isd_max_iter=50,
+                seed=seed,
             )
         except Exception as exc:
             warnings.warn(f"Method {method} failed: {exc}")
