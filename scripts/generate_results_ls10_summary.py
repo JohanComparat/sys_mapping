@@ -15,7 +15,7 @@ REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 WEIGHTS_DIR = os.path.join(REPO, "data", "sys_weights")
 OUT = os.path.join(REPO, "docs", "results_ls10.rst")
 
-NSIDES = [32, 64, 128, 256]
+NSIDES = [32, 64, 128]
 NSIDE_NPIX = {32: "5 600", 64: "21 600", 128: "84 000", 256: "330 000"}
 NSIDE_AREA = {32: "3.36", 64: "0.84", 128: "0.21", 256: "0.052"}
 
@@ -178,12 +178,18 @@ def _dominant_template(d):
 def _sigma_row(s, ns):
     """Return csv-table row for sigma_hat at one NSIDE."""
     d = data[s["tag"]][ns]
-    ols   = d.get("sigma_hat_ols")
-    enet  = d.get("sigma_hat_enet")
-    isd1  = d.get("sigma_hat_isd1")
-    isd3  = d.get("sigma_hat_isd3")
-    add_  = d.get("sigma_hat_add")
-    comb  = d.get("sigma_hat_comb")
+    # Per-method values live under "methods"; the two MCMC ones are also at the
+    # top level, where the flat sigma_hat_* keys used to be.
+    meth = d.get("methods") or {}
+    def _m(name, flat):
+        v = (meth.get(name) or {}).get("sigma_hat")
+        return v if v is not None else d.get(flat)
+    ols   = _m("OLS", "sigma_hat_ols")
+    enet  = _m("ElasticNet", "sigma_hat_enet")
+    isd1  = _m("ISD-1", "sigma_hat_isd1")
+    isd3  = _m("ISD-3", "sigma_hat_isd3")
+    add_  = _m("MCMC-add", "sigma_hat_add")
+    comb  = _m("MCMC-comb", "sigma_hat_comb")
     named = [(k, v) for k, v in [("ols", ols), ("enet", enet), ("isd1", isd1),
                                   ("add", add_), ("comb", comb)] if v is not None]
     best_key = min(named, key=lambda x: x[1])[0] if named else None
@@ -268,9 +274,9 @@ W("~~~~~~~~~~~~~~~~~~~~~~~~~~")
 W("")
 W("The noise parameter :math:`\\hat{{\\sigma}}` measures the residual scatter of the")
 W("galaxy overdensity after subtracting the systematic model — lower is better.")
-W("All six methods were run at all four NSIDEs.")
+W(f"All six methods were run at NSIDE {', '.join(str(n) for n in NSIDES)}.")
 W("The bold entry in each row is the method with the lowest :math:`\\hat{\\sigma}`")
-W("(ISD-3 excluded from the comparison as it is not recommended for science).")
+W("across the six methods.")
 W("")
 
 for ns in NSIDES:
@@ -279,16 +285,17 @@ for ns in NSIDES:
     W(f"**NSIDE {ns}** (pixel area ≈ {area} deg², :math:`N_{{\\rm pix}} ≈ {npix}`):")
     W("")
     W(".. csv-table::")
-    W('   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3 †", "MCMC-add", "MCMC-comb"')
+    W('   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"')
     W("   :widths: 22, 8, 9, 8, 9, 9, 10")
     W("")
     for s in SAMPLES:
         W(_sigma_row(s, ns))
     W("")
 
-W("† **ISD-3** uses a degree-3 polynomial expansion.  It is ill-conditioned at all")
-W("resolutions: :math:`\\hat{\\sigma}_{\\rm ISD3} > 1` for sparse/high-NSIDE samples,")
-W("and worse than OLS in virtually every case.  **Do not use ISD-3 weights.**")
+W("**ISD-1** and **ISD-3** fit one template at a time against its own binned density")
+W("relation, at degree 1 and 3.  The degree buys curvature in one template's value")
+W("rather than cross-products between templates, so the two differ only where the")
+W("response is non-linear; on this grid they agree to within a few per cent.")
 W("")
 W("**Key observations:**")
 W("")
@@ -464,7 +471,9 @@ for s in SAMPLES:
     W(f".. _ls10-sample-{anchor}:")
     W("")
     W(label_long)
-    W("~" * len(label_long.replace(r"\*", "*").replace(r"\  ", "  ")))
+    # Sphinx measures the underline against the title's SOURCE line, so the
+    # escapes count even though they render as one character each.
+    W("~" * len(label_long))
     W("")
 
     # Weight maps: 2×2 grid (NSIDE 32, 64, 128, 256)
@@ -517,7 +526,7 @@ for s in SAMPLES:
     W("")
     W(f'   "N\\ :sub:`gal`",             "{ngal}",  "{ngal}", "{ngal}", "{ngal}"')
     W(f'   "N\\ :sub:`pix` (good)",      {_col4(npix_strs)}')
-    lrt_combined = ", ".join(f'"{lam_strs[i]} ({rej_strs[i]})"' for i in range(4))
+    lrt_combined = ", ".join(f'"{lam_strs[i]} ({rej_strs[i]})"' for i in range(len(NSIDES)))
     W(f'   "LRT λ\\ :sub:`LR` (dof=11)", {lrt_combined}')
     W(f'   "σ̂ OLS",                     {_col4(ols_strs)}')
     W(f'   "σ̂ ElasticNet",               {_col4(enet_strs)}')
@@ -530,8 +539,8 @@ for s in SAMPLES:
     W(f'   "Dominant template",           {_col4(dom_strs)}')
     W(f'   "δw/w at 30′",                 "—", "{s["dw30"]}", "—", "—"')
     W("")
-    W("‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all")
-    W("  resolutions.  **Do not use ISD-3 weights** for any science analysis.")
+    W("ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two")
+    W("  separate only where the template response is non-linear.")
     W("")
     W("")
     W(".. seealso::")

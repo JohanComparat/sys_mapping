@@ -1,11 +1,9 @@
 TODO
-Claude.md
 data/
 logs/
 __pycache__/
 *.pyc
 *.pyo
-.claude/
 results/
 docs/_build/
 *.egg-info/

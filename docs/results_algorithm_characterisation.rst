@@ -372,34 +372,33 @@ evaluates both forms using the **amplitudes actually fitted to LS10**:
      - range over the nine samples
    * - 32
      - original
-     - ~1900 %
-     - —
+     - ~870 %
+     - 650–1040 %
    * - 32
      - PCA-rotated
      - **1.9 %**
-     - 0.8–2.4 %
+     - 0.1–3.4 %
    * - 64
      - original
-     - ~1400 %
-     - —
+     - ~193 %
+     - 63–533 %
    * - 64
      - PCA-rotated
-     - **3.5 %**
-     - 2.6–10.9 %
+     - **14.7 %**
+     - 5.7–36.9 %
 
-**The PCA rotation is load-bearing.**  In the original correlated basis the auto-only
-approximation is wrong by more than an order of magnitude — it would be unusable.  The
-pipeline applies the correction in the rotated basis (``run_ls10_analysis.py`` passes
-``a_rot``/``b_rot``/``ct_rot``), which brings the cross-term share down to a few per
-cent.  The rotation is therefore not merely an MCMC-mixing convenience: it is what
-makes the auto-only correction viable at all, and that should be stated wherever the
-rotation is described as optional.
+**The auto-only form needs the rotated basis.**  In the original correlated basis the
+approximation is wrong by a factor of a few to ten.  The pipeline applies the
+correction in the rotated basis (``run_ls10_analysis.py`` passes
+``a_rot``/``b_rot``/``ct_rot``), which is what brings the share to the level tabulated
+above, beyond the rotation's effect on MCMC mixing.
 
-The residual is 1.9 % at NSIDE 32 and 3.5 % at NSIDE 64, rising to 10.9 % for the
-sparsest sample and never beyond it.  Small enough that the auto-only form is
-defensible, and the full sum is available where it is not:
-``compute_two_point_correction`` accepts the ``(n_sys, n_sys, n_theta)`` matrix, which
-costs ``n_sys(n_sys+1)/2 = 66`` cross-spectra to build at ``n_sys = 11``.
+The residual is 1.9 % at NSIDE 32, where the auto-only form is defensible, and 14.7 %
+at NSIDE 64, where it is not.  The share depends on the method through the orientation
+of its amplitude vector: ``ISD-1`` gives 2.5 % on the same nine cells against 14.7 %
+for ``OLS`` and ``MCMC-add``.  ``compute_two_point_correction`` accepts the
+``(n_sys, n_sys, n_theta)`` matrix, which costs ``n_sys(n_sys+1)/2 = 66`` cross-spectra
+to build at ``n_sys = 11``, minutes per analysis.
 
 .. warning::
    This quantity **cannot** be measured with stand-in amplitudes.  Random amplitudes of

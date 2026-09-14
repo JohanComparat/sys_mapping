@@ -181,10 +181,10 @@ per method-configuration row, and two timing figures are written to
 Timing scaling tests
 ---------------------
 
-Timing and micro-benchmark modules have moved to
+Timing and micro-benchmark modules live in
 `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_,
-where they no longer add 259 cases to this package's CI.  Their results are
-documented in :doc:`results_benchmark`.
+outside this package's CI.  Their results are documented in
+:doc:`results_benchmark`.
 
 
 Adding new tests
@@ -369,8 +369,8 @@ present) against the current codebase.
 * ``test_real_templates.py`` — **28 passed** using real GAIA DR3 and LS10 DR10
   systematic maps; all six methods completed without error on the 5 954-pixel
   LS10 footprint.
-* ``test_regression.py`` — **39 passed**, including the previously known edge
-  case (``TestElasticNet::test_weights_bounded_positive``), which now passes.
+* ``test_regression.py`` — **39 passed**, including the ElasticNet weight-bound
+  edge case (``TestElasticNet::test_weights_bounded_positive``).
 * The systematic test matrix (``scripts/run_systematic_tests.py``, 32
   configurations) ran to completion; results are documented in
   :doc:`results_systematic_tests`.

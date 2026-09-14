@@ -246,10 +246,10 @@ python scripts/compute_sys_weights.py \
 | `WEIGHT_SYS` | Combined (recommended) | alias for `WEIGHT_COMB` |
 
 A written file records the convention in `WEIGHTVER`, `WEIGHTCON`, `WMAXCLIP` and
-`TPLBASIS`. Version 3 is a basis standardised over the analysis footprint, version 2
-over each template map's own valid region, and version 1 predates both and is read
-with a warning. The two are not comparable: fitted amplitudes are in units of one
-template standard deviation only in version 3.
+`TPLBASIS`. This package writes version 3, a basis standardised over the analysis
+footprint, where the fitted amplitudes are in units of one template standard deviation.
+Lower versions carry a basis normalised elsewhere, so their amplitudes are on a
+different scale and are read with a warning.
 
 Both scripts take the same `--skewed` flag, defaulting off. It is opt-in because
 enabling the skew-normal also moves the additive model off its exact analytic
@@ -341,13 +341,13 @@ python scripts/run_paper_validation.py --nside 512 --n-real 119 \
 
 | Script | Output |
 |---|---|
+| `scripts/generate_results_ls10_summary.py` | `docs/results_ls10.rst` from `*_params.json` |
 | `scripts/plot_ls10_wtheta_corrected.py` | `docs/_static/results_ls10/wtheta_corrected_nside64.png` |
 | `scripts/plot_runtime_scaling.py` | `docs/_static/runtime_scaling.png` |
 | `scripts/plot_simulation_tests.py` | simulation-test figures under `docs/_static/` |
 
-The page generators that wrote `docs/results_ls10*.rst` are under `scripts/archive/`
-with the rest of the pre-0.9 tooling; `scripts/archive/README.md` says what each was
-superseded by.
+The per-sample pages under `docs/results_ls10_*.rst` are written by hand; their
+generator is under `scripts/archive/`, which carries its own README.
 
 ### `scripts/benchmark_corrfunc_vs_treecorr.py`
 

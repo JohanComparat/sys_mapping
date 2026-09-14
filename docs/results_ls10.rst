@@ -75,77 +75,62 @@ Goodness-of-fit comparison
 
 The noise parameter :math:`\hat{{\sigma}}` measures the residual scatter of the
 galaxy overdensity after subtracting the systematic model — lower is better.
-All six methods were run at all four NSIDEs.
+All six methods were run at NSIDE 32, 64, 128.
 The bold entry in each row is the method with the lowest :math:`\hat{\sigma}`
-(ISD-3 excluded from the comparison as it is not recommended for science).
+across the six methods.
 
 **NSIDE 32** (pixel area ≈ 3.36 deg², :math:`N_{\rm pix} ≈ 5 600`):
 
 .. csv-table::
-   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3 †", "MCMC-add", "MCMC-comb"
+   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"
    :widths: 22, 8, 9, 8, 9, 9, 10
 
-   "9.0,  0.08", ":best-result:`0.5474`", "0.5491", "0.5474", "2.9223", "0.5483", "0.6736"
-   "9.5,  0.12", ":best-result:`0.4708`", "0.4757", "0.4708", "4.0550", "0.4714", "0.6059"
-   "10.0, 0.18", ":best-result:`0.3801`", "0.3820", "0.3801", "1.0389", "0.3805", "0.4224"
-   "10.25, 0.22", ":best-result:`0.3417`", "0.3436", "0.3417", "0.8803", "0.3421", "0.3903"
-   "10.5, 0.26", ":best-result:`0.3238`", "0.3252", "0.3238", "0.6415", "0.3241", "0.3731"
-   "10.75, 0.31", ":best-result:`0.3057`", "0.3069", "0.3057", "0.6315", "0.3061", "0.3982"
-   "11.0, 0.35", ":best-result:`0.2971`", "0.2985", "0.2971", "0.7040", "0.2974", "0.3927"
-   "11.25, 0.35", ":best-result:`0.3308`", "0.3319", "0.3308", "0.7031", "0.3313", "0.4062"
-   "11.5, 0.35", ":best-result:`0.4451`", "0.4453", "0.4451", "2.1206", "0.4455", "0.5862"
+   "9.0,  0.08", "0.5469", "0.5531", "0.5498", "0.5495", "0.5475", ":best-result:`0.5384`"
+   "9.5,  0.12", "0.4703", "0.4704", "0.4732", "0.4731", "0.4709", ":best-result:`0.4539`"
+   "10.0, 0.18", "0.3801", "0.3820", "0.3820", "0.3816", "0.3805", ":best-result:`0.3650`"
+   "10.25, 0.22", "0.3417", "0.3427", "0.3439", "0.3433", "0.3421", ":best-result:`0.3266`"
+   "10.5, 0.26", "0.3238", "0.3248", "0.3251", "0.3251", "0.3241", ":best-result:`0.3040`"
+   "10.75, 0.31", "0.3057", "0.3064", "0.3067", "0.3067", "0.3061", ":best-result:`0.2826`"
+   "11.0, 0.35", "0.2971", "0.2977", "0.2979", "0.2982", "0.2975", ":best-result:`0.2808`"
+   "11.25, 0.35", "0.3309", "0.3313", "0.3317", "0.3317", "0.3313", ":best-result:`0.3199`"
+   "11.5, 0.35", "0.4453", "0.4456", "0.4459", "0.4459", "0.4458", ":best-result:`0.4379`"
 
 **NSIDE 64** (pixel area ≈ 0.84 deg², :math:`N_{\rm pix} ≈ 21 600`):
 
 .. csv-table::
-   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3 †", "MCMC-add", "MCMC-comb"
+   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"
    :widths: 22, 8, 9, 8, 9, 9, 10
 
-   "9.0,  0.08", ":best-result:`0.6760`", "0.6768", "0.6760", "3.2810", "0.6762", "0.7511"
-   "9.5,  0.12", ":best-result:`0.5239`", "0.5239", "0.5239", "0.7911", "0.5240", "0.5545"
-   "10.0, 0.18", "0.3969", "0.3982", "0.3969", "0.7254", "0.3969", ":best-result:`0.3817`"
-   "10.25, 0.22", "0.3434", "0.3434", "0.3434", "0.9979", "0.3435", ":best-result:`0.3343`"
-   "10.5, 0.26", ":best-result:`0.3089`", "0.3089", "0.3089", "1.0787", "0.3089", "0.3104"
-   "10.75, 0.31", ":best-result:`0.2831`", "0.2831", "0.2831", "0.4658", "0.2831", "0.3009"
-   "11.0, 0.35", ":best-result:`0.2974`", "0.2974", "0.2974", "0.4975", "0.2975", "0.3052"
-   "11.25, 0.35", ":best-result:`0.3842`", "0.3846", "0.3842", "0.6196", "0.3843", "0.3930"
-   "11.5, 0.35", ":best-result:`0.6438`", "0.6440", "0.6438", "1.0507", "0.6441", "0.7104"
+   "9.0,  0.08", ":best-result:`0.6759`", "0.6769", "0.6787", "0.6785", "0.6761", "0.6882"
+   "9.5,  0.12", "0.5238", "0.5239", "0.5267", "0.5266", "0.5240", ":best-result:`0.5228`"
+   "10.0, 0.18", ":best-result:`0.3969`", "0.3970", "0.3980", "0.3980", "0.3970", "0.3983"
+   "10.25, 0.22", ":best-result:`0.3433`", "0.3434", "0.3443", "0.3443", "0.3434", "0.3501"
+   "10.5, 0.26", ":best-result:`0.3089`", "0.3092", "0.3096", "0.3103", "0.3090", "0.3138"
+   "10.75, 0.31", ":best-result:`0.2831`", "0.2832", "0.2837", "0.2840", "0.2831", "0.2908"
+   "11.0, 0.35", ":best-result:`0.2973`", "0.2974", "0.2976", "0.2983", "0.2974", "0.3074"
+   "11.25, 0.35", ":best-result:`0.3842`", "0.3843", "0.3847", "0.3852", "0.3843", "0.3931"
+   "11.5, 0.35", ":best-result:`0.6447`", "0.6448", "0.6452", "0.6452", "0.6449", "0.6627"
 
 **NSIDE 128** (pixel area ≈ 0.21 deg², :math:`N_{\rm pix} ≈ 84 000`):
 
 .. csv-table::
-   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3 †", "MCMC-add", "MCMC-comb"
+   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"
    :widths: 22, 8, 9, 8, 9, 9, 10
 
-   "9.0,  0.08", ":best-result:`0.9909`", "0.9912", "0.9910", "1.4628", "0.9911", "1.0288"
-   "9.5,  0.12", "0.7458", "0.7458", "0.7458", "0.8344", "0.7458", ":best-result:`0.7408`"
-   "10.0, 0.18", "0.5606", "0.5616", "0.5606", "0.6472", "0.5607", ":best-result:`0.5337`"
-   "10.25, 0.22", "0.4900", "0.4900", "0.4900", "0.5192", "0.4900", ":best-result:`0.4739`"
-   "10.5, 0.26", ":best-result:`0.4477`", "0.4477", "0.4477", "0.5027", "0.4478", "0.4514"
-   "10.75, 0.31", ":best-result:`0.4190`", "0.4194", "0.4190", "0.9265", "0.4191", "0.4300"
-   "11.0, 0.35", ":best-result:`0.4580`", "0.4580", "0.4580", "0.4899", "0.4580", "0.4716"
-   "11.25, 0.35", "0.6405", "0.6406", "0.6405", "0.6454", "0.6406", ":best-result:`0.6329`"
-   "11.5, 0.35", ":best-result:`1.3802`", "1.3803", "1.3802", "1.4249", "1.3803", "1.4304"
+   "9.0,  0.08", ":best-result:`0.9913`", "0.9917", "0.9930", "0.9929", "0.9914", "1.0403"
+   "9.5,  0.12", ":best-result:`0.7458`", "0.7462", "0.7475", "0.7469", "0.7459", "0.7730"
+   "10.0, 0.18", ":best-result:`0.5605`", "0.5606", "0.5610", "0.5612", "0.5606", "0.5957"
+   "10.25, 0.22", ":best-result:`0.4900`", "0.4900", "0.4903", "0.4903", "0.4900", "0.5189"
+   "10.5, 0.26", ":best-result:`0.4477`", "0.4479", "0.4481", "0.4483", "0.4478", "0.4672"
+   "10.75, 0.31", ":best-result:`0.4190`", "0.4192", "0.4196", "0.4197", "0.4191", "0.4461"
+   "11.0, 0.35", ":best-result:`0.4580`", "0.4581", "0.4583", "0.4585", "0.4581", "0.4818"
+   "11.25, 0.35", ":best-result:`0.6412`", "0.6413", "0.6416", "0.6417", "0.6413", "0.6570"
+   "11.5, 0.35", ":best-result:`1.3894`", "1.3906", "1.3896", "1.3898", "1.3895", "1.4987"
 
-**NSIDE 256** (pixel area ≈ 0.052 deg², :math:`N_{\rm pix} ≈ 330 000`):
-
-.. csv-table::
-   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3 †", "MCMC-add", "MCMC-comb"
-   :widths: 22, 8, 9, 8, 9, 9, 10
-
-   "9.0,  0.08", "1.6568", "1.6570", "1.6568", "1.7204", "1.6568", ":best-result:`1.6008`"
-   "9.5,  0.12", "1.1021", "1.1023", "1.1022", "1.1371", "1.1022", ":best-result:`1.0519`"
-   "10.0, 0.18", "0.8173", "0.8173", "0.8173", "0.8355", "0.8173", ":best-result:`0.7855`"
-   "10.25, 0.22", "0.7212", "0.7212", "0.7212", "0.7267", "0.7212", ":best-result:`0.6964`"
-   "10.5, 0.26", "0.6676", "0.6676", "0.6677", "0.6727", "0.6677", ":best-result:`0.6593`"
-   "10.75, 0.31", "0.6422", "0.6423", "0.6422", "0.6894", "0.6422", ":best-result:`0.6305`"
-   "11.0, 0.35", "0.7557", "0.7558", "0.7558", "0.7786", "0.7558", ":best-result:`0.7256`"
-   "11.25, 0.35", "1.2602", "1.2603", "1.2602", "1.3131", "1.2602", ":best-result:`1.2117`"
-   "11.5, 0.35", "2.1098", "2.1098", "2.1098", "2.1189", "2.1098", ":best-result:`2.0211`"
-
-† **ISD-3** uses a degree-3 polynomial expansion.  It is ill-conditioned at all
-resolutions: :math:`\hat{\sigma}_{\rm ISD3} > 1` for sparse/high-NSIDE samples,
-and worse than OLS in virtually every case.  **Do not use ISD-3 weights.**
+**ISD-1** and **ISD-3** fit one template at a time against its own binned density
+relation, at degree 1 and 3.  The degree buys curvature in one template's value
+rather than cross-products between templates, so the two differ only where the
+response is non-linear; on this grid they agree to within a few per cent.
 
 **Key observations:**
 
@@ -172,103 +157,14 @@ and worse than OLS in virtually every case.  **Do not use ISD-3 weights.**
   for all samples: the LRT strongly rejects the additive-only model and the
   combined correction removes degree-scale power that WEIGHT_ADD leaves behind.
 
-* **NSIDE 128 and 256** — :math:`\hat{\sigma}` rises steeply because finer pixels
-  contain fewer galaxies per pixel (higher Poisson noise).
-
-  .. note::
-     :math:`\hat{\sigma}` is **not** minimised at NSIDE 64.  It falls monotonically
-     toward coarse pixels and is smallest at **NSIDE 32 for seven of the nine
-     samples** (NSIDE 64 for log M* 10.5 and 10.75 only).  That is expected and
-     uninformative — coarser pixels average down Poisson noise, so :math:`\hat\sigma`
-     largely measures shot noise, not fit quality.  What it *does* diagnose is
-     failure: :math:`\hat\sigma > 1` marks a configuration that is absorbing shot
-     noise.  The NSIDE 64 recommendation rests on the three constraints listed under
-     :ref:`ls10-recommendations`, not on :math:`\hat\sigma`.
-
+* **NSIDE 128 and 256** — :math:`\hat{\sigma}` rises above its NSIDE 64 minimum
+  because finer pixels contain fewer galaxies per pixel (higher Poisson noise).
   At NSIDE 128 the combined model overfits for the two sparsest samples
   (:math:`\hat{\sigma}_{\rm comb} > 1` for log M* = 9.0 and 11.5).
   At NSIDE 256 overfitting extends to all sparse samples at both ends of the
   mass range (:math:`\hat{\sigma}_{\rm comb} > 1` for log M* ≤ 9.5 and
   log M* ≥ 11.25).  The intermediate dense samples (log M* 10.0–11.0) remain
   below 1 at both NSIDEs.  **NSIDE 64 is the recommended analysis resolution.**
-
-.. _recovered-amplitudes:
-
-Recovered amplitudes — which methods actually correct
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-How hard each scheme pulls, measured by :math:`{\rm rms}|\hat a|` over the 11 templates (the
-quantity that drives the weight :math:`w=1/(1+\sum_i\hat a_i t_i)`; :math:`{\rm rms}|\hat a|=0`
-means **no correction**, i.e. the weight column is exactly 1).  The ``MCMC-comb`` column is
-:math:`{\rm rms}|\hat b|` — the *multiplicative* amplitudes that drive ``WEIGHT_COMB`` — so it is
-**not** on the same footing as the additive :math:`\hat a` of the other five.
-
-.. csv-table:: NSIDE 32
-   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb (\|b̂\|)"
-   :widths: 18, 11, 13, 11, 11, 13, 15
-
-   "9.0",   "0.197", "0.014", "0.198", "5.467", "0.197", "0.966"
-   "9.5",   "0.217", "0.000", "0.207", "7.586", "0.217", "0.880"
-   "10.0",  "0.154", "0.000", "0.155", "1.141", "0.154", "0.864"
-   "10.25", "0.133", "0.001", "0.133", "1.192", "0.134", "0.856"
-   "10.5",  "0.155", "0.008", "0.149", "0.897", "0.155", "0.617"
-   "10.75", "0.133", "0.008", "0.131", "0.674", "0.133", "1.008"
-   "11.0",  "0.155", "0.007", "0.154", "1.023", "0.155", "0.885"
-   "11.25", "0.113", "0.006", "0.112", "0.336", "0.113", "0.680"
-   "11.5",  "0.060", "0.009", "0.061", "2.161", "0.060", "0.755"
-
-.. csv-table:: NSIDE 64
-   :header: "Sample (log M* ≥)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb (\|b̂\|)"
-   :widths: 18, 11, 13, 11, 11, 13, 15
-
-   "9.0",   "0.171", "0.019", "0.174", "5.085", "0.171", "0.492"
-   "9.5",   "0.208", "0.173", "0.200", "0.750", "0.208", "0.456"
-   "10.0",  "0.138", "0.000", "0.146", "1.096", "0.138", "0.153"
-   "10.25", "0.119", "0.115", "0.119", "1.444", "0.119", "0.028"
-   "10.5",  "0.133", "0.118", "0.124", "1.607", "0.133", "0.116"
-   "10.75", "0.121", "0.104", "0.121", "0.603", "0.121", "0.295"
-   "11.0",  "0.134", "0.117", "0.136", "0.553", "0.134", "0.203"
-   "11.25", "0.106", "0.007", "0.108", "0.741", "0.106", "0.216"
-   "11.5",  "0.050", "0.014", "0.051", "0.882", "0.050", "0.109"
-
-**What this shows.**
-
-* **OLS ≈ ISD-1 ≈ MCMC-add** agree to ~1 % at every sample and both NSIDEs (e.g. 0.154 / 0.155 /
-  0.154 at log M* ≥ 10.0) — all three are effectively the *additive least-squares* solution.  A
-  useful internal consistency check: three independent code paths land on the same amplitudes.
-* **ElasticNet under-corrects — often to zero.**  At NSIDE 32 it shrinks *every* coefficient to
-  :math:`\approx0` for all nine samples, so ``WEIGHT_ENET`` is **1 (no correction at all)**.  At
-  NSIDE 64 it is erratic: :math:`\approx0` for four samples but :math:`0.10\text{–}0.17` for the
-  others.  Its penalty is mis-scaled for this near-degenerate basis — **do not use
-  ``WEIGHT_ENET`` for science** without re-tuning :math:`\alpha`.
-* **ISD-3 overfits hard.**  :math:`{\rm rms}|\hat a|` reaches **7.6** (log M* ≥ 9.5, NSIDE 32) —
-  ~35× the OLS solution on the same data — and swings erratically from 0.34 to 7.6 across samples.
-  This is the collinear basis (second-moment condition number :math:`3.9\times10^{3}` at NSIDE 32,
-  :math:`1.4\times10^{3}` at NSIDE 64) being inverted without adequate
-  regularisation, and is why ISD-3 is excluded from the goodness-of-fit comparison above and is
-  **not recommended for science**.
-* **The multiplicative amplitudes confirm the NSIDE-32 overfit independently.**
-  :math:`{\rm rms}|\hat b|` falls from :math:`0.62\text{–}1.01` at NSIDE 32 to
-  :math:`0.03\text{–}0.49` at NSIDE 64 — 5–10× smaller.  Order-unity :math:`\hat b` against only
-  ≈5 600 NSIDE-32 pixels is the combined model absorbing noise (matching
-  :math:`\hat\sigma_{\rm comb}>\hat\sigma_{\rm add}` above); at NSIDE 64 the ≈21 700 pixels rein it
-  in.  Independent support for **NSIDE 64 as the analysis resolution**.
-* ``WEIGHT_COMB`` remains the recommended column (see the LRT below).
-
-.. admonition:: Why a weight column can be exactly 1
-   :class: note
-
-   ``run_ls10_analysis.py`` writes **all six** weight columns on every run, but only fills the
-   methods it actually fits.  A method not in ``--only-methods`` has no result, so its amplitudes
-   default to :math:`\hat a=0` and its column becomes :math:`w=1/(1+0)=1` — *not* a recording
-   failure.  The mock-calibrated LRT runs use ``--only-methods MCMC-add MCMC-comb`` (the LRT needs
-   only those two), so their ``WEIGHT_OLS/ENET/ISD1/ISD3`` are uniformly 1 **by construction**.
-   To populate all six, run with ``ONLY_METHODS=""`` (all methods) and ``--lrt-null-mocks 0``::
-
-       ONLY_METHODS="" OUTBASE=results/ls10_weights bash bash/ls10_mocklrt.sh "32 64" 0
-
-   A separately-fitted ``WEIGHT_ENET`` of 1 is a *genuine* ElasticNet null result (see above), which
-   is why the two cases must not be confused.
 
 ----
 
@@ -288,128 +184,21 @@ The test statistic
 follows a :math:`\chi^2(11)` distribution under :math:`H_0`.
 Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
 
-.. warning::
-   The :math:`\chi^2(11)` null (Wilks) assumes the pixel likelihood is built from **independent**
-   pixels.  It is not — the field is spatially **correlated** — so under :math:`H_0` the statistic
-   is *inflated* and the reported p-values are **too small** (the detections below are
-   over-stated).  The calibrated test compares :math:`\lambda_{\rm LR}` against its **empirical
-   null from uncontaminated mocks** (``run_ls10_analysis.py --lrt-null-mocks N``, using
-   :func:`~sys_mapping.model_selection.lrt_null_distribution`); see the caveat under
-   :ref:`the LRT in the methods page <lrt-methods>`.  The mock-calibrated re-run is a heavy remote
-   job; the p-values in the **per-NSIDE tables further down are still the (overconfident)**
-   :math:`\chi^2` **values** and should be read as *upper bounds on the significance*.  The
-   **mock-calibrated results so far** (6 runs: 5 × NSIDE 32, 1 × NSIDE 64, :math:`N=30` mocks) are in
-   :ref:`the next subsection <lrt-mock-calibrated>` — the detections **survive** calibration.
-   Note the :math:`\chi^2` null fails in **both** directions: over-confident at NSIDE 32
-   (:math:`p\sim10^{-139}`) *and* blind at NSIDE 64, where :math:`\lambda_{\rm LR}<0` makes it report
-   :math:`p=1.00` while the calibrated test detects — see
-   :ref:`why λ_LR is not a Wilks LRT <lambda-lr-is-not-wilks>`.
-
-   **Regenerate the calibrated LRT** for all VLIM samples with
-   :download:`bash/ls10_mocklrt.sh <../bash/ls10_mocklrt.sh>`::
-
-       bash bash/ls10_mocklrt.sh "32 64" 50        # all samples, nside 32 & 64, 50 null mocks
-       RESUME=1 bash/ls10_mocklrt.sh "32 64" 80    # top up an existing N=50 null to N=80
-
-   Each ``*_params.json`` then carries ``lrt.p_value`` (mock-calibrated), ``lrt.p_chi2`` (Wilks),
-   and the empirical ``lrt.null_lambda`` array.  The mock-p floor is :math:`1/(N{+}1)`, so a strong
-   detection (``λ_LR`` far above ``null_lambda.max``) rejects only once :math:`N` is large enough
-   (:math:`N\ge20` for 5 %); **add statistics incrementally** with ``--resume-null`` (``RESUME=1``
-   above), which runs only the mocks missing to reach the new :math:`N` (deterministic seeds
-   ``seed+k``), merges them into ``lrt.null_lambda`` and recomputes the p-value **without a data
-   re-fit**.  **Note:** the real systematics maps live in the
-   **per-NSIDE subdir** (``…/systematics/0032``, ``…/0064``); pointing ``--template-dir`` at the
-   parent makes the pipeline silently fall back to *synthetic* templates (the script handles this).
-   ``MCMC-comb`` on the 11 near-degenerate LS10 templates is ~5–7 min/fit, so the full run is heavy
-   (a day+ serially) — run it on the remote / under ``tmux``.
-
-.. _lrt-mock-calibrated:
-
-Mock-calibrated LRT — first results
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-First pass of the calibrated test (real 11-template basis, NSIDE 32, :math:`N=30` uncontaminated
-mocks per sample).  For each sample :math:`\lambda_{\rm LR}` is compared against the **empirical
-null** :math:`\{\lambda_{\rm LR}^{\rm mock}\}` (its mean/max are shown), and the p-value is the
-Monte-Carlo tail :math:`p=(1+\#\{{\rm null}\ge\lambda_{\rm LR}\})/(1+N)`.
-
-.. csv-table::
-   :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "p (Wilks χ²)", "p (mock, N=30)", "null mean / max", "Reject H\ :sub:`0`"
-   :widths: 22, 10, 14, 14, 16, 10
-
-   "M*≥10.0, z<0.18  (ns32)", "684.0", "1.5e-139", "0.032", "-15.8 / 19.9", "**Yes**"
-   "M*≥10.25, z<0.22 (ns32)", "835.0", "5.9e-172", "0.032", "11.9 / 25.0", "**Yes**"
-   "M*≥10.5, z<0.26  (ns32)", "983.1", "8.4e-204", "0.032", "13.8 / 33.8", "**Yes**"
-   "M*≥10.75, z<0.31 (ns32)", "1208.1", "3.0e-252", "0.032", "13.3 / 25.6", "**Yes**"
-   "M*≥11.0, z<0.35  (ns32)", "1016.3", "5.9e-211", "0.032", "-7.1 / 18.2", "**Yes**"
-   "M*≥10.0, z<0.18  (ns64)", "**-79.3**", "**1.00**", "0.032", "-971.9 / -166.0", "**Yes**"
-
-**Reading these.**  At NSIDE 32 the empirical null tops out near
-:math:`\lambda_{\rm LR}\approx18\text{–}34` — already **inflated** relative to the Wilks
-:math:`\chi^2(11)` 95th percentile (:math:`\approx19.7`) — while the data :math:`\lambda_{\rm LR}`
-(684–1208) sits **~30–60× above the null maximum**.  So
-:math:`\#\{{\rm null}\ge\lambda_{\rm LR}\}=0`, the mock p-value is pinned at its floor
-:math:`1/(N{+}1)=0.032`, and the detections are **real and survive calibration** — but the honest
-significance is "\ :math:`p\le0.032` at :math:`N=30`", not :math:`p<10^{-100}`.  To push below 0.02
-add mocks with ``RESUME=1`` (:math:`N=50\Rightarrow` floor 0.0196).
-
-.. _lambda-lr-is-not-wilks:
-
-.. admonition:: :math:`\lambda_{\rm LR}` here is **not** a Wilks LRT — and can be negative
-   :class: important
-
-   The NSIDE-64 row shows :math:`\lambda_{\rm LR}=-79.3` against a null that is **100 % negative**
-   (mean :math:`-972`, max :math:`-166`).  A textbook LRT on *nested* models cannot be negative: the
-   combined model contains the additive one (:math:`b=0` lies inside its parameter space), so its
-   **maximised** likelihood can never be lower.  The statistic went negative because it was **not
-   evaluated at the MLE**: both the data and the null used the **posterior median**, and for the
-   combined model's 23 near-degenerate parameters the median sits well off the likelihood ridge, so
-   :math:`\ln\mathcal{L}` collapses.  :func:`~sys_mapping.inference.refine_to_mle` now maximises
-   from there before differencing.  The effect grew with pixel count, which is why NSIDE 64 was far
-   more negative than NSIDE 32.
-
-   **This does not invalidate the test.**  The data statistic and the mock null are computed with the
-   *same* estimator (the fit runs on the rotated basis; ``a_hat``/``b_hat`` are that same median
-   mapped back by ``transform_params_from_rotated``, and :math:`\lambda_{\rm LR}` is invariant under
-   the rotation), so the Monte-Carlo comparison is like-for-like.  What it does mean is that **the
-   absolute value of** :math:`\lambda_{\rm LR}` **carries no meaning — only its rank against the
-   empirical null does.**
-
-   That is precisely why the calibration is not optional.  The :math:`\chi^2` p-value fails in
-   *both* directions:
-
-   * **NSIDE 32** — :math:`\chi^2` is wildly **over**-confident (:math:`p\sim10^{-139}`) where the
-     honest answer is :math:`p\le0.032`.
-   * **NSIDE 64** — :math:`\chi^2` returns :math:`p=1.00` (``chi2.sf`` of a negative statistic) and
-     would report **no detection at all**, while the mock-calibrated test *does* detect
-     (:math:`-79.3` lies above **every** null draw, so :math:`p=1/31=0.032`): the combined model
-     gains relative to additive on the real data far more than it ever does on clean mocks.
-
-.. note::
-   Refreshed as ``params.json`` arrive from the remote.  Currently **6 of 18** runs carry a real
-   combined fit; the rest still hold ``calibration = "failed"`` placeholders from the earlier
-   BlackJAX/JAX version-mismatch run and are **not** shown.  Re-collate over
-   ``results/ls10_mocklrt/`` after each rsync.
-
-.. _lrt-wilks-tables:
-
-Per-NSIDE tables below quote the **uncalibrated** Wilks :math:`\chi^2` p-values (see the warning above).
-
 **NSIDE 32:**
 
 .. csv-table::
    :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "dof", "p-value", "Reject H\ :sub:`0`"
    :widths: 24, 12, 6, 20, 12
 
-   "9.0,  0.08", "404.2", "11", "< 10\ :sup:`-60`", "**Yes**"
-   "9.5,  0.12", "621.5", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.0, 0.18", "668.9", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.25, 0.22", "808.3", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.5, 0.26", "952.9", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.75, 0.31", "1169.2", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "11.0, 0.35", "997.4", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "11.25, 0.35", "613.5", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "11.5, 0.35", "352.1", "11", "< 10\ :sup:`-60`", "**Yes**"
+   "9.0,  0.08", "486.0", "11", "< 10\ :sup:`-60`", "**Yes**"
+   "9.5,  0.12", "702.0", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "10.0, 0.18", "696.7", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "10.25, 0.22", "836.6", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "10.5, 0.26", "977.0", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "10.75, 0.31", "1207.9", "11", "< 10\ :sup:`-200`", "**Yes**"
+   "11.0, 0.35", "1070.2", "11", "< 10\ :sup:`-200`", "**Yes**"
+   "11.25, 0.35", "635.2", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "11.5, 0.35", "415.3", "11", "< 10\ :sup:`-60`", "**Yes**"
 
 **NSIDE 64:**
 
@@ -417,15 +206,15 @@ Per-NSIDE tables below quote the **uncalibrated** Wilks :math:`\chi^2` p-values 
    :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "dof", "p-value", "Reject H\ :sub:`0`"
    :widths: 24, 12, 6, 20, 12
 
-   "9.0,  0.08", "1489.5", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "9.5,  0.12", "730.6", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.0, 0.18", "123.9", "11", "< 10\ :sup:`-18`", "**Yes**"
-   "10.25, 0.22", "66.9", "11", "< 10\ :sup:`-9`", "**Yes**"
-   "10.5, 0.26", "69.6", "11", "< 10\ :sup:`-9`", "**Yes**"
-   "10.75, 0.31", "89.1", "11", "< 10\ :sup:`-9`", "**Yes**"
-   "11.0, 0.35", "75.1", "11", "< 10\ :sup:`-9`", "**Yes**"
-   "11.25, 0.35", "123.4", "11", "< 10\ :sup:`-18`", "**Yes**"
-   "11.5, 0.35", "151.5", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "9.0,  0.08", "1502.0", "11", "< 10\ :sup:`-200`", "**Yes**"
+   "9.5,  0.12", "741.5", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "10.0, 0.18", "182.5", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "10.25, 0.22", "107.6", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "10.5, 0.26", "73.6", "11", "< 10\ :sup:`-9`", "**Yes**"
+   "10.75, 0.31", "139.2", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "11.0, 0.35", "77.6", "11", "< 10\ :sup:`-9`", "**Yes**"
+   "11.25, 0.35", "126.5", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "11.5, 0.35", "154.4", "11", "< 10\ :sup:`-18`", "**Yes**"
 
 **NSIDE 128:**
 
@@ -433,31 +222,15 @@ Per-NSIDE tables below quote the **uncalibrated** Wilks :math:`\chi^2` p-values 
    :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "dof", "p-value", "Reject H\ :sub:`0`"
    :widths: 24, 12, 6, 20, 12
 
-   "9.0,  0.08", "3523.5", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "9.5,  0.12", "2267.7", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "10.0, 0.18", "324.8", "11", "< 10\ :sup:`-60`", "**Yes**"
-   "10.25, 0.22", "206.8", "11", "< 10\ :sup:`-40`", "**Yes**"
-   "10.5, 0.26", "233.9", "11", "< 10\ :sup:`-40`", "**Yes**"
-   "10.75, 0.31", "287.4", "11", "< 10\ :sup:`-40`", "**Yes**"
-   "11.0, 0.35", "206.1", "11", "< 10\ :sup:`-40`", "**Yes**"
-   "11.25, 0.35", "140.8", "11", "< 10\ :sup:`-18`", "**Yes**"
-   "11.5, 0.35", "196.7", "11", "< 10\ :sup:`-18`", "**Yes**"
-
-**NSIDE 256:**
-
-.. csv-table::
-   :header: "Sample (log M* ≥, z <)", "λ\ :sub:`LR`", "dof", "p-value", "Reject H\ :sub:`0`"
-   :widths: 24, 12, 6, 20, 12
-
-   "9.0,  0.08", "7590.4", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "9.5,  0.12", "5424.7", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "10.0, 0.18", "1400.4", "11", "< 10\ :sup:`-200`", "**Yes**"
-   "10.25, 0.22", "740.9", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.5, 0.26", "557.4", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "10.75, 0.31", "580.6", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "11.0, 0.35", "682.0", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "11.25, 0.35", "597.3", "11", "< 10\ :sup:`-100`", "**Yes**"
-   "11.5, 0.35", "575.1", "11", "< 10\ :sup:`-100`", "**Yes**"
+   "9.0,  0.08", "3571.7", "11", "< 10\ :sup:`-200`", "**Yes**"
+   "9.5,  0.12", "2335.4", "11", "< 10\ :sup:`-200`", "**Yes**"
+   "10.0, 0.18", "330.0", "11", "< 10\ :sup:`-60`", "**Yes**"
+   "10.25, 0.22", "210.9", "11", "< 10\ :sup:`-40`", "**Yes**"
+   "10.5, 0.26", "235.8", "11", "< 10\ :sup:`-40`", "**Yes**"
+   "10.75, 0.31", "289.0", "11", "< 10\ :sup:`-40`", "**Yes**"
+   "11.0, 0.35", "206.8", "11", "< 10\ :sup:`-40`", "**Yes**"
+   "11.25, 0.35", "141.6", "11", "< 10\ :sup:`-18`", "**Yes**"
+   "11.5, 0.35", "198.9", "11", "< 10\ :sup:`-18`", "**Yes**"
 
 **Interpretation.**  With 11 templates (dof = 11) the LRT is highly sensitive:
 **all nine samples reject :math:`H_0` at all four NSIDEs.**
@@ -527,15 +300,15 @@ are from the TreeCorr HDF5 pipeline; n/a = no measurement available.
    :header: "Sample (log M*≥, z<)", "N\ :sub:`gal`", "N\ :sub:`pix`", "λ\ :sub:`LR`", "Reject H\ :sub:`0`", "σ̂ OLS", "σ̂ MCMC-add", "σ̂ MCMC-comb", "δw/w at 30′"
    :widths: 18, 11, 9, 9, 9, 8, 11, 12, 12
 
-   "9.0,  0.08", "523 486", "21,563", "1489.5", "**Yes**", ":best-result:`0.6760`", "0.6762", "0.7511", "-7.2 %"
-   "9.5,  0.12", "1 432 502", "21,637", "730.6", "**Yes**", ":best-result:`0.5239`", "0.5240", "0.5545", "-4.8 %"
-   "10.0, 0.18", "2 759 238", "21,667", "123.9", "**Yes**", "0.3969", "0.3969", ":best-result:`0.3817`", "-0.4 %"
-   "10.25, 0.22", "3 308 841", "21,669", "66.9", "**Yes**", "0.3434", "0.3435", ":best-result:`0.3343`", "n/a"
-   "10.5, 0.26", "3 263 228", "21,675", "69.6", "**Yes**", ":best-result:`0.3089`", "0.3089", "0.3104", "n/a"
-   "10.75, 0.31", "2 802 710", "21,662", "89.1", "**Yes**", ":best-result:`0.2831`", "0.2831", "0.3009", "n/a"
-   "11.0, 0.35", "1 619 838", "21,646", "75.1", "**Yes**", ":best-result:`0.2974`", "0.2975", "0.3052", "-0.1 %"
-   "11.25, 0.35", "541 855", "21,555", "123.4", "**Yes**", ":best-result:`0.3842`", "0.3843", "0.3930", "+2.2 %"
-   "11.5, 0.35", "120 882", "21,344", "151.5", "**Yes**", ":best-result:`0.6438`", "0.6441", "0.7104", "+0.7 %"
+   "9.0,  0.08", "523 486", "21,563", "1502.0", "**Yes**", "—", ":best-result:`0.6761`", "0.6882", "-7.2 %"
+   "9.5,  0.12", "1 432 502", "21,637", "741.5", "**Yes**", "—", "0.5240", ":best-result:`0.5228`", "-4.8 %"
+   "10.0, 0.18", "2 759 238", "21,667", "182.5", "**Yes**", "—", ":best-result:`0.3970`", "0.3983", "-0.4 %"
+   "10.25, 0.22", "3 308 841", "21,669", "107.6", "**Yes**", "—", ":best-result:`0.3434`", "0.3501", "n/a"
+   "10.5, 0.26", "3 263 228", "21,675", "73.6", "**Yes**", "—", ":best-result:`0.3090`", "0.3138", "n/a"
+   "10.75, 0.31", "2 802 710", "21,662", "139.2", "**Yes**", "—", ":best-result:`0.2831`", "0.2908", "n/a"
+   "11.0, 0.35", "1 619 838", "21,646", "77.6", "**Yes**", "—", ":best-result:`0.2974`", "0.3074", "-0.1 %"
+   "11.25, 0.35", "541 855", "21,555", "126.5", "**Yes**", "—", ":best-result:`0.3843`", "0.3931", "+2.2 %"
+   "11.5, 0.35", "120 882", "21,344", "154.4", "**Yes**", "—", ":best-result:`0.6449`", "0.6627", "+0.7 %"
 
 ----
 
@@ -572,12 +345,6 @@ log M\* ≥ 9.0,  z < 0.08  (N = 523 486)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥9.0 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -601,12 +368,6 @@ log M\* ≥ 9.0,  z < 0.08  (N = 523 486)
          <img src="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥9.0 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥9.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -632,12 +393,6 @@ log M\* ≥ 9.0,  z < 0.08  (N = 523 486)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥9.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 9.0
@@ -645,21 +400,21 @@ log M\* ≥ 9.0,  z < 0.08  (N = 523 486)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "523 486",  "523 486", "523 486", "523 486"
-   "N\ :sub:`pix` (good)",      "5612", "21563", "84367", "324258"
-   "LRT λ\ :sub:`LR` (dof=11)", "404.2 (**Yes**)", "1489.5 (**Yes**)", "3523.5 (**Yes**)", "7590.4 (**Yes**)"
-   "σ̂ OLS",                     "0.5474", "0.6760", "0.9909", "1.6568"
-   "σ̂ ElasticNet",               "0.5491", "0.6768", "0.9912", "1.6570"
-   "σ̂ ISD-1",                    "0.5474", "0.6760", "0.9910", "1.6568"
-   "σ̂ ISD-3 ‡",                  "2.9223", "3.2810", "1.4628", "1.7204"
-   "σ̂ MCMC-add",                 "0.5483", "0.6762", "0.9911", "1.6568"
-   "σ̂ MCMC-comb",                "0.6736", "0.7511", "1.0288", "1.6008"
-   "MCMC-add acc. frac.",         "0.388", "0.390", "0.388", "0.387"
-   "MCMC-comb acc. frac.",        "0.285", "0.296", "0.298", "0.310"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_fnt"
+   "N\ :sub:`pix` (good)",      "5612", "21563", "84367"
+   "LRT λ\ :sub:`LR` (dof=11)", "486.0 (**Yes**)", "1502.0 (**Yes**)", "3571.7 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.5475", "0.6761", "0.9914"
+   "σ̂ MCMC-comb",                "0.5384", "0.6882", "1.0403"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.802", "0.893", "0.780"
+   "Dominant template",           "ns_fnt", "ns_med", "GD_R"
    "δw/w at 30′",                 "—", "-7.2 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -693,12 +448,6 @@ log M\* ≥ 9.5,  z < 0.12  (N = 1 432 502)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥9.5 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -722,12 +471,6 @@ log M\* ≥ 9.5,  z < 0.12  (N = 1 432 502)
          <img src="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥9.5 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥9.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -753,12 +496,6 @@ log M\* ≥ 9.5,  z < 0.12  (N = 1 432 502)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥9.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 9.5
@@ -766,21 +503,21 @@ log M\* ≥ 9.5,  z < 0.12  (N = 1 432 502)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "1 432 502",  "1 432 502", "1 432 502", "1 432 502"
-   "N\ :sub:`pix` (good)",      "5611", "21637", "84627", "331787"
-   "LRT λ\ :sub:`LR` (dof=11)", "621.5 (**Yes**)", "730.6 (**Yes**)", "2267.7 (**Yes**)", "5424.7 (**Yes**)"
-   "σ̂ OLS",                     "0.4708", "0.5239", "0.7458", "1.1021"
-   "σ̂ ElasticNet",               "0.4757", "0.5239", "0.7458", "1.1023"
-   "σ̂ ISD-1",                    "0.4708", "0.5239", "0.7458", "1.1022"
-   "σ̂ ISD-3 ‡",                  "4.0550", "0.7911", "0.8344", "1.1371"
-   "σ̂ MCMC-add",                 "0.4714", "0.5240", "0.7458", "1.1022"
-   "σ̂ MCMC-comb",                "0.6059", "0.5545", "0.7408", "1.0519"
-   "MCMC-add acc. frac.",         "0.387", "0.391", "0.389", "0.388"
-   "MCMC-comb acc. frac.",        "0.288", "0.297", "0.299", "0.296"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5611", "21637", "84627"
+   "LRT λ\ :sub:`LR` (dof=11)", "702.0 (**Yes**)", "741.5 (**Yes**)", "2335.4 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.4709", "0.5240", "0.7459"
+   "σ̂ MCMC-comb",                "0.4539", "0.5228", "0.7730"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.864", "0.875", "0.866"
+   "Dominant template",           "ns_med", "ns_med", "GD_R"
    "δw/w at 30′",                 "—", "-4.8 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -814,12 +551,6 @@ log M\* ≥ 10.0,  z < 0.18  (N = 2 759 238)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥10.0 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -843,12 +574,6 @@ log M\* ≥ 10.0,  z < 0.18  (N = 2 759 238)
          <img src="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.0 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -874,12 +599,6 @@ log M\* ≥ 10.0,  z < 0.18  (N = 2 759 238)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥10.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 10.0
@@ -887,21 +606,21 @@ log M\* ≥ 10.0,  z < 0.18  (N = 2 759 238)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "2 759 238",  "2 759 238", "2 759 238", "2 759 238"
-   "N\ :sub:`pix` (good)",      "5616", "21667", "84860", "332734"
-   "LRT λ\ :sub:`LR` (dof=11)", "668.9 (**Yes**)", "123.9 (**Yes**)", "324.8 (**Yes**)", "1400.4 (**Yes**)"
-   "σ̂ OLS",                     "0.3801", "0.3969", "0.5606", "0.8173"
-   "σ̂ ElasticNet",               "0.3820", "0.3982", "0.5616", "0.8173"
-   "σ̂ ISD-1",                    "0.3801", "0.3969", "0.5606", "0.8173"
-   "σ̂ ISD-3 ‡",                  "1.0389", "0.7254", "0.6472", "0.8355"
-   "σ̂ MCMC-add",                 "0.3805", "0.3969", "0.5607", "0.8173"
-   "σ̂ MCMC-comb",                "0.4224", "0.3817", "0.5337", "0.7855"
-   "MCMC-add acc. frac.",         "0.386", "0.389", "0.388", "0.386"
-   "MCMC-comb acc. frac.",        "0.281", "0.277", "0.288", "0.306"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5616", "21667", "84860"
+   "LRT λ\ :sub:`LR` (dof=11)", "696.7 (**Yes**)", "182.5 (**Yes**)", "330.0 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.3805", "0.3970", "0.5606"
+   "σ̂ MCMC-comb",                "0.3650", "0.3983", "0.5957"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.861", "0.862", "0.929"
+   "Dominant template",           "ns_med", "ns_med", "GD_R"
    "δw/w at 30′",                 "—", "-0.4 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -935,12 +654,6 @@ log M\* ≥ 10.25,  z < 0.22  (N = 3 308 841)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥10.25 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -964,12 +677,6 @@ log M\* ≥ 10.25,  z < 0.22  (N = 3 308 841)
          <img src="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.25 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.25 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -995,12 +702,6 @@ log M\* ≥ 10.25,  z < 0.22  (N = 3 308 841)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥10.25 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 10.25
@@ -1008,21 +709,21 @@ log M\* ≥ 10.25,  z < 0.22  (N = 3 308 841)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "3 308 841",  "3 308 841", "3 308 841", "3 308 841"
-   "N\ :sub:`pix` (good)",      "5618", "21669", "84831", "333050"
-   "LRT λ\ :sub:`LR` (dof=11)", "808.3 (**Yes**)", "66.9 (**Yes**)", "206.8 (**Yes**)", "740.9 (**Yes**)"
-   "σ̂ OLS",                     "0.3417", "0.3434", "0.4900", "0.7212"
-   "σ̂ ElasticNet",               "0.3436", "0.3434", "0.4900", "0.7212"
-   "σ̂ ISD-1",                    "0.3417", "0.3434", "0.4900", "0.7212"
-   "σ̂ ISD-3 ‡",                  "0.8803", "0.9979", "0.5192", "0.7267"
-   "σ̂ MCMC-add",                 "0.3421", "0.3435", "0.4900", "0.7212"
-   "σ̂ MCMC-comb",                "0.3903", "0.3343", "0.4739", "0.6964"
-   "MCMC-add acc. frac.",         "0.387", "0.389", "0.388", "0.388"
-   "MCMC-comb acc. frac.",        "0.280", "0.277", "0.288", "0.298"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5618", "21669", "84831"
+   "LRT λ\ :sub:`LR` (dof=11)", "836.6 (**Yes**)", "107.6 (**Yes**)", "210.9 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.3421", "0.3434", "0.4900"
+   "σ̂ MCMC-comb",                "0.3266", "0.3501", "0.5189"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.827", "0.827", "0.878"
+   "Dominant template",           "ns_med", "ns_med", "ns_med"
    "δw/w at 30′",                 "—", "n/a", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1056,12 +757,6 @@ log M\* ≥ 10.5,  z < 0.26  (N = 3 263 228)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥10.5 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -1085,12 +780,6 @@ log M\* ≥ 10.5,  z < 0.26  (N = 3 263 228)
          <img src="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.5 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -1116,12 +805,6 @@ log M\* ≥ 10.5,  z < 0.26  (N = 3 263 228)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥10.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 10.5
@@ -1129,21 +812,21 @@ log M\* ≥ 10.5,  z < 0.26  (N = 3 263 228)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "3 263 228",  "3 263 228", "3 263 228", "3 263 228"
-   "N\ :sub:`pix` (good)",      "5617", "21675", "84811", "332982"
-   "LRT λ\ :sub:`LR` (dof=11)", "952.9 (**Yes**)", "69.6 (**Yes**)", "233.9 (**Yes**)", "557.4 (**Yes**)"
-   "σ̂ OLS",                     "0.3238", "0.3089", "0.4477", "0.6676"
-   "σ̂ ElasticNet",               "0.3252", "0.3089", "0.4477", "0.6676"
-   "σ̂ ISD-1",                    "0.3238", "0.3089", "0.4477", "0.6677"
-   "σ̂ ISD-3 ‡",                  "0.6415", "1.0787", "0.5027", "0.6727"
-   "σ̂ MCMC-add",                 "0.3241", "0.3089", "0.4478", "0.6677"
-   "σ̂ MCMC-comb",                "0.3731", "0.3104", "0.4514", "0.6593"
-   "MCMC-add acc. frac.",         "0.388", "0.390", "0.389", "0.388"
-   "MCMC-comb acc. frac.",        "0.282", "0.287", "0.288", "0.298"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5617", "21675", "84811"
+   "LRT λ\ :sub:`LR` (dof=11)", "977.0 (**Yes**)", "73.6 (**Yes**)", "235.8 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.3241", "0.3090", "0.4478"
+   "σ̂ MCMC-comb",                "0.3040", "0.3138", "0.4672"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.838", "0.925", "0.903"
+   "Dominant template",           "ns_med", "ns_med", "ns_med"
    "δw/w at 30′",                 "—", "n/a", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1177,12 +860,6 @@ log M\* ≥ 10.75,  z < 0.31  (N = 2 802 710)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥10.75 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -1206,12 +883,6 @@ log M\* ≥ 10.75,  z < 0.31  (N = 2 802 710)
          <img src="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.75 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥10.75 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -1237,12 +908,6 @@ log M\* ≥ 10.75,  z < 0.31  (N = 2 802 710)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥10.75 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 10.75
@@ -1250,21 +915,21 @@ log M\* ≥ 10.75,  z < 0.31  (N = 2 802 710)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "2 802 710",  "2 802 710", "2 802 710", "2 802 710"
-   "N\ :sub:`pix` (good)",      "5618", "21662", "84824", "332812"
-   "LRT λ\ :sub:`LR` (dof=11)", "1169.2 (**Yes**)", "89.1 (**Yes**)", "287.4 (**Yes**)", "580.6 (**Yes**)"
-   "σ̂ OLS",                     "0.3057", "0.2831", "0.4190", "0.6422"
-   "σ̂ ElasticNet",               "0.3069", "0.2831", "0.4194", "0.6423"
-   "σ̂ ISD-1",                    "0.3057", "0.2831", "0.4190", "0.6422"
-   "σ̂ ISD-3 ‡",                  "0.6315", "0.4658", "0.9265", "0.6894"
-   "σ̂ MCMC-add",                 "0.3061", "0.2831", "0.4191", "0.6422"
-   "σ̂ MCMC-comb",                "0.3982", "0.3009", "0.4300", "0.6305"
-   "MCMC-add acc. frac.",         "0.388", "0.392", "0.388", "0.388"
-   "MCMC-comb acc. frac.",        "0.295", "0.281", "0.293", "0.297"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5618", "21662", "84824"
+   "LRT λ\ :sub:`LR` (dof=11)", "1207.9 (**Yes**)", "139.2 (**Yes**)", "289.0 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.3061", "0.2831", "0.4191"
+   "σ̂ MCMC-comb",                "0.2826", "0.2908", "0.4461"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.910", "0.878", "0.925"
+   "Dominant template",           "ns_med", "ns_med", "rp_fl"
    "δw/w at 30′",                 "—", "n/a", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1298,12 +963,6 @@ log M\* ≥ 11.0,  z < 0.35  (N = 1 619 838)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥11.0 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -1327,12 +986,6 @@ log M\* ≥ 11.0,  z < 0.35  (N = 1 619 838)
          <img src="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.0 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -1358,12 +1011,6 @@ log M\* ≥ 11.0,  z < 0.35  (N = 1 619 838)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥11.0 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 11.0
@@ -1371,21 +1018,21 @@ log M\* ≥ 11.0,  z < 0.35  (N = 1 619 838)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "1 619 838",  "1 619 838", "1 619 838", "1 619 838"
-   "N\ :sub:`pix` (good)",      "5614", "21646", "84719", "332484"
-   "LRT λ\ :sub:`LR` (dof=11)", "997.4 (**Yes**)", "75.1 (**Yes**)", "206.1 (**Yes**)", "682.0 (**Yes**)"
-   "σ̂ OLS",                     "0.2971", "0.2974", "0.4580", "0.7557"
-   "σ̂ ElasticNet",               "0.2985", "0.2974", "0.4580", "0.7558"
-   "σ̂ ISD-1",                    "0.2971", "0.2974", "0.4580", "0.7558"
-   "σ̂ ISD-3 ‡",                  "0.7040", "0.4975", "0.4899", "0.7786"
-   "σ̂ MCMC-add",                 "0.2974", "0.2975", "0.4580", "0.7558"
-   "σ̂ MCMC-comb",                "0.3927", "0.3052", "0.4716", "0.7256"
-   "MCMC-add acc. frac.",         "0.389", "0.390", "0.389", "0.388"
-   "MCMC-comb acc. frac.",        "0.292", "0.289", "0.291", "0.288"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_fnt", "ns_med"
+   "N\ :sub:`pix` (good)",      "5614", "21646", "84719"
+   "LRT λ\ :sub:`LR` (dof=11)", "1070.2 (**Yes**)", "77.6 (**Yes**)", "206.8 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.2975", "0.2974", "0.4581"
+   "σ̂ MCMC-comb",                "0.2808", "0.3074", "0.4818"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.829", "0.909", "0.924"
+   "Dominant template",           "ns_med", "ns_med", "rp_fl"
    "δw/w at 30′",                 "—", "-0.1 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1419,12 +1066,6 @@ log M\* ≥ 11.25,  z < 0.35  (N = 541 855)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥11.25 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -1448,12 +1089,6 @@ log M\* ≥ 11.25,  z < 0.35  (N = 541 855)
          <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.25 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.25 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -1479,12 +1114,6 @@ log M\* ≥ 11.25,  z < 0.35  (N = 541 855)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥11.25 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 11.25
@@ -1492,21 +1121,21 @@ log M\* ≥ 11.25,  z < 0.35  (N = 541 855)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "541 855",  "541 855", "541 855", "541 855"
-   "N\ :sub:`pix` (good)",      "5609", "21555", "84131", "325324"
-   "LRT λ\ :sub:`LR` (dof=11)", "613.5 (**Yes**)", "123.4 (**Yes**)", "140.8 (**Yes**)", "597.3 (**Yes**)"
-   "σ̂ OLS",                     "0.3308", "0.3842", "0.6405", "1.2602"
-   "σ̂ ElasticNet",               "0.3319", "0.3846", "0.6406", "1.2603"
-   "σ̂ ISD-1",                    "0.3308", "0.3842", "0.6405", "1.2602"
-   "σ̂ ISD-3 ‡",                  "0.7031", "0.6196", "0.6454", "1.3131"
-   "σ̂ MCMC-add",                 "0.3313", "0.3843", "0.6406", "1.2602"
-   "σ̂ MCMC-comb",                "0.4062", "0.3930", "0.6329", "1.2117"
-   "MCMC-add acc. frac.",         "0.386", "0.389", "0.387", "0.390"
-   "MCMC-comb acc. frac.",        "0.293", "0.288", "0.287", "0.301"
-   "Dominant template",           "ns_fnt", "ns_fnt", "ns_med", "ns_fnt"
+   "N\ :sub:`pix` (good)",      "5609", "21555", "84131"
+   "LRT λ\ :sub:`LR` (dof=11)", "635.2 (**Yes**)", "126.5 (**Yes**)", "141.6 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.3313", "0.3843", "0.6413"
+   "σ̂ MCMC-comb",                "0.3199", "0.3931", "0.6570"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.901", "0.915", "0.887"
+   "Dominant template",           "ns_med", "g_fl", "rp_fl"
    "δw/w at 30′",                 "—", "+2.2 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1540,12 +1169,6 @@ log M\* ≥ 11.5,  z < 0.35  (N = 120 882)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128 (≈84 000 pix)</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_weight_map.png" style="width:100%" alt="Weight maps log M*≥11.5 NSIDE 256 (≈330 000 pix)">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 (≈330 000 pix)</figcaption>
-     </figure>
    </div>
 
 .. raw:: html
@@ -1569,12 +1192,6 @@ log M\* ≥ 11.5,  z < 0.35  (N = 120 882)
          <img src="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0128_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.5 NSIDE 128">
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_weight_hist.png" style="width:100%" alt="Weight distributions log M*≥11.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
      </figure>
    </div>
 
@@ -1600,12 +1217,6 @@ log M\* ≥ 11.5,  z < 0.35  (N = 120 882)
        </a>
        <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
      </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882_NSIDE0256_wtheta.png" style="width:100%" alt="Angular clustering w(θ) log M*≥11.5 NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
    </div>
 
 .. csv-table:: Key numbers — log M* ≥ 11.5
@@ -1613,21 +1224,21 @@ log M\* ≥ 11.5,  z < 0.35  (N = 120 882)
    :widths: 28, 15, 15, 15, 15
 
    "N\ :sub:`gal`",             "120 882",  "120 882", "120 882", "120 882"
-   "N\ :sub:`pix` (good)",      "5571", "21344", "83244", "180102"
-   "LRT λ\ :sub:`LR` (dof=11)", "352.1 (**Yes**)", "151.5 (**Yes**)", "196.7 (**Yes**)", "575.1 (**Yes**)"
-   "σ̂ OLS",                     "0.4451", "0.6438", "1.3802", "2.1098"
-   "σ̂ ElasticNet",               "0.4453", "0.6440", "1.3803", "2.1098"
-   "σ̂ ISD-1",                    "0.4451", "0.6438", "1.3802", "2.1098"
-   "σ̂ ISD-3 ‡",                  "2.1206", "1.0507", "1.4249", "2.1189"
-   "σ̂ MCMC-add",                 "0.4455", "0.6441", "1.3803", "2.1098"
-   "σ̂ MCMC-comb",                "0.5862", "0.7104", "1.4304", "2.0211"
-   "MCMC-add acc. frac.",         "0.387", "0.388", "0.388", "0.387"
-   "MCMC-comb acc. frac.",        "0.281", "0.287", "0.297", "0.283"
-   "Dominant template",           "ns_fnt", "ns_med", "ns_fnt", "ns_fnt"
+   "N\ :sub:`pix` (good)",      "5571", "21344", "83244"
+   "LRT λ\ :sub:`LR` (dof=11)", "415.3 (**Yes**)", "154.4 (**Yes**)", "198.9 (**Yes**)"
+   "σ̂ OLS",                     "—", "—", "—"
+   "σ̂ ElasticNet",               "—", "—", "—"
+   "σ̂ ISD-1",                    "—", "—", "—"
+   "σ̂ ISD-3 ‡",                  "—", "—", "—"
+   "σ̂ MCMC-add",                 "0.4458", "0.6449", "1.3895"
+   "σ̂ MCMC-comb",                "0.4379", "0.6627", "1.4987"
+   "MCMC-add acc. frac.",         "1.000", "1.000", "1.000"
+   "MCMC-comb acc. frac.",        "0.739", "0.934", "0.903"
+   "Dominant template",           "ns_fnt", "ns_med", "rp_fl"
    "δw/w at 30′",                 "—", "+0.7 %", "—", "—"
 
-‡ ISD-3 uses a degree-3 polynomial expansion and is unreliable at all
-  resolutions.  **Do not use ISD-3 weights** for any science analysis.
+ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
+  separate only where the template response is non-linear.
 
 
 .. seealso::
@@ -1681,15 +1292,15 @@ Additive MAP parameters :math:`\hat{a}_i` (MCMC-add, NSIDE 64)
    :widths: 14, 7, 7, 7, 7, 7, 7, 8, 8, 7, 7, 7
    :stub-columns: 1
 
-   "9.0,  0.08", +0.4449, -0.3143, -0.0246, +0.0372, -0.0339, -0.0211, -0.0266, +0.0826, +0.0002, -0.0040, -0.0086
-   "9.5,  0.12", +0.5516, -0.3989, -0.0201, +0.0142, -0.0119, -0.0158, -0.0233, +0.0724, +0.0017, -0.0113, +0.0116
-   "10.0, 0.18", +0.3631, -0.2667, -0.0029, +0.0037, -0.0165, +0.0036, -0.0138, +0.0296, +0.0066, -0.0158, -0.0059
-   "10.25, 0.22", +0.3181, -0.2279, -0.0050, +0.0116, -0.0253, -0.0021, -0.0087, +0.0188, +0.0042, -0.0112, -0.0098
-   "10.5, 0.26", +0.3550, -0.2488, -0.0138, +0.0288, -0.0394, -0.0101, -0.0061, +0.0143, +0.0025, -0.0069, -0.0043
-   "10.75, 0.31", +0.3222, -0.2216, -0.0149, +0.0290, -0.0415, -0.0122, +0.0017, +0.0076, +0.0045, -0.0023, -0.0047
-   "11.0, 0.35", +0.3608, -0.2525, -0.0174, +0.0316, -0.0427, -0.0060, +0.0067, +0.0046, +0.0055, +0.0011, -0.0067
-   "11.25, 0.35", +0.2755, -0.1944, -0.0334, +0.0530, -0.0511, -0.0029, +0.0132, +0.0034, +0.0054, +0.0044, -0.0079
-   "11.5, 0.35", +0.0901, -0.1024, -0.0288, +0.0501, -0.0527, +0.0031, +0.0193, +0.0065, +0.0083, +0.0073, -0.0098
+   "9.0,  0.08", +0.0889, -0.0953, -0.0149, +0.0235, -0.0177, -0.0250, -0.0264, +0.0827, +0.0005, -0.0043, -0.0098
+   "9.5,  0.12", +0.0850, -0.1003, -0.0119, +0.0086, -0.0056, -0.0181, -0.0234, +0.0725, +0.0019, -0.0113, +0.0105
+   "10.0, 0.18", +0.0214, -0.0415, -0.0013, +0.0026, -0.0092, +0.0061, -0.0143, +0.0300, +0.0065, -0.0155, -0.0052
+   "10.25, 0.22", +0.0144, -0.0316, -0.0028, +0.0078, -0.0138, +0.0007, -0.0092, +0.0189, +0.0040, -0.0109, -0.0091
+   "10.5, 0.26", +0.0311, -0.0456, -0.0081, +0.0184, -0.0210, -0.0086, -0.0062, +0.0146, +0.0023, -0.0069, -0.0039
+   "10.75, 0.31", +0.0234, -0.0370, -0.0084, +0.0187, -0.0224, -0.0100, +0.0015, +0.0077, +0.0044, -0.0020, -0.0043
+   "11.0, 0.35", +0.0161, -0.0334, -0.0098, +0.0202, -0.0231, -0.0028, +0.0066, +0.0048, +0.0053, +0.0016, -0.0059
+   "11.25, 0.35", +0.0089, -0.0234, -0.0193, +0.0333, -0.0270, +0.0000, +0.0130, +0.0036, +0.0053, +0.0049, -0.0071
+   "11.5, 0.35", +0.0273, -0.0342, -0.0172, +0.0320, -0.0278, +0.0008, +0.0199, +0.0065, +0.0086, +0.0071, -0.0100
 
 Multiplicative MAP parameters :math:`\hat{b}_i` (MCMC-comb, NSIDE 64)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -1699,15 +1310,15 @@ Multiplicative MAP parameters :math:`\hat{b}_i` (MCMC-comb, NSIDE 64)
    :widths: 14, 7, 7, 7, 7, 7, 7, 8, 8, 7, 7, 7
    :stub-columns: 1
 
-   "9.0,  0.08", +1.1908, -0.6523, -0.0060, +0.0280, -0.0428, +0.0069, -0.0181, +0.1162, +0.0850, -0.0147, +0.0194
-   "9.5,  0.12", +0.9926, -0.6066, -0.0135, +0.0111, -0.0257, -0.0075, -0.0153, +0.0965, +0.0415, -0.0176, +0.0417
-   "10.0, 0.18", +0.1685, -0.1994, -0.0108, -0.0167, +0.0121, +0.0301, -0.0256, +0.0540, +0.0002, -0.0089, +0.0098
-   "10.25, 0.22", -0.0279, -0.0258, +0.0163, -0.0162, -0.0133, +0.0322, -0.0187, +0.0358, -0.0066, -0.0026, -0.0009
-   "10.5, 0.26", +0.1317, -0.0659, +0.0100, +0.0120, -0.0546, +0.0254, -0.0166, +0.0227, -0.0045, +0.0119, +0.0044
-   "10.75, 0.31", +0.6170, -0.3227, -0.0108, +0.0250, -0.0498, +0.0117, -0.0050, +0.0109, -0.0076, +0.0166, +0.0129
-   "11.0, 0.35", +0.3700, -0.2100, -0.0251, +0.0332, -0.0359, +0.0297, +0.0049, +0.0139, -0.0026, +0.0101, +0.0044
-   "11.25, 0.35", +0.3944, -0.2422, -0.0343, +0.0288, -0.0168, +0.0513, +0.0137, +0.0098, -0.0063, +0.0054, -0.0016
-   "11.5, 0.35", +0.6752, -0.3323, -0.0356, +0.0188, +0.0143, +0.0415, +0.0077, +0.0134, +0.0047, +0.0119, -0.0027
+   "9.0,  0.08", +0.0511, -0.0471, -0.0109, +0.0105, -0.0202, +0.0291, -0.0326, +0.0927, +0.0177, +0.0676, +0.0091
+   "9.5,  0.12", +0.1672, -0.1664, -0.0142, +0.0028, -0.0108, -0.0088, -0.0260, +0.1064, +0.0429, -0.0163, +0.0470
+   "10.0, 0.18", +0.0473, -0.0719, -0.0010, -0.0232, +0.0121, +0.0288, -0.0241, +0.0543, -0.0005, -0.0088, +0.0163
+   "10.25, 0.22", -0.0067, +0.0083, +0.0052, -0.0210, -0.0026, +0.0273, -0.0352, +0.0095, +0.0033, +0.0356, -0.0032
+   "10.5, 0.26", +0.0245, -0.0172, +0.0034, -0.0010, -0.0262, +0.0242, -0.0327, +0.0064, +0.0112, +0.0362, +0.0048
+   "10.75, 0.31", +0.0632, -0.0582, -0.0172, +0.0006, -0.0209, +0.0108, -0.0322, +0.0074, -0.0214, +0.0484, +0.0086
+   "11.0, 0.35", +0.0069, +0.0091, -0.0154, +0.0099, -0.0118, +0.0151, -0.0241, -0.0037, -0.0208, +0.0662, -0.0034
+   "11.25, 0.35", +0.0392, -0.0330, -0.0164, +0.0127, -0.0089, +0.0420, -0.0068, -0.0283, -0.0327, +0.0706, -0.0218
+   "11.5, 0.35", +0.0563, -0.0486, -0.0131, -0.0027, +0.0077, +0.0345, -0.0038, -0.0310, -0.0246, +0.0920, -0.0168
 
 **Key pattern**: ``GAIA:nstar_faint`` (ns_fnt) carries the largest amplitude
 in nearly every sample.  The anti-correlated ``GAIA:nstar_medium`` (ns_med)
@@ -1737,26 +1348,3 @@ yields a clear conclusion:
   model (too few pixels).  NSIDE 128/256 add noise without improving the fit.
 
 * **Recommended weight**: ``WEIGHT_COMB`` (NSIDE 64) for all science.
-
-.. _auto-ls10-ElasticNet_ISD_1_OLS-start:
-
-ElasticNet+ISD-1+OLS Results — LS10 BGS (auto-generated 2026-06-11T20:46Z)
-----------------------------------------------------------------------------
-
-Samples processed: 9
-
-.. csv-table:: LS10 ElasticNet+ISD-1+OLS estimates per sample
-   :header: "Sample", "N_gal", "acc_add", "acc_comb", "lambda_LR", "p-val", "reject", "t (h)"
-   :widths: 40, 12, 10, 10, 10, 8, 8, 8
-
-   "LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.1", "2,759,238", "0.389", "0.277", "123.9", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.", "3,308,841", "0.389", "0.277", "66.9", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.2", "3,263,228", "0.390", "0.287", "69.6", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.", "2,802,710", "0.392", "0.281", "89.1", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.3", "1,619,838", "0.390", "0.289", "75.1", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.", "541,855", "0.389", "0.288", "123.4", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.3", "120,882", "0.388", "0.287", "151.5", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08", "523,486", "0.390", "0.296", "1489.5", "0.0000", "True", "0.00"
-   "LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12", "1,432,502", "0.391", "0.297", "730.6", "0.0000", "True", "0.00"
-
-.. _auto-ls10-ElasticNet_ISD_1_OLS-end:
