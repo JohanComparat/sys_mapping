@@ -515,9 +515,11 @@ class TestCalibratedTemplateSignificance:
 
     @pytest.mark.slow
     def test_reproduces_the_false_positive_rate_and_removes_it(self):
-        field, T, null = self._setup()
+        # 400 realisations put the p floor, 1/401, below the 0.0027 threshold; at 300
+        # the floor is 1/301 and the family-wise count could never exceed zero.
+        field, T, null = self._setup(n_null=400)
         n_sys = T.shape[0]
-        iid = fw = 0
+        iid = fw = fw05 = 0
         trials = 300
         for _ in range(trials):
             d = field(8, 0.3)
@@ -525,9 +527,13 @@ class TestCalibratedTemplateSignificance:
             r = d - a @ T
             cov = r.var() * len(d) / (len(d) - n_sys) * np.linalg.inv(T @ T.T)
             iid += np.any(np.abs(a) / np.sqrt(np.diag(cov)) > 3)
-            fw += sm.calibrated_template_significance(d, T, null)["family_wise_p"] < 0.0027
+            fwp = sm.calibrated_template_significance(d, T, null)["family_wise_p"]
+            fw += fwp <= 0.0027
+            fw05 += fwp <= 0.05
+        assert 1.0 / (1 + len(null)) < 0.0027
         assert iid / trials > 0.5            # the defect: most clean fields "detect"
         assert fw / trials <= 0.02           # nominal 0.27 %; 300 draws
+        assert 0.01 <= fw05 / trials <= 0.10  # nominal 5 %; binomial sd 1.3 %
 
     def test_per_template_thresholds_are_crossed_by_some_template_too_often(self):
         # Multiplicity: calibrating the error alone leaves the family-wise rate high.
