@@ -488,45 +488,29 @@ across the scenarios where those parameters are non-zero.
 
 ----
 
-Null Tests
-----------
+Residual contamination
+----------------------
 
-After applying each method's weights, the Pearson correlation between the
-pixel weights :math:`w(p)` and each template :math:`t_i(p)` is computed.
-A well-corrected field should show :math:`|r(w, t_i)| \approx 0`.
+On these mocks the injected contamination is known, so each correction is graded by
+its recovery against the truth: the RMS field error and the correlation with the true
+field in the cross-scenario summary above, and the amplitude recovery with calibrated
+error bars.
 
-.. figure:: _static/results_validation/null_tests.png
-   :width: 85%
-   :align: center
+We do not grade them by correlating the corrected field with the templates.  A
+least-squares residual is orthogonal to its regressors, so for templates centred on the
+fitted pixels :math:`r(\delta_{\rm corr}, t_i)` is zero to rounding error for every
+template a full regression fitted, in the data and in any null alike, whatever the
+correction left behind.  Correlating the *weights* with the templates instead fails
+differently: a weight :math:`w = 1/(1 + \sum_i \hat a_i t_i)` depends on every template
+with a non-zero amplitude by construction, so :math:`r(w, t_i)` reads close to 1 for a
+single-template correction at any amplitude.
 
-   Null test correlations :math:`|r(w, t_i)|` for all methods and scenarios.
-   Dashed line at 0.10 marks the commonly used acceptance threshold.
-
-**Interpretation:**
-
-* The ``none`` scenario shows :math:`|r| \approx 0.97`–0.99 for all
-  methods.  This is expected — the templates are not correlated with the
-  true field, and the weights are nearly uniform (≈ 1), so
-  :math:`r(w, t)` reflects the raw template auto-correlation structure,
-  not residual contamination.
-
-* After subtracting additive contamination (``additive`` scenario),
-  :math:`|r|` decreases to ≈ 0.69–0.73 for all methods, indicating that
-  the templates are partially decorrelated from the weights.
-
-* The multiplicative scenario maintains high :math:`|r| \approx 0.87`–0.998
-  because linear methods cannot fully project out the multiplicative signal,
-  leaving template-correlated residuals in the weights.
-
-.. note::
-
-   The null test statistic :math:`r(w, t)` used here measures correlation
-   between pixel *weights* and templates, not correlation between the
-   *corrected field* and templates.  The former is the correct quantity for
-   diagnosing whether the weights adequately down-weight contaminated pixels.
-   Values close to 1 in the absence of contamination are not alarming — they
-   indicate that the weights are nearly uniform and the templates are
-   spatially coherent.
+On real data, where there is no truth to compare against,
+:func:`~sys_mapping.diagnostics.residual_template_correlation_test` tests a corrected
+field against a systematic map the correction did not fit, calibrated on
+contamination-free realisations put through the same correction.  On the real-template
+test mock at NSIDE 32, an amplitude of 0.08 on a template left out of the fit gives
+:math:`|r| = 0.142` against a null standard deviation of 0.012.
 
 ----
 

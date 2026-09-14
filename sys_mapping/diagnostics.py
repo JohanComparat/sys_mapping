@@ -221,8 +221,9 @@ def null_test_cross_correlations(
        an amplitude of 1e-1 on one of them gives 0.9886 and an amplitude of 1e-6
        gives 1.0000.  Spreading the same amplitude over all three gives 0.57.  So a
        sparser and more accurate correction scores *worse*, and a method that fits
-       nothing scores a perfect zero.  To ask whether a correction is over-fitted,
-       compare the recovered amplitudes against a known truth instead.
+       nothing scores a perfect zero.  To test a correction for residual
+       contamination, correlate the corrected density with the templates using
+       :func:`residual_template_correlation_test`.
 
     Parameters
     ----------
@@ -320,6 +321,139 @@ def null_test_cross_correlations(
         p_values[i] = (count_extreme + 1) / (n_bootstrap + 1)
 
     return {"correlations": correlations, "p_values": p_values}
+
+
+def residual_template_correlation_test(
+    delta_corr: np.ndarray,
+    delta_t: np.ndarray,
+    null_delta: np.ndarray,
+) -> dict[str, np.ndarray | float | int]:
+    r"""Test a corrected density field for residual correlation with the templates.
+
+    For each template the Pearson correlation :math:`r_i = r(\delta_{\rm corr}, t_i)`
+    is measured between the *corrected overdensity* and the template.  A complete
+    correction leaves :math:`r_i` consistent with the chance correlation that the
+    galaxy clustering alone produces; a residual contamination raises it in proportion
+    to what was left behind.
+
+    The chance correlation is not white noise.  Both the density and the templates are
+    spatially correlated, so the effective number of independent pixels is far below
+    ``n_pix`` and the variance of :math:`r_i` is correspondingly larger than
+    :math:`1/n_{\rm pix}`.  The test is therefore calibrated on ``null_delta``,
+    contamination-free realisations on the same footprint, which should carry the
+    data's own clustering:
+
+    .. math::
+
+        \chi^2 = \sum_i \frac{r_i^2}{{\rm Var}_{\rm null}[r_i]},
+        \qquad
+        p = \frac{1 + \#\{\chi^2_k \ge \chi^2\}}{1 + N_{\rm null}},
+
+    where each realisation's :math:`\chi^2_k` uses a variance estimated without it, so
+    no realisation is scored against a variance it helped set.  The empirical p-value
+    absorbs the correlation between templates, which a :math:`\chi^2_{n_{\rm sys}}`
+    CDF would not.
+
+    Three requirements, each of which silently disables the test when violated.
+
+    **Correlate the corrected density, not the weights.**  A weight
+    :math:`w = 1/(1 + \sum_i \hat a_i t_i)` depends on every template with a non-zero
+    amplitude by construction, so :math:`r(w, t_i)` is invariant to the amplitude's
+    size and reads close to 1 for any single-template correction; see
+    :func:`null_test_cross_correlations`.
+
+    **Put the null through the identical correction.**  A regression removes the chance
+    correlation between the field and its own templates along with any contamination,
+    and removes part of it for any other template correlated with those.  Scored against
+    uncorrected realisations the test is miscalibrated: for a fitted template the
+    corrected field beats every realisation and the p-value pins at 1, and for a held-out
+    one the error has a sign set by how the templates correlate with each other.
+
+    **Test templates the correction did not fit.**  A least-squares residual is
+    orthogonal to its regressors, so for templates centred on the fitted pixels, as
+    :func:`~sys_mapping.maps.standardise_on_footprint` leaves them,
+    :math:`r(\delta_{\rm corr}, t_i)` is zero to rounding error for every template a
+    regression fitted, in the data and in the null alike, and the comparison measures
+    floating-point noise.  Hold a template out of the
+    fit, correct on the others, and test it: that is informative for every method.
+
+    Parameters
+    ----------
+    delta_corr:
+        Corrected overdensity at the fitted pixels, shape ``(n_pix,)``.
+    delta_t:
+        Templates at the same pixels, shape ``(n_sys, n_pix)``.
+    null_delta:
+        Contamination-free overdensity realisations on the same pixels, shape
+        ``(n_null, n_pix)``.  At least ``n_sys + 3`` are required for the variance to
+        be estimable leaving one out.
+
+    Returns
+    -------
+    Dictionary with ``"correlations"`` ``(n_sys,)``, ``"null_std"`` ``(n_sys,)`` the
+    calibrated standard deviation of each correlation, ``"chi2"``, ``"null_chi2"``
+    ``(n_null,)``, ``"p_value"`` and ``"n_null"``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import residual_template_correlation_test
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix, n_sys = 4000, 3
+    >>> t = rng.standard_normal((n_sys, n_pix))
+    >>> null = rng.standard_normal((40, n_pix))
+    >>> clean = residual_template_correlation_test(rng.standard_normal(n_pix), t, null)
+    >>> bool(clean["p_value"] > 0.01)
+    True
+    >>> dirty = residual_template_correlation_test(
+    ...     rng.standard_normal(n_pix) + 0.3 * t[0], t, null)
+    >>> bool(dirty["p_value"] < 0.05)
+    True
+    """
+    delta_corr = np.asarray(delta_corr, dtype=float)
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    null_delta = np.atleast_2d(np.asarray(null_delta, dtype=float))
+    n_sys, n_pix = delta_t.shape
+    if delta_corr.shape != (n_pix,):
+        raise ValueError(f"delta_corr has shape {delta_corr.shape}; expected ({n_pix},)")
+    if null_delta.shape[1] != n_pix:
+        raise ValueError(
+            f"null_delta has {null_delta.shape[1]} pixels; the templates have {n_pix}")
+    n_null = null_delta.shape[0]
+    if n_null < n_sys + 3:
+        raise ValueError(
+            f"{n_null} null realisations cannot calibrate {n_sys} templates leaving one "
+            f"out; supply at least {n_sys + 3}")
+
+    def _standardise(x):
+        x = x - x.mean(axis=-1, keepdims=True)
+        sd = np.sqrt(np.mean(x ** 2, axis=-1, keepdims=True))
+        return x / np.where(sd > 0, sd, 1.0)
+
+    ts = _standardise(delta_t)                              # (n_sys, n_pix)
+    r = (_standardise(delta_corr) @ ts.T) / n_pix           # (n_sys,)
+    R = (_standardise(null_delta) @ ts.T) / n_pix           # (n_null, n_sys)
+
+    var = R.var(axis=0, ddof=1)
+    var = np.where(var > 0, var, np.finfo(float).tiny)
+    chi2 = float(np.sum(r ** 2 / var))
+
+    # Leave-one-out variance for each realisation, from running sums.
+    s1, s2 = R.sum(axis=0), (R ** 2).sum(axis=0)
+    s1_k, s2_k = s1[None, :] - R, s2[None, :] - R ** 2
+    var_k = (s2_k - s1_k ** 2 / (n_null - 1)) / (n_null - 2)
+    var_k = np.where(var_k > 0, var_k, np.finfo(float).tiny)
+    null_chi2 = np.sum(R ** 2 / var_k, axis=1)
+
+    p_value = float((1 + np.sum(null_chi2 >= chi2)) / (1 + n_null))
+    return {
+        "correlations": r,
+        "null_std": np.sqrt(var),
+        "chi2": chi2,
+        "null_chi2": null_chi2,
+        "p_value": p_value,
+        "n_null": int(n_null),
+    }
 
 
 def snr_template_ranking(

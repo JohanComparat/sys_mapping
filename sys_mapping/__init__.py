@@ -83,6 +83,7 @@ from .regression import (
 )
 from .diagnostics import (
     null_test_cross_correlations,
+    residual_template_correlation_test,
     snr_template_ranking,
     footprint_mask_diagnostics,
     isd_template_significance,
@@ -226,6 +227,7 @@ __all__ = [
     "run_decontamination",
     # diagnostics
     "null_test_cross_correlations",
+    "residual_template_correlation_test",
     "snr_template_ranking",
     "footprint_mask_diagnostics",
     "isd_template_significance",

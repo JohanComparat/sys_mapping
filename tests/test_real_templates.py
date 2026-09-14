@@ -452,24 +452,70 @@ class TestLRTRealTemplates:
         assert 0.0 <= result.p_value <= 1.0
 
 
+def real_mock_good(real_mock):
+    """The data's good pixels, recovered from the footprint and the fixture's field."""
+    counts = np.round(real_mock["footprint_mask"].astype(float) * _N_MEAN * 8)
+    return counts >= 0.1 * counts.max()
+
+
 # ── Null test (post-correction residual check) ────────────────────────────
 
 class TestNullTestRealTemplates:
-    @real_data
-    def test_null_corr_after_correction(self, real_mock):
-        """After OLS correction, max residual template correlation < 0.40."""
-        n_sys = real_mock["n_sys"]
-        X = real_mock["delta_t"].T  # (n_good, n_sys)
-        a_ols = np.linalg.lstsq(X.T @ X, X.T @ real_mock["delta_g"], rcond=None)[0]
-        weights = 1.0 / np.maximum(1.0 + X @ a_ols, 1e-3)
+    @staticmethod
+    def _null_fields(real_mock, n_null=30):
+        """Uncontaminated realisations drawn as the fixture draws its field, then put
+        through the same correction the data receives.
 
-        null = sm.null_test_cross_correlations(
-            weights, real_mock["delta_t"], n_bootstrap=50, seed=_SEED
-        )
-        max_r = np.max(np.abs(null["correlations"]))
-        assert max_r < 0.50, (
-            f"Residual template correlation too large after OLS correction: max|r|={max_r:.3f}"
-        )
+        Same spectrum, lognormal transform, footprint and shot noise, no injected
+        templates, and the identical least-squares fit: the like-for-like null.
+        """
+        good = real_mock["footprint_mask"]
+        lmax = 3 * NSIDE - 1
+        ell = np.arange(lmax + 1, dtype=float)
+        cl = (ell + 1.0) ** (-2); cl[0] = 0.0
+        cl *= 0.5 ** 2 / np.sum((2 * ell + 1) / (4 * np.pi) * cl)
+        rng = np.random.default_rng(_SEED + 1000)
+        rand = np.round(good.astype(float) * _N_MEAN * 8)
+        out = []
+        for k in range(n_null):
+            np.random.seed(_SEED + 1000 + k)
+            G = hp.synfast(cl, nside=NSIDE, lmax=lmax)
+            lam = np.maximum(_N_MEAN * np.exp(G - 0.125), 0.0) * good.astype(float)
+            d, g = sm.compute_overdensity(rng.poisson(lam).astype(float), rand)
+            # On the data's pixels, NaN where this realisation left one empty.
+            full = np.full(hp.nside2npix(NSIDE), np.nan); full[g] = d
+            out.append(full[real_mock_good(real_mock)])
+        return np.asarray(out)
+
+    @real_data
+    def test_residual_test_detects_a_systematic_the_fit_never_saw(self, real_mock):
+        """Contamination on a template left out of the correction is detected.
+
+        This is the use the residual test has on real data.  A template the correction
+        fitted cannot be tested this way: a least-squares residual is orthogonal to its
+        regressors, so its correlation with them is rounding error whatever was left.
+        """
+        raw_null = self._null_fields(real_mock)
+        ok = np.all(np.isfinite(raw_null), axis=0)       # one pixel set for fit and test
+        # Standardised on exactly the pixels fitted, as the pipeline does: least
+        # squares makes the residual orthogonal to its regressors in the uncentred
+        # sense, and a Pearson correlation centres both, so the two agree only for
+        # templates centred where the fit ran.
+        dt = sm.standardise_on_footprint(real_mock["delta_t"][:, ok])
+        fitted, unmodelled = dt[1:], dt[[0]]
+
+        def correct(x):
+            return x - np.linalg.lstsq(fitted.T, x, rcond=None)[0] @ fitted
+
+        d_corr = correct(real_mock["delta_g"][ok])
+        null = np.array([correct(n[ok]) for n in raw_null])
+        out = sm.residual_template_correlation_test(d_corr, unmodelled, null)
+        assert out["p_value"] < 0.05, (
+            f"a_true[0]={_A_TRUE[0]} on the unmodelled template went undetected, "
+            f"chi2={out['chi2']:.1f}")
+
+        on_fitted = sm.residual_template_correlation_test(d_corr, fitted, null)
+        assert np.all(np.abs(on_fitted["correlations"]) < 1e-8)
 
     @real_data
     def test_null_output_keys(self, real_mock):

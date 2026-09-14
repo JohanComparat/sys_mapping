@@ -68,12 +68,6 @@ rather than falling back to a scalar.
 P2 — method completeness
 -------------------------
 
-**Report the null test per template.**
-``max_i |r(w, t_i)|`` is used as a scalar goodness-of-fit and is degenerate: it depends
-on the *support* of ``a_hat`` rather than its size, so a single-template correction
-scores 1.0 at any amplitude and a method that fits nothing scores 0.  *Action:* report
-per template and regenerate ``null_tests.png`` without the summary.
-
 **Confirm the ISD bin count at high resolution.**
 The sweep shows ``n_bins = 20`` dominating the shipped ``10`` at ``poly_order = 3`` on
 residual (0.028 against 0.032), precision (0.925 against 0.870) and recall (0.835

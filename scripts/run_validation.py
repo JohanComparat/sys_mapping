@@ -216,16 +216,10 @@ def analyse_scenario(
             "weights": w,
             "delta_recovered": delta_rec,
             "metrics": recovery_metrics(delta_g_obs, delta_rec, delta_g_true),
-            # Per template, not the maximum over templates: max_i |r(w, t_i)|
-            # depends on the *support* of a_hat rather than its size, so a
-            # single-template correction scores 1.0 at any amplitude and a method
-            # that fits nothing scores 0.  Keeping the vector lets a reader see
-            # which template still has leverage, which is the question the
-            # statistic can actually answer.
-            "null_test_per_template": np.abs(np.asarray(
-                sm.null_test_cross_correlations(
-                    w, delta_t, n_bootstrap=50, seed=0)["correlations"]
-            )).tolist(),
+            # Graded against the known truth in "metrics", not by correlating the
+            # corrected field with the templates: a regression's residual is
+            # orthogonal to the templates it fitted, so that correlation is rounding
+            # error for every full-regression method whatever it left behind.
             "n_templates_fitted": int(np.count_nonzero(res["a_hat"])),
         }
         if key in ("mcmc_add", "mcmc_comb"):
@@ -432,28 +426,37 @@ def plot_summary_metrics(all_results, outdir):
         plt.close()
 
 
-def sandwich_sigma_a(nside, n_sys, n_mean, sigma, seed, ref_good, ref_delta_t, n_mock=100):
-    """Per-template additive 1σ from the mock-covariance sandwich (correlated-noise error).
+def null_ensemble(nside, n_sys, n_mean, sigma, seed, n_mock=100):
+    """Uncontaminated overdensity realisations, full sky, NaN outside each footprint.
 
-    The single-fit MCMC posterior std underestimates the additive error because the clean field is
-    spatially correlated (see :doc:`results_validation`).  Instead, estimate ``Cov(â)`` directly from
-    an ensemble of *uncontaminated* mock reconstructions (the fit noise ε) with
-    :func:`sys_mapping.mock_sandwich_covariance` — exact for the linear estimator and calibrated.
-
-    Returns ``(sigma_a (n_sys,), n_pix_used)`` on the reference footprint ``ref_good``.
+    The same clean field, drawn ``n_mock`` times with the scenarios' clustering and
+    shot noise, calibrates two things that a white-noise assumption gets wrong on a
+    spatially correlated field: the error on the fitted amplitudes, and the chance
+    correlation between a corrected density and the templates.
     """
     npix = hp.nside2npix(nside)
-    fields = []
+    fields = np.full((n_mock, npix), np.nan)
     for i in range(n_mock):
         m = make_mock_catalog(nside, n_sys, scenario="none",
                               n_mean=n_mean, sigma=sigma, seed=seed + 5000 + i)
         gc = sm.pixelize_catalog(m.ra_gal, m.dec_gal, nside)
         rc = sm.pixelize_catalog(m.ra_rand, m.dec_rand, nside)
         dobs, good = sm.compute_overdensity(gc, rc)
-        full = np.full(npix, np.nan)
-        full[good] = dobs
-        fields.append(full[ref_good])
-    fields = np.asarray(fields)                       # (n_mock, n_ref)
+        fields[i, good] = dobs
+    return fields
+
+
+def sandwich_sigma_a(null_fields, ref_good, ref_delta_t):
+    """Per-template additive 1σ from the mock-covariance sandwich (correlated-noise error).
+
+    The single-fit MCMC posterior std underestimates the additive error because the clean field is
+    spatially correlated (see :doc:`results_validation`).  Instead, estimate ``Cov(â)`` directly from
+    the uncontaminated ensemble with :func:`sys_mapping.mock_sandwich_covariance`, which is exact
+    for the linear estimator and calibrated.
+
+    Returns ``(sigma_a (n_sys,), n_pix_used)`` on the reference footprint ``ref_good``.
+    """
+    fields = null_fields[:, ref_good]
     ok = np.all(np.isfinite(fields), axis=0)          # pixels populated in every mock
     cov = mock_sandwich_covariance(ref_delta_t[:, ok], fields[:, ok])
     return np.sqrt(np.clip(np.diag(cov), 0.0, None)), int(ok.sum())
@@ -509,41 +512,6 @@ def plot_amplitude_recovery(all_results, outdir, sigma_a=None):
 
     plt.tight_layout()
     out = outdir / "amplitude_recovery.png"
-    plt.savefig(out, dpi=110, bbox_inches="tight")
-    plt.close()
-
-
-def plot_null_tests(all_results, outdir):
-    """Bar chart of maximum |r(w, t)| for each method and scenario."""
-    method_keys = list(all_results[0]["methods"].keys())
-    scenarios = [r["scenario"] for r in all_results]
-
-    fig, axes = plt.subplots(1, len(scenarios),
-                             figsize=(4 * len(scenarios), 4.5), sharey=True)
-    if len(scenarios) == 1:
-        axes = [axes]
-
-    for ax, res in zip(axes, all_results):
-        # Median over templates rather than the maximum: the maximum saturates at
-        # 1 for any weight built from a single template, so it ranks methods by
-        # how many templates they used rather than by how much residual
-        # correlation they left.
-        null_vals = [float(np.median(res["methods"][k]["null_test_per_template"]))
-                     for k in method_keys]
-        bars = ax.bar(range(len(method_keys)), null_vals,
-                      color=[METHOD_COLORS[k] for k in method_keys], edgecolor="k", lw=0.5)
-        ax.set_xticks(range(len(method_keys)))
-        ax.set_xticklabels([METHOD_LABELS[k] for k in method_keys],
-                            rotation=40, ha="right", fontsize=8)
-        ax.axhline(0.1, color="gray", ls="--", lw=0.8, label="|r|=0.10")
-        ax.set_title(res["scenario"], fontsize=11)
-        ax.set_ylim(0, None)
-
-    axes[0].set_ylabel(r"median$_i$ $|r(w,\, t_i)|$ (null test)", fontsize=11)
-    plt.suptitle("Null test: residual weight-template correlation, per template",
-             fontsize=13)
-    plt.tight_layout()
-    out = outdir / "null_tests.png"
     plt.savefig(out, dpi=110, bbox_inches="tight")
     plt.close()
 
@@ -616,6 +584,9 @@ def main():
     parser.add_argument("--scenarios", nargs="+", default=SCENARIOS,
                         choices=SCENARIOS)
     parser.add_argument("--output-dir", default="docs/_static/results_validation")
+    parser.add_argument("--null-n-mocks", type=int, default=100,
+                        help="Uncontaminated mocks calibrating the sandwich error "
+                             "bars on the fitted amplitudes.")
     parser.add_argument("--isd-n-mocks", type=int, default=30,
                         help="Systematic-free mocks for the ISD Delta chi^2_68 "
                              "calibration.  0 disables it, which leaves the ISD "
@@ -665,6 +636,12 @@ def main():
         )
         print(f"  chi2_68 = {np.array2string(isd_chi2_68, precision=1)}")
 
+    # The uncontaminated ensemble calibrates the amplitude error bars.  It does not
+    # depend on what was injected, so one serves every scenario.
+    print(f"\nBuilding the uncontaminated null ensemble ({args.null_n_mocks} mocks)...")
+    null_fields = null_ensemble(args.nside, args.n_sys, args.n_mean, args.sigma,
+                                args.seed, n_mock=args.null_n_mocks)
+
     # Analyse each scenario
     all_results = []
     results_by_scenario = {}
@@ -681,8 +658,7 @@ def main():
         for k, mres in res["methods"].items():
             print(f"  {METHOD_LABELS[k]:20s}: "
                   f"RMS={mres['metrics']['rms_delta_error']:.4f}  "
-                  f"r={mres['metrics']['corr_with_true']:.4f}  "
-                  f"null(med)={np.median(mres['null_test_per_template']):.4f}")
+                  f"r={mres['metrics']['corr_with_true']:.4f}")
 
         # Per-scenario plots
         plot_density_maps(res, args.nside, outdir, sc)
@@ -710,15 +686,13 @@ def main():
     ref = next((r for r in all_results if r["scenario"] in ("additive", "combined", "none")), None)
     if ref is not None:
         print("\nBuilding mock-covariance sandwich (uncontaminated ensemble)…")
-        sigma_a, npx = sandwich_sigma_a(args.nside, args.n_sys, args.n_mean, args.sigma,
-                                        args.seed, ref["good_pix"], ref["delta_t"])
+        sigma_a, npx = sandwich_sigma_a(null_fields, ref["good_pix"], ref["delta_t"])
         print(f"  sandwich σ_a = {np.round(sigma_a, 4)}  ({npx} px)")
 
     # Cross-scenario summary plots
     print("\nGenerating summary plots...")
     plot_summary_metrics(all_results, outdir)
     plot_amplitude_recovery(all_results, outdir, sigma_a=sigma_a)
-    plot_null_tests(all_results, outdir)
     plot_snr_ranking(results_by_scenario, suite, outdir)
 
     # Save run config

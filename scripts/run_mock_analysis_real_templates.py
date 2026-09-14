@@ -226,31 +226,6 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
     result["lrt_p"] = float(lrt.p_value)
     result["lrt_reject"] = bool(lrt.reject_null)
 
-    # ── Null test (residual correlation with templates) ────────────────────
-    # Use exact pixel-level inverse: w = (1+δ_g_clean)/(1+δ_g_obs)
-    from sys_mapping.contamination import invert_contamination as _inv_cont
-    import jax.numpy as _jnp
-    _dg_clean = np.asarray(_inv_cont(
-        _jnp.asarray(delta_g), _jnp.asarray(delta_t),
-        _jnp.asarray(a_hat_comb), _jnp.asarray(b_hat_comb),
-    ))
-    weights_comb = np.clip(
-        (1.0 + _dg_clean) / np.maximum(1.0 + delta_g, 1e-6),
-        0.05, 20.0,
-    )
-    try:
-        null = sm.null_test_cross_correlations(
-            weights_comb, delta_t, n_bootstrap=50, seed=mock_id  # (n_sys, n_good)
-        )
-        # Per template.  The maximum over templates is not a goodness-of-fit:
-        # it measures how many templates the weight depends on, not how large
-        # the residual correlation is.
-        _r = np.abs(np.asarray(null["correlations"]))
-        result["null_corr_per_template"] = _r.tolist()
-        result["null_corr_median"] = float(np.median(_r))
-    except Exception:
-        pass
-
     return result
 
 
@@ -367,8 +342,6 @@ def write_summary(results, template_names, outdir, *, run_regression=True):
     print(f"  Mean N_gal:        {df['n_galaxies'].mean():.0f}")
     print(f"  Mean N_good_pix:   {df['n_good_pix'].mean():.0f}")
     print(f"  LRT reject frac (add vs comb): {reject_frac:.0%}")
-    if "null_corr_max" in df.columns:
-        print(f"  Median max null |r|: {df['null_corr_max'].median():.4f}")
     print("\n  RMS bias per method:")
     for label, rms in rms_rows:
         print(f"    {label:20s}: {rms:.5f}")
