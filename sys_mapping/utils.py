@@ -490,6 +490,97 @@ def measure_kk_correlation_treecorr(
     return np.exp(kk.meanlogr), kk.xi
 
 
+def template_correlation_matrix(
+    ra: np.ndarray,
+    dec: np.ndarray,
+    k: np.ndarray,
+    *,
+    min_sep: float = 0.5,
+    max_sep: float = 300.0,
+    nbins: int = 30,
+    sep_units: str = "arcmin",
+    bin_slop: float = 0.01,
+    max_points: int | None = None,
+    seed: int = 0,
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""The full template correlation matrix :math:`\xi_{ij}(\theta)`, auto and cross.
+
+    The two-point correction subtracts :math:`\sum_{ij} \tilde A_{ij}\,\xi_{ij}(\theta)`.
+    Keeping only the diagonal assumes the templates are uncorrelated at every
+    separation, but the PCA rotation diagonalises their covariance at zero lag only,
+    so :math:`\xi_{ij}(\theta) \ne 0` for :math:`\theta > 0` and the neglected terms
+    can be a large share of the correction.  This measures all of them.
+
+    Pass the template values each *galaxy* carries, not the pixel map: no two pixel
+    centres are closer than the pixel scale, so a pixel-grid measurement has no
+    support below it, while a template is constant within a pixel and its correct
+    correlation there is its covariance.
+
+    Parameters
+    ----------
+    ra, dec:
+        Galaxy positions in degrees, shape ``(n,)``.
+    k:
+        Template values at those galaxies, shape ``(n_sys, n)``.
+    min_sep, max_sep, nbins, sep_units, bin_slop:
+        TreeCorr binning; match the measured :math:`w(\theta)`.
+    max_points:
+        Draw at most this many galaxies without replacement.  The templates are smooth,
+        so the correlation is determined long before every galaxy is used, and the
+        :math:`n_{\rm sys}(n_{\rm sys}+1)/2` correlations otherwise scale with the full
+        catalogue.  ``None`` uses them all.
+    seed:
+        Seed for the subsample.
+
+    Returns
+    -------
+    theta:
+        ``(nbins,)`` mean separation per bin in ``sep_units``.
+    xi:
+        ``(n_sys, n_sys, nbins)``, symmetric in its first two axes.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import template_correlation_matrix
+    >>> rng = np.random.default_rng(0)
+    >>> ra = rng.uniform(0, 40, 20000)
+    >>> dec = np.degrees(np.arcsin(rng.uniform(-0.3, 0.3, 20000)))
+    >>> k = np.vstack([np.sin(np.radians(ra) * 8), np.cos(np.radians(ra) * 8)])
+    >>> theta, xi = template_correlation_matrix(ra, dec, k, nbins=8, max_sep=120.0)
+    >>> xi.shape
+    (2, 2, 8)
+    >>> bool(np.allclose(xi, xi.transpose(1, 0, 2)))
+    True
+    """
+    ra = np.asarray(ra, dtype=float)
+    dec = np.asarray(dec, dtype=float)
+    k = np.atleast_2d(np.asarray(k, dtype=float))
+    n_sys, n = k.shape
+    if ra.shape != (n,) or dec.shape != (n,):
+        raise ValueError(f"ra, dec must have shape ({n},) to match k; got {ra.shape}, {dec.shape}")
+    if max_points is not None and n > max_points:
+        idx = np.sort(np.random.default_rng(seed).choice(n, int(max_points), replace=False))
+        ra, dec, k = ra[idx], dec[idx], k[:, idx]
+
+    cfg = dict(min_sep=min_sep, max_sep=max_sep, nbins=nbins,
+               sep_units=sep_units, bin_slop=bin_slop)
+    xi = np.zeros((n_sys, n_sys, nbins))
+    theta = None
+    for i in range(n_sys):
+        for j in range(i, n_sys):
+            if i == j:
+                theta, x = measure_kk_correlation_treecorr(ra, dec, k[i], **cfg)
+            else:
+                # Same positions in both catalogues: each pair is counted in both
+                # orders, which leaves the mean unchanged, and the zero-separation
+                # self-pairs fall below min_sep.
+                theta, x = measure_kk_correlation_treecorr(
+                    ra, dec, k[i], ra2=ra, dec2=dec, k2=k[j], **cfg)
+            xi[i, j] = xi[j, i] = x
+    return theta, xi
+
+
 def measure_kk_covariance_treecorr(
     ra: np.ndarray,
     dec: np.ndarray,

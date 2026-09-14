@@ -173,6 +173,24 @@ def synthetic_templates(nside, n_families=5, seed=0):
     return tmpl, names
 
 
+
+
+def _read_positions(path):
+    """RA and Dec of a catalogue, read without loading the other columns."""
+    with fits.open(path, memmap=True) as hdul:
+        d = hdul[1].data
+        return np.asarray(d["RA"], dtype=np.float64), np.asarray(d["DEC"], dtype=np.float64)
+
+
+def _subsample(lon, lat, k, n_max, seed=0):
+    """At most ``n_max`` points, drawn without replacement; all of them when fewer."""
+    lon, lat, k = np.asarray(lon), np.asarray(lat), np.asarray(k)
+    if n_max is None or lon.size <= n_max:
+        return lon, lat, k
+    idx = np.sort(np.random.default_rng(seed).choice(lon.size, int(n_max), replace=False))
+    return lon[idx], lat[idx], k[idx]
+
+
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
                    k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False):
@@ -557,6 +575,10 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         _rc_fo = sm.pixelize_catalog(_ra_rand_fo, _dec_rand_fo, nside)
         _delta_g_fo, _good_pix_fo = sm.compute_overdensity(_gc_fo, _rc_fo)
         _delta_t_fo = sm.assign_template_values(templates, _good_pix_fo)
+        # The basis the stored amplitudes were fitted in; without it the rotation
+        # here, and every regenerated curve, would describe a different fit.
+        if not args.no_footprint_standardise:
+            _delta_t_fo = sm.standardise_on_footprint(_delta_t_fo)
         for _msh, _rsh in _all_mr_fo.items():
             if _rsh.get("sigma_hat") is None and _rsh.get("a_hat") is not None:
                 _a_sh = np.asarray(_rsh["a_hat"])
@@ -632,17 +654,15 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             )
             _METHOD_FO = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
             _delta_t_rot_fo, _R_fo, _ = sm.rotate_templates(_delta_t_fo)
-            _lon_fo, _lat_fo = hp.pix2ang(nside, np.where(_good_pix_fo)[0], lonlat=True)
-            import treecorr as _tc_fo
-            _ct_fo = np.zeros((n_sys, len(_theta_fo)))
-            for _i in range(n_sys):
-                _cat_ti = _tc_fo.Catalog(ra=_lon_fo, dec=_lat_fo,
-                                          ra_units="degrees", dec_units="degrees",
-                                          k=_delta_t_rot_fo[_i])
-                _kk_ti = _tc_fo.KKCorrelation(min_sep=0.5, max_sep=300.0, nbins=30,
-                                               sep_units="arcmin", bin_slop=0.01)
-                _kk_ti.process(_cat_ti)
-                _ct_fo[_i] = _kk_ti.xi
+            # The same matrix, from the same galaxies, as the full run: a figure
+            # regenerated here must show the correction the products carry.
+            _slot_fo = np.full(hp.nside2npix(nside), -1, dtype=np.int64)
+            _slot_fo[np.where(_good_pix_fo)[0]] = np.arange(int(_good_pix_fo.sum()))
+            _gs_fo = _slot_fo[hp.ang2pix(nside, _ra_gal_fo, _dec_gal_fo, lonlat=True)]
+            _in_fo = _gs_fo >= 0
+            _, _ct_fo = sm.template_correlation_matrix(
+                _ra_gal_fo[_in_fo], _dec_gal_fo[_in_fo], _delta_t_rot_fo[:, _gs_fo[_in_fo]],
+                min_sep=0.5, max_sep=300.0, nbins=30, max_points=args.ct_max_galaxies)
             _all_wc_fo = {}
             for _mfo in _METHOD_FO:
                 _rfo = _all_mr_fo.get(_mfo, {})
@@ -987,42 +1007,44 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         min_sep=0.5, max_sep=300.0, nbins=30, sep_units="arcmin",
     )
 
-    # Template 2PCFs in the rotated basis, measured on the GALAXIES rather than
-    # on the pixel centres.  No pair of distinct pixels is separated by less than
-    # the pixel scale, so a pixel-grid measurement returns xi_i as exactly zero
-    # inside one pixel -- 21 of 30 bins at NSIDE 64, 24 of 30 at NSIDE 32 -- and
-    # Eq. 15-16 then subtracts nothing over the range carrying most of the
-    # signal.  The template is constant within a pixel, so its correct xi_i below
-    # the pixel scale is its variance, not zero, and the galaxies carry it there.
+    # Template correlations in the rotated basis, the full (n_sys, n_sys, n_theta)
+    # matrix, measured on the GALAXIES.  Auto terms alone assume the rotated
+    # templates are uncorrelated at every separation, but the PCA rotation
+    # diagonalises their covariance at zero lag only, and on LS10 the neglected
+    # cross terms are 14.7 % of the correction at NSIDE 64.  The galaxies rather than
+    # the pixel centres, because no two centres are closer than the pixel scale, so a
+    # pixel-grid correlation has no support below it while a template is constant
+    # within a pixel and its correct correlation there is its covariance.
     _pix_gal = hp.ang2pix(nside, ra_gal, dec_gal, lonlat=True)
     _slot = np.full(hp.nside2npix(nside), -1, dtype=np.int64)
     _slot[np.where(good_pix)[0]] = np.arange(int(good_pix.sum()))
     _gal_slot = _slot[_pix_gal]
     _in_fp = _gal_slot >= 0
     try:
-        import treecorr
-        ct_rot = np.zeros((n_sys, len(theta_arcmin)))
         if args.ct_from_pixels:
             _lon, _lat = hp.pix2ang(nside, np.where(good_pix)[0], lonlat=True)
-            _k_of = lambda i: delta_t_rot[i]
-            print("!! --ct-from-pixels: xi_i is zero below the pixel scale")
+            _k = delta_t_rot
+            print("!! --ct-from-pixels: the template correlations are zero below the "
+                  "pixel scale", flush=True)
         else:
             _lon, _lat = ra_gal[_in_fp], dec_gal[_in_fp]
-            _sl = _gal_slot[_in_fp]
-            _k_of = lambda i: delta_t_rot[i][_sl]
-            print(f"Template 2PCF from {_in_fp.sum():,} galaxies "
-                  f"({(~_in_fp).sum():,} outside the footprint)", flush=True)
-        for i in range(n_sys):
-            cat_t = treecorr.Catalog(ra=_lon, dec=_lat,
-                                      ra_units="degrees", dec_units="degrees",
-                                      k=_k_of(i))
-            kk = treecorr.KKCorrelation(min_sep=0.5, max_sep=300.0, nbins=30,
-                                         sep_units="arcmin", bin_slop=0.01)
-            kk.process(cat_t)
-            ct_rot[i] = kk.xi
+            _k = delta_t_rot[:, _gal_slot[_in_fp]]
+            print(f"Template correlations from {_in_fp.sum():,} galaxies "
+                  f"({(~_in_fp).sum():,} outside the footprint), "
+                  f"at most {args.ct_max_galaxies:,}", flush=True)
+        if args.ct_auto_only:
+            ct_rot = np.zeros((n_sys, len(theta_arcmin)))
+            for i in range(n_sys):
+                ct_rot[i] = sm.measure_kk_correlation_treecorr(
+                    *_subsample(_lon, _lat, _k[i], args.ct_max_galaxies),
+                    min_sep=0.5, max_sep=300.0, nbins=30)[1]
+            print("!! --ct-auto-only: the cross-template terms are neglected", flush=True)
+        else:
+            _, ct_rot = sm.template_correlation_matrix(
+                _lon, _lat, _k, min_sep=0.5, max_sep=300.0, nbins=30,
+                max_points=args.ct_max_galaxies)
     except Exception as e:
-        print(f"WARNING: TreeCorr template 2PCF failed ({e}); using zeros.")
-        ct_rot = np.zeros((n_sys, len(theta_arcmin)))
+        raise RuntimeError(f"template correlation measurement failed: {e}") from e
 
     # Two-point correction (combined model, rotated basis)
     w_corr_comb = correct_two_point_function(
@@ -1030,6 +1052,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         np.asarray(res_comb.get("b_rot", np.zeros(n_sys))),
         np.diag(res_comb.get("cov_a_rot", np.eye(n_sys))),
         np.diag(res_comb.get("cov_b_rot", np.eye(n_sys))), ct_rot,
+        cov_a=res_comb.get("cov_a_rot"), cov_b=res_comb.get("cov_b_rot"),
     )
     # Additive model correction
     w_corr_add = correct_two_point_function(
@@ -1037,6 +1060,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         np.zeros(n_sys),
         np.diag(res_add.get("cov_a_rot", np.eye(n_sys))),
         np.zeros(n_sys), ct_rot,
+        cov_a=res_add.get("cov_a_rot"),
     )
 
     # ── Per-galaxy weights: all 6 methods ─────────────────────────────────
@@ -1190,14 +1214,17 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             _br_ls = np.asarray(_b_rot if _b_rot is not None else np.zeros(n_sys))
             _va_ls = np.diag(np.asarray(_rls["cov_a_rot"])) if _rls.get("cov_a_rot") is not None else np.zeros(n_sys)
             _vb_ls = np.diag(np.asarray(_rls["cov_b_rot"])) if _rls.get("cov_b_rot") is not None else np.zeros(n_sys)
+            _ca_ls, _cb_ls = _rls.get("cov_a_rot"), _rls.get("cov_b_rot")
         else:
             _ar_ls = _R_ls10 @ _a_ls
             _br_ls = _R_ls10 @ _b_ls
             _va_ls = np.zeros(n_sys)
             _vb_ls = np.zeros(n_sys)
+            _ca_ls = _cb_ls = None
         try:
             _all_w_corr_ls10[_mls] = correct_two_point_function(
-                w_obs, _ar_ls, _br_ls, _va_ls, _vb_ls, ct_rot)
+                w_obs, _ar_ls, _br_ls, _va_ls, _vb_ls, ct_rot,
+                cov_a=_ca_ls, cov_b=_cb_ls)
         except Exception:
             _all_w_corr_ls10[_mls] = np.full_like(w_obs, np.nan)
 
@@ -1225,6 +1252,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
 
     return {
         "sample_id": sample_id,
+        "nside": int(nside),
         "data_file": str(data_file),
         "rand_file": str(rand_file),
         "weights_file": str(fits_path),
@@ -1235,10 +1263,15 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
 # ── Summary YAML ───────────────────────────────────────────────────────────
 
 def write_summary(entries, nside, output_dir):
-    summary_path = Path(output_dir) / f"summary_NSIDE{nside:04d}.yaml"
-    with open(summary_path, "w") as f:
-        yaml.dump({"nside": nside, "samples": entries}, f, default_flow_style=False)
-    print(f"\nSummary written: {summary_path}")
+    """One summary per resolution, since --min-per-pixel runs samples at several."""
+    groups = {}
+    for e in entries:
+        groups.setdefault(int(e.get("nside", nside)), []).append(e)
+    for ns, group in sorted(groups.items()):
+        summary_path = Path(output_dir) / f"summary_NSIDE{ns:04d}.yaml"
+        with open(summary_path, "w") as f:
+            yaml.dump({"nside": ns, "samples": group}, f, default_flow_style=False)
+        print(f"\nSummary written: {summary_path}")
 
 
 # ── Incremental RST documentation update ──────────────────────────────────────
@@ -1683,6 +1716,19 @@ def main():
                              "analytic, nuts, or emcee (legacy baseline).")
     parser.add_argument("--n-chains", type=int, default=None,
                         help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
+    parser.add_argument("--min-per-pixel", type=float, default=None,
+                        help="Choose each sample's resolution: the finest NSIDE no finer "
+                             "than --nside at which the footprint holds this many galaxies "
+                             "per pixel on average.  Unset runs every sample at --nside.  "
+                             "Pass --template-dir at the finest resolution; templates are "
+                             "downgraded to the one chosen.")
+    parser.add_argument("--ct-max-galaxies", type=int, default=1_000_000,
+                        help="Galaxies drawn for the template correlations.  The templates "
+                             "are smooth, so the n_sys(n_sys+1)/2 correlations are determined "
+                             "well before the whole catalogue is used.")
+    parser.add_argument("--ct-auto-only", action="store_true",
+                        help="Neglect the cross-template terms of the two-point correction. "
+                             "On LS10 they are 14.7 %% of the correction at NSIDE 64.")
     parser.add_argument("--ct-from-pixels", action="store_true",
                         help="Measure the template 2PCFs on the pixel centres "
                              "rather than on the galaxies. Reproduces "
@@ -1796,15 +1842,35 @@ def main():
         return
 
     entries = []
+    _tpl_cache = {args.nside: (templates, template_names)}
     for data_file in data_files:
         sample_id = data_file.name.replace("_DATA.fits", "")
         rand_file = data_file.parent / f"{sample_id}_RAND.fits"
         if not rand_file.exists():
             print(f"WARNING: random file not found for {sample_id}, skipping.")
             continue
+
+        # With --min-per-pixel each sample runs at the finest resolution where its
+        # mean occupancy clears the floor, so a sparse sample is placed on a coarser
+        # map rather than fitted in the shot-noise-dominated regime.
+        nside_run = args.nside
+        if args.min_per_pixel is not None:
+            _rg, _dg = _read_positions(data_file)
+            _rr, _dr = _read_positions(rand_file)
+            nside_run, _nbar = sm.choose_nside_by_occupancy(
+                _rg, _dg, _rr, _dr, args.nside, min_per_pixel=args.min_per_pixel)
+            print(f"{sample_id}: NSIDE {nside_run} "
+                  f"({', '.join(f'{k}: {v:.1f}' for k, v in _nbar.items())} galaxies/pixel)",
+                  flush=True)
+            del _rg, _dg, _rr, _dr
+        if nside_run not in _tpl_cache:
+            _tpl_cache[nside_run] = (load_templates_from_dir(args.template_dir, nside_run)
+                                     if args.template_dir else synthetic_templates(nside_run))
+        templates_run, template_names_run = _tpl_cache[nside_run]
+
         entry = run_sample(
-            sample_id, data_file, rand_file, templates, template_names,
-            args.nside, args.n_walkers, args.n_steps, args.n_burn, args.output_dir, args,
+            sample_id, data_file, rand_file, templates_run, template_names_run,
+            nside_run, args.n_walkers, args.n_steps, args.n_burn, args.output_dir, args,
             only_methods=args.only_methods,
             force=args.force,
             figures_only=args.figures_only,
@@ -1816,13 +1882,22 @@ def main():
         )
         entries.append(entry)
 
+    # The overview grid and results_ls10.rst each describe one resolution.  A run
+    # whose samples landed at several has no single one to describe them at.
+    _resolutions = sorted({int(e.get("nside", args.nside)) for e in entries})
+    _single_nside = len(_resolutions) <= 1
+    if entries and not _single_nside:
+        print(f"\nSamples ran at NSIDE {_resolutions}; the per-resolution overview and "
+              f"results_ls10.rst are not written for a mixed run.")
+
     # Generate all-samples w(θ) overview grid (figures-only mode only)
-    if args.figures_only and entries:
+    if args.figures_only and entries and _single_nside:
         _plot_all_samples_wtheta_grid(entries, args.output_dir, args.nside, _DOCS_STATIC_LS10)
 
     # Skip RST auto-update in figures-only / --no-rst mode to avoid re-contaminating
     # the manually maintained results_ls10.rst (e.g. single-sample scratch runs).
-    if not args.figures_only and not getattr(args, "no_rst", False) and entries:
+    if (not args.figures_only and not getattr(args, "no_rst", False) and entries
+            and _single_nside):
         if args.only_methods:
             _tag = (args.only_methods[0]
                     if len(args.only_methods) == 1

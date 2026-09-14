@@ -615,3 +615,52 @@ class TestFootprintStandardisation:
     def test_rejects_a_non_2d_basis(self):
         with pytest.raises(ValueError, match=r"n_sys, n_pix"):
             sm.standardise_on_footprint(np.zeros(10))
+
+
+class TestOccupancyChoosesResolution:
+    """The map resolution follows the sample's own mean occupancy."""
+
+    @staticmethod
+    def _catalogue(n_gal, n_rand=400000, seed=0):
+        rng = np.random.default_rng(seed)
+
+        def draw(n):
+            return rng.uniform(0, 120, n), np.degrees(np.arcsin(rng.uniform(-0.2, 0.8, n)))
+
+        return (*draw(n_gal), *draw(n_rand))
+
+    def test_counts_the_pixels_the_analysis_fits(self):
+        ra_g, dec_g, ra_r, dec_r = self._catalogue(80000)
+        _, nbar = sm.choose_nside_by_occupancy(ra_g, dec_g, ra_r, dec_r, 64, min_per_pixel=1e9,
+                                               nside_min=16)
+        for ns, value in nbar.items():
+            _, good = sm.compute_overdensity(sm.pixelize_catalog(ra_g, dec_g, ns),
+                                             sm.pixelize_catalog(ra_r, dec_r, ns))
+            assert value == pytest.approx(80000 / good.sum())
+
+    def test_picks_the_finest_resolution_that_clears_the_floor(self):
+        ra_g, dec_g, ra_r, dec_r = self._catalogue(80000)
+        nside, nbar = sm.choose_nside_by_occupancy(ra_g, dec_g, ra_r, dec_r, 128,
+                                                   min_per_pixel=25.0)
+        assert nbar[nside] >= 25.0
+        if nside < 128:
+            assert nbar[nside * 2] < 25.0
+
+    def test_a_sparser_sample_runs_coarser(self):
+        dense = self._catalogue(400000, seed=1)
+        sparse = self._catalogue(20000, seed=2)
+        ns_dense, _ = sm.choose_nside_by_occupancy(*dense, 128, min_per_pixel=25.0)
+        ns_sparse, _ = sm.choose_nside_by_occupancy(*sparse, 128, min_per_pixel=25.0)
+        assert ns_sparse < ns_dense
+
+    def test_too_sparse_even_at_the_coarsest_is_reported_not_hidden(self):
+        ra_g, dec_g, ra_r, dec_r = self._catalogue(200)
+        nside, nbar = sm.choose_nside_by_occupancy(ra_g, dec_g, ra_r, dec_r, 64,
+                                                   min_per_pixel=25.0, nside_min=16)
+        assert nside == 16
+        assert nbar[16] < 25.0
+
+    def test_rejects_a_resolution_that_is_not_a_power_of_two(self):
+        ra_g, dec_g, ra_r, dec_r = self._catalogue(1000)
+        with pytest.raises(ValueError, match="power of two"):
+            sm.choose_nside_by_occupancy(ra_g, dec_g, ra_r, dec_r, 60)

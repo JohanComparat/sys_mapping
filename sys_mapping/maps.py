@@ -395,6 +395,92 @@ def inverse_variance_pixel_weights(
     return w / mean if mean > 0 else np.ones_like(w)
 
 
+def choose_nside_by_occupancy(
+    ra_gal: np.ndarray,
+    dec_gal: np.ndarray,
+    ra_rand: np.ndarray,
+    dec_rand: np.ndarray,
+    nside_max: int,
+    *,
+    min_per_pixel: float = 25.0,
+    nside_min: int = 8,
+    min_random_fraction: float = 0.1,
+) -> tuple[int, dict[int, float]]:
+    r"""The finest resolution at which a sample holds enough galaxies per pixel.
+
+    The map resolution is chosen per sample, before any fitting, from the sample's own
+    mean occupancy :math:`\bar n = N_{\rm gal} / N_{\rm good}` on the analysis
+    footprint.  Below a few tens of galaxies per pixel shot noise dominates the pixel
+    variance: a clustering amplitude fitted to it has a flat objective, and a density
+    ratio measured on it scatters by several per cent between realisations.  A
+    sparser sample therefore runs on a coarser map rather than being dropped.
+
+    The rule is on the *mean* occupancy of the whole footprint, never on individual
+    pixels.  Refusing pixels that hold too few galaxies would carve the mask along
+    exactly the depth and stellar-density variations the templates describe, and the
+    mask would become a template.
+
+    Parameters
+    ----------
+    ra_gal, dec_gal, ra_rand, dec_rand:
+        Galaxy and random positions in degrees.
+    nside_max:
+        The finest resolution to consider; a power of two.
+    min_per_pixel:
+        Mean galaxies per footprint pixel required.  25 holds the Poisson scatter of a
+        pixel count to 20 per cent.
+    nside_min:
+        The coarsest resolution to fall back to.  A sample too sparse even there is
+        placed at ``nside_min`` and the returned occupancy says so.
+    min_random_fraction:
+        The footprint threshold, passed to :func:`compute_overdensity` so the pixels
+        counted are the pixels the analysis fits.
+
+    Returns
+    -------
+    nside:
+        The chosen resolution.
+    nbar:
+        Mean occupancy at every resolution examined, finest first.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.maps import choose_nside_by_occupancy
+    >>> rng = np.random.default_rng(0)
+    >>> def draw(n):
+    ...     ra = rng.uniform(0, 90, n)
+    ...     dec = np.degrees(np.arcsin(rng.uniform(0, 0.9, n)))
+    ...     return ra, dec
+    >>> ra_g, dec_g = draw(60000)
+    >>> ra_r, dec_r = draw(300000)
+    >>> nside, nbar = choose_nside_by_occupancy(ra_g, dec_g, ra_r, dec_r, 64,
+    ...                                         min_per_pixel=25.0)
+    >>> bool(nbar[nside] >= 25.0)
+    True
+    >>> finer = nside * 2
+    >>> bool(finer > 64 or nbar[finer] < 25.0)
+    True
+    """
+    nside_max = int(nside_max)
+    if nside_max < 1 or nside_max & (nside_max - 1):
+        raise ValueError(f"nside_max must be a power of two; got {nside_max}")
+    n_gal = int(np.asarray(ra_gal).size)
+    nbar: dict[int, float] = {}
+    ns = nside_max
+    while ns >= max(1, int(nside_min)):
+        _, good = compute_overdensity(
+            pixelize_catalog(ra_gal, dec_gal, ns),
+            pixelize_catalog(ra_rand, dec_rand, ns),
+            min_random_fraction=min_random_fraction,
+        )
+        nbar[ns] = n_gal / max(int(good.sum()), 1)
+        if nbar[ns] >= min_per_pixel:
+            return ns, nbar
+        ns //= 2
+    return max(1, int(nside_min)), nbar
+
+
 def standardise_on_footprint(
     delta_t: np.ndarray,
     *,

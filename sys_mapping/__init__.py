@@ -34,6 +34,7 @@ from .maps import (
     compute_overdensity,
     assign_template_values,
     standardise_on_footprint,
+    choose_nside_by_occupancy,
     inverse_variance_pixel_weights,
 )
 from .inference import (
@@ -98,6 +99,7 @@ from .mocks import (
     MockCatalog,
 )
 from .utils import (
+    template_correlation_matrix,
     compute_covariance_matrix,
     compute_amplitude_bias,
     measure_two_point_function,
@@ -169,6 +171,7 @@ __all__ = [
     "compute_overdensity",
     "assign_template_values",
     "standardise_on_footprint",
+    "choose_nside_by_occupancy",
     "inverse_variance_pixel_weights",
     # inference
     "make_log_prob",
@@ -204,6 +207,7 @@ __all__ = [
     "jackknife_covariance",
     "assign_spatial_patches",
     # utils
+    "template_correlation_matrix",
     "compute_covariance_matrix",
     "compute_amplitude_bias",
     "measure_two_point_function",

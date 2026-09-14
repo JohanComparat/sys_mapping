@@ -290,3 +290,61 @@ class TestTemplateCorrelationSupport:
         over = (theta > 1.5 * hp.nside2resol(nside, arcmin=True)) & (xi_pix > 0.05)
         assert over.sum() > 2
         assert np.allclose(xi_gal[over], xi_pix[over], rtol=0.2)
+
+
+class TestTemplateCorrelationMatrix:
+    """The full xi_ij(theta), cross terms included, from galaxy-carried values."""
+
+    @staticmethod
+    def _field(n=40000, seed=0):
+        rng = np.random.default_rng(seed)
+        ra = rng.uniform(0, 60, n)
+        dec = np.degrees(np.arcsin(rng.uniform(-0.3, 0.6, n)))
+        a = np.sin(np.radians(ra) * 6)
+        k = np.vstack([a, 0.7 * a + 0.3 * np.cos(np.radians(dec) * 9),
+                       rng.standard_normal(n) * 0.2])
+        return ra, dec, k
+
+    KW = dict(min_sep=1.0, max_sep=200.0, nbins=12)
+
+    def test_symmetric_with_autos_on_the_diagonal(self):
+        treecorr = pytest.importorskip("treecorr")
+        ra, dec, k = self._field()
+        _, xi = sm.template_correlation_matrix(ra, dec, k, **self.KW)
+        assert xi.shape == (3, 3, 12)
+        np.testing.assert_allclose(xi, xi.transpose(1, 0, 2), atol=1e-12)
+        for i in range(3):
+            _, auto = sm.measure_kk_correlation_treecorr(ra, dec, k[i], **self.KW)
+            np.testing.assert_allclose(xi[i, i], auto, atol=1e-12)
+
+    def test_cross_terms_are_not_negligible_for_correlated_templates(self):
+        # The situation the auto-only correction gets wrong: two templates sharing a
+        # large-scale mode.  Their cross correlation is of the size of the autos.
+        pytest.importorskip("treecorr")
+        ra, dec, k = self._field()
+        _, xi = sm.template_correlation_matrix(ra, dec, k, **self.KW)
+        assert np.max(np.abs(xi[0, 1])) > 0.5 * np.max(np.abs(xi[1, 1]))
+        # ...and an independent noise template carries essentially none.
+        assert np.max(np.abs(xi[0, 2])) < 0.05 * np.max(np.abs(xi[0, 0]))
+
+    def test_subsampling_preserves_the_matrix(self):
+        pytest.importorskip("treecorr")
+        ra, dec, k = self._field(n=80000)
+        _, full = sm.template_correlation_matrix(ra, dec, k, **self.KW)
+        _, sub = sm.template_correlation_matrix(ra, dec, k, max_points=20000, **self.KW)
+        big = np.abs(full) > 0.05
+        np.testing.assert_allclose(sub[big], full[big], rtol=0.15)
+
+    def test_the_matrix_feeds_the_correction(self):
+        # A 3-D matrix must reach the full-sum branch and change the answer when the
+        # templates are correlated, or the cross terms were never used.
+        pytest.importorskip("treecorr")
+        ra, dec, k = self._field()
+        _, xi = sm.template_correlation_matrix(ra, dec, k, **self.KW)
+        w_obs = np.linspace(0.5, 0.01, 12)
+        a = np.array([0.05, 0.05, 0.0])
+        z = np.zeros(3)
+        full = sm.correct_two_point_function(w_obs, a, z, z, z, xi)
+        auto = sm.correct_two_point_function(
+            w_obs, a, z, z, z, np.stack([xi[i, i] for i in range(3)]))
+        assert not np.allclose(full, auto)
