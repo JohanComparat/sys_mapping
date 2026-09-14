@@ -4,6 +4,22 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.3.0] — 2026-09-14
+
+Three algorithms were doing something other than what they were named for, and the
+LS10 products are re-issued on a basis where the amplitudes mean what they say.
+
+`iterative_systematics_decontamination` now implements published ISD rather than a
+multivariate polynomial expansion.  The likelihood ratio is evaluated at two
+likelihood maxima, so it is non-negative and its magnitude carries meaning.  The
+template basis is standardised over the analysis footprint, and the template
+correlations are measured from the galaxies, so the two-point correction acts over the
+whole measured range instead of the nine widest bins of thirty.
+
+The 27 re-issued products at NSIDE 32, 64 and 128 carry `WEIGHTVER = 3`.  Their
+amplitudes are not comparable with a version 2 product, whose basis is normalised
+somewhere other than where the fit used it.
+
 ### Added
 
 - **`apply_nonlinear_contamination`, `TemplateResponse`, `evaluate_response`,

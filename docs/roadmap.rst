@@ -193,10 +193,8 @@ Three places where a number is quoted that should not be:
   *Action:* replace it.
 
 **Release hygiene.**
-``pyproject.toml`` is at 1.2.0, the tag ``v1.2.0`` exists with 20 commits after it,
-and ``CHANGELOG.md`` stops at 1.1.0.  Cut 1.3.0 covering the covariance module,
-mock-calibrated LRT, :math:`w(\theta)` covariance, detectability law, NUTS
-``chain_method``, and the sweep runner.
+``pyproject.toml`` is at 1.3.0 and ``CHANGELOG.md`` carries a dated 1.3.0 section.  The
+tag is cut from the commit that re-issues the LS10 products at ``WEIGHTVER = 3``.
 
 ----
 

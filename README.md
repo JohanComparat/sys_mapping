@@ -1,11 +1,11 @@
 # sys_mapping
 
-[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.2.0/)
+[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.3.0/)
 [![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/#)
 [![Tests](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml/badge.svg)](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 
-**PyPI:** https://pypi.org/project/sys-mapping/1.2.0/
+**PyPI:** https://pypi.org/project/sys-mapping/1.3.0/
 **Docs:** https://sys-mapping.readthedocs.io/en/latest/#
 
 Joint inference of multiplicative and additive systematics in galaxy
@@ -400,10 +400,10 @@ pip install 'jax[cuda12_pip]' \
 
 ## Installation
 
-Install from [PyPI](https://pypi.org/project/sys-mapping/1.2.0/):
+Install from [PyPI](https://pypi.org/project/sys-mapping/1.3.0/):
 
 ```bash
-pip install sys-mapping==1.2.0
+pip install sys-mapping==1.3.0
 ```
 
 Or install from source:
