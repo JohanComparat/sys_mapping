@@ -210,12 +210,29 @@ class TestLoadMatchedCl:
         cl = sm.load_matched_cl(tmp_path, s, 32)
         assert len(cl) == 5          # the NSIDE 32 file, not the finer one
 
-    def test_finest_wins_when_no_exact_file(self, tmp_path):
+    def test_nearest_finer_wins_when_no_exact_file(self, tmp_path):
         s = "SAMPLE_B"
         self._write(tmp_path, s, 32, passed=True, n=4)
         self._write(tmp_path, s, 128, passed=True, n=16)
         cl = sm.load_matched_cl(tmp_path, s, 64)   # no NSIDE 64 file
         assert len(cl) == 17         # falls through to NSIDE 128
+
+    def test_coarse_target_takes_the_nearest_finer_fit(self, tmp_path):
+        """Not the finest: the finest fit is made where the sample is sparsest.
+
+        This is the LS10 logM>=11.5 case at NSIDE 16: its NSIDE 128 fit was made at
+        1.3 galaxies per pixel and over-clusters, its NSIDE 32 fit at 22.
+        """
+        s = "SAMPLE_E"
+        self._write(tmp_path, s, 32, passed=True, n=4)
+        self._write(tmp_path, s, 128, passed=True, n=16)
+        assert len(sm.load_matched_cl(tmp_path, s, 16)) == 5
+
+    def test_target_finer_than_every_fit_takes_the_finest(self, tmp_path):
+        s = "SAMPLE_F"
+        self._write(tmp_path, s, 32, passed=True, n=4)
+        self._write(tmp_path, s, 64, passed=True, n=8)
+        assert len(sm.load_matched_cl(tmp_path, s, 128)) == 9
 
     def test_failed_exact_falls_back_to_a_validated_resolution(self, tmp_path):
         """A failed fit at one resolution says nothing about a passing one.

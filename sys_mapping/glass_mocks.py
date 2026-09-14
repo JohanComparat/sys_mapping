@@ -207,7 +207,19 @@ def load_matched_cl(source, sample: str | None = None,
         cands = sorted(path.glob(f"{sample}_NSIDE*_match.json"))
         if not cands:
             return None
-        finest = lambda qs: max(qs, key=lambda q: int(q.stem.split("_NSIDE")[1][:4]))
+        res = lambda q: int(q.stem.split("_NSIDE")[1][:4])
+
+        def nearest(qs):
+            # The closest resolution at or above the target: it covers every
+            # multipole the target map resolves and was fitted at the occupancy
+            # nearest the target's.  The finest file is the wrong default for a
+            # coarse target, since the finest fit is made where the sample is
+            # sparsest.  With nothing at or above, the finest below is the
+            # closest, extended past its last multipole by sanitise_cl.
+            if nside is None:
+                return max(qs, key=res)
+            above = [q for q in qs if res(q) >= int(nside)]
+            return min(above, key=res) if above else max(qs, key=res)
         exact = (path / f"{sample}_NSIDE{int(nside):04d}_match.json"
                  if nside is not None else None)
         if exact is not None and exact.exists() and _validated(exact):
@@ -216,12 +228,12 @@ def load_matched_cl(source, sample: str | None = None,
             # Either there is no file at this resolution, or the one there did
             # not pass.  A failed fit at one resolution says nothing about a
             # passing fit at another for the same sample and footprint, so prefer
-            # the finest *validated* candidate rather than refusing outright --
-            # but fall back to the finest of any kind so that, when nothing
+            # the nearest *validated* candidate rather than refusing outright --
+            # but fall back to the nearest of any kind so that, when nothing
             # passed, the gate below still raises with a real diagnosis instead
             # of a bare None.
             passing = [q for q in cands if _validated(q)]
-            path = finest(passing) if passing else finest(cands)
+            path = nearest(passing) if passing else nearest(cands)
             if exact is not None and exact.exists() and path != exact:
                 warnings.warn(
                     f"{exact.name} did not pass the large-scale check; using "
