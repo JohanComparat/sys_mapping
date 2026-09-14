@@ -50,6 +50,9 @@ REPO = Path(__file__).resolve().parent.parent
 STATIC = REPO / "docs" / "_static" / "detectability_law"
 RST = REPO / "docs" / "detectability_law.rst"
 SYSW = REPO / "data" / "sys_weights"
+# One product per sample at the resolution its occupancy supports, carrying the
+# significance calibrated against matched GLASS realisations.
+SYSW_CAL = REPO / "data" / "sys_weights_auto"
 PROG = REPO / "docs" / "_static" / "results_progressive_contamination" / "progressive_results.csv"
 
 FIDUCIAL = "10.0"  # log M* threshold of the fiducial LS10 sample
@@ -116,12 +119,38 @@ def load_ls10_samples(nsstr: str = "0064"):
 
 def load_ls10_across_nside(mstar: str = FIDUCIAL):
     rows = []
-    for nsstr in ("0032", "0064", "0128", "0256"):
+    for nsstr in ("0032", "0064", "0128"):
         for r in load_ls10_samples(nsstr):
             if r["mstar"] == mstar:
                 rows.append(r)
     rows.sort(key=lambda r: r["nside"])
     return rows
+
+
+def load_calibrated():
+    """Calibrated significances, one entry per sample at its chosen NSIDE.
+
+    ``significance`` is the OLS amplitude over its scatter across uncontaminated
+    matched realisations; ``inflation`` is that scatter over the iid error, so
+    ``significance * inflation`` is the iid significance of the same amplitude.
+    """
+    out = {}
+    for f in sorted(glob.glob(str(SYSW_CAL / "LS10_VLIM_ANY_*_params.json"))):
+        d = json.load(open(f))
+        s = d.get("significance")
+        if not s:
+            continue
+        mstar = d["sample_id"].split("_")[3]
+        out[mstar] = dict(
+            mstar=mstar, nside=d["nside"], ngal=d["n_galaxies"], npix=d["n_good_pix"],
+            names=[n.split("_NSIDE")[0] for n in d["template_names"]],
+            significance=np.asarray(s["significance"], float),
+            inflation=np.asarray(s["inflation"], float),
+            p_values=np.asarray(s["p_values"], float),
+            family_wise_p=float(s["family_wise_p"]),
+            p_floor=float(s["p_value_floor"]), n_null=int(s["n_null"]),
+        )
+    return out
 
 
 def load_progressive():
@@ -230,20 +259,22 @@ def fig_neff(rows):
     return _save(fig, "fig4_Neff_fraction.png")
 
 
-def fig_pertemplate(fid):
+def fig_pertemplate(cal):
     fig, ax = plt.subplots(figsize=(7.0, 4.6))
-    snr = np.abs(fid["a_hat"]) / np.sqrt(fid["var_a"])
-    order = np.argsort(snr)[::-1]
-    names = [fid["names"][i] for i in order]
-    snr = snr[order]
-    x = np.arange(len(snr))
-    ax.bar(x, snr, color="C0", label="iid SNR (optimistic)")
-    ax.bar(x, snr / IID_INFLATION, color="C3", width=0.5,
-           label=rf"calibrated SNR ($\div{IID_INFLATION}$, sandwich)")
+    order = np.argsort(cal["significance"])[::-1]
+    names = [cal["names"][i] for i in order]
+    sig = cal["significance"][order]
+    iid = sig * cal["inflation"][order]
+    x = np.arange(len(sig))
+    ax.bar(x, iid, color="C0", label="iid (white-noise error)")
+    ax.bar(x, sig, color="C3", width=0.5,
+           label=f"calibrated ({cal['n_null']} matched realisations)")
     ax.axhline(3.0, ls="--", c="k", lw=1, label=r"$3\sigma$")
     ax.set_xticks(x); ax.set_xticklabels(names, rotation=60, ha="right", fontsize=7)
     ax.set_ylabel(r"per-template $|\hat a_i|/\sigma_i$")
-    ax.set_title(f"LS10 log$M_*\\geq${fid['mstar']} detections (NSIDE {fid['nside']}) — stellar density dominates")
+    rel = r"\leq " if cal["family_wise_p"] <= cal["p_floor"] else "="
+    ax.set_title(f"LS10 log$M_*\\geq${cal['mstar']} (NSIDE {cal['nside']}): "
+                 f"family-wise $p{rel}{cal['family_wise_p']:.4f}$")
     ax.legend(fontsize=8); ax.grid(alpha=.3, axis="y")
     return _save(fig, "fig5_per_template_snr.png")
 
@@ -271,7 +302,7 @@ def write_scorecard(rows):
     p = STATIC / "ls10_detectability_scorecard.csv"
     cols = ["survey", "sample", "nside", "n_pix", "n_gal", "nbar", "fsky",
             "sigma_hat", "neff_over_ngal", "regime", "Amin_3sig", "Amin_5sig",
-            "Amin_shot_3sig", "top_template", "top_snr_iid", "top_snr_cal"]
+            "Amin_shot_3sig", "top_template", "top_snr_iid"]
     lines = [",".join(cols)]
     for r in rows:
         snr = np.abs(r["a_hat"]) / np.sqrt(r["var_a"]) if r["var_a"].size else np.array([np.nan])
@@ -286,9 +317,29 @@ def write_scorecard(rows):
             f"{a_min(5.0, r['npix'], r['sigma_hat']):.3e}",
             f"{a_min_shot(3.0, r['ngal']):.3e}",
             r["names"][top] if r["names"] else "",
-            f"{snr[top]:.2f}", f"{snr[top] / IID_INFLATION:.2f}",
+            f"{snr[top]:.2f}",
         ]
         lines.append(",".join(str(x) for x in rec))
+    p.write_text("\n".join(lines) + "\n")
+    return p
+
+
+def write_calibrated_table(cal):
+    """One row per sample at its chosen NSIDE; the leading template by calibrated significance."""
+    STATIC.mkdir(parents=True, exist_ok=True)
+    p = STATIC / "ls10_calibrated_significance.csv"
+    lines = ["log M* >=,NSIDE,galaxies per pixel,leading template,calibrated significance,"
+             "family-wise p,median inflation,inflation range"]
+    for mstar in sorted(cal, key=float):
+        c = cal[mstar]
+        i = int(np.argmax(c["significance"]))
+        fwp = (f"<= {c['p_floor']:.4f}" if c["family_wise_p"] <= c["p_floor"]
+               else f"{c['family_wise_p']:.4f}")
+        lines.append(",".join([
+            mstar, str(c["nside"]), f"{c['ngal'] / c['npix']:.1f}", c["names"][i],
+            f"{c['significance'][i]:.2f}", fwp, f"{np.median(c['inflation']):.1f}",
+            f"{c['inflation'].min():.1f}-{c['inflation'].max():.1f}",
+        ]))
     p.write_text("\n".join(lines) + "\n")
     return p
 
@@ -296,12 +347,6 @@ def write_scorecard(rows):
 # ---------------------------------------------------------------------------
 # RST page
 # ---------------------------------------------------------------------------
-
-# Empirical iid->calibrated (sandwich) inflation of per-template SNR. The iid
-# posterior sigma ignores the correlated field and is ~2x too tight for every
-# method (see results_glass_slow_methods / results_snr_preselection).
-IID_INFLATION = 1.9
-
 
 _RST = r"""Systematic-detectability law — survey design rules of thumb
 ===========================================================
@@ -357,10 +402,18 @@ Rules of thumb
   refine (more independent measurements of the same smooth systematic) until the
   shot floor :math:`\nu/\sqrt{N_{\rm gal}}` — refine to just below the
   systematic's coherence scale, no finer.
-* **The honest error bar is the sandwich.** The per-template iid
-  :math:`\sigma_i` is :math:`\sim2\times` too tight for every method; multiply
-  detection SNRs by :math:`\approx1/%%IID%%` (or use
-  ``sys_mapping.mock_sandwich_covariance``).
+* **Calibrate the error bar on matched mocks.** The iid :math:`\sigma_i` ignores
+  the correlation of the clustered field between pixels. Against %%NNULL%%
+  uncontaminated GLASS realisations carrying each sample's own matched spectrum,
+  the scatter of the amplitude divided by the iid error has a median over
+  templates of %%INFLMIN%% to %%INFLMAX%% per sample, rising with resolution
+  (%%INFLBYNSIDE%%). Single templates span %%TPLMIN%% to %%TPLMAX%%. No single
+  factor converts an iid SNR; ``sys_mapping.calibrated_template_significance``
+  measures it per template.
+* **The maximum over templates needs its own null.** A search over
+  :math:`n_{\rm sys}` templates reports the largest significance, so its p-value is
+  read from the largest significance of each null realisation (the family-wise
+  p), not from a per-template threshold.
 * **w(θ) is a weaker detector** — its contamination signal grows as
   :math:`A^2`, so the direct field regression sees fainter systematics.
 
@@ -368,15 +421,24 @@ LS10 worked example (log :math:`M_*\ge` %%FID%%)
 ------------------------------------------------
 
 The fiducial LS10 volume-limited sample (:math:`N_{\rm gal}=`\ %%NGAL%%,
-:math:`f_{\rm sky}\approx`\ %%FSKY%%) is **%%REGIME%%**: at the recommended
-NSIDE 64 the per-pixel noise :math:`\hat\sigma=`\ %%SHAT%% is dominated by
-clustering (:math:`\bar n_{\rm pix}=`\ %%NBAR%%, shot
+:math:`f_{\rm sky}\approx`\ %%FSKY%%) is **%%REGIME%%**: at NSIDE 64 the per-pixel noise
+:math:`\hat\sigma=`\ %%SHAT%% is dominated by clustering (:math:`\bar n_{\rm pix}=`\ %%NBAR%%, shot
 :math:`1/\bar n_{\rm pix}=`\ %%SHOT%%), so only :math:`N_{\rm eff}/N_{\rm
 gal}=`\ %%NEFF%% of the galaxies count toward detection. The smallest detectable
 systematic field RMS is :math:`A_{\min}(3\sigma)=`\ %%AMIN3%% (:math:`5\sigma`:
-%%AMIN5%%), versus the shot-floor %%AMINSHOT%%. The dominant real detection is
-**%%TOP%%** at iid SNR %%TOPSNR%% (:math:`\approx`\ %%TOPCAL%% calibrated) — the
-known LS10 BGS stellar-density systematic.
+%%AMIN5%%), versus the shot-floor %%AMINSHOT%%. The leading template at NSIDE 64
+is **%%TOP%%** at iid SNR %%TOPSNR%%.
+
+Occupancy puts this sample at NSIDE %%CALNSIDE%% (mean %%CALNBAR%% galaxies per
+pixel against a floor of 25). There the leading template is **%%CALTOP%%** at a
+calibrated %%CALSIG%%\ :math:`\sigma` (iid %%CALIID%%, inflation %%CALINFL%%),
+family-wise :math:`p` %%CALFWP%% from %%NNULL%% realisations. It traces the Gaia
+stellar density, the known LS10 BGS systematic.
+
+.. csv-table:: Calibrated significance per sample, each at the resolution its occupancy supports.
+   The family-wise p is bounded below by 1/(N+1) for N realisations.
+   :file: _static/detectability_law/ls10_calibrated_significance.csv
+   :header-rows: 1
 
 .. figure:: /_static/detectability_law/fig1_Amin_vs_Ngal.png
    :width: 88%
@@ -389,7 +451,7 @@ known LS10 BGS stellar-density systematic.
 .. figure:: /_static/detectability_law/fig2_Amin_vs_nside.png
    :width: 88%
 
-   Pixel size at fixed :math:`N_{\rm gal}`: refining NSIDE 32→256 lowers
+   Pixel size at fixed :math:`N_{\rm gal}`: refining NSIDE 32→128 lowers
    :math:`A_{\min}` toward the shot floor (more resolved modes).
 
 .. figure:: /_static/detectability_law/fig3_crossover.png
@@ -406,9 +468,9 @@ known LS10 BGS stellar-density systematic.
 .. figure:: /_static/detectability_law/fig5_per_template_snr.png
    :width: 92%
 
-   Per-template detection SNR (iid vs sandwich-calibrated); stellar density
-   dominates. Individual templates are collinear (VIF-inflated); the *field* is
-   robust.
+   Per-template significance of the fiducial sample at NSIDE %%CALNSIDE%%: iid
+   against calibrated on matched realisations. Individual templates are collinear
+   (VIF-inflated); the *field* is robust.
 
 .. figure:: /_static/detectability_law/fig6_detection_vs_amplitude.png
    :width: 88%
@@ -417,7 +479,8 @@ known LS10 BGS stellar-density systematic.
    progressive mocks.
 
 The per-sample (NSIDE 64) and per-NSIDE (fiducial sample) numbers are tabulated in
-``_static/detectability_law/ls10_detectability_scorecard.csv``.
+``_static/detectability_law/ls10_detectability_scorecard.csv``, the calibrated
+significances in ``_static/detectability_law/ls10_calibrated_significance.csv``.
 
 Empirical sweep on the remote (Stage 2 — run)
 ---------------------------------------------
@@ -455,12 +518,36 @@ Reproduce
 """
 
 
-def write_rst(fid, rows_ns):
+def write_rst(fid, rows_ns, cal):
     nside64 = next(r for r in rows_ns if r["nside"] == 64)
     snr = np.abs(fid["a_hat"]) / np.sqrt(fid["var_a"])
     top = int(np.nanargmax(snr))
+    c = cal[FIDUCIAL]
+    ctop = int(np.argmax(c["significance"]))
+    med = {m: float(np.median(v["inflation"])) for m, v in cal.items()}
+    by_nside = {}
+    for m, v in cal.items():
+        by_nside.setdefault(v["nside"], []).append(med[m])
+    infl_by_nside = "; ".join(
+        f"NSIDE {ns}: {min(v):.1f}" + (f" to {max(v):.1f}" if max(v) > min(v) else "")
+        for ns, v in sorted(by_nside.items()))
+    n_null = sorted({v["n_null"] for v in cal.values()})
+    fwp = (f"≤ {c['p_floor']:.4f}" if c["family_wise_p"] <= c["p_floor"]
+           else f"= {c['family_wise_p']:.4f}")
     subs = {
-        "%%IID%%": f"{IID_INFLATION}",
+        "%%NNULL%%": "/".join(str(n) for n in n_null),
+        "%%INFLMIN%%": f"{min(med.values()):.1f}",
+        "%%INFLMAX%%": f"{max(med.values()):.1f}",
+        "%%INFLBYNSIDE%%": infl_by_nside,
+        "%%TPLMIN%%": f"{min(v['inflation'].min() for v in cal.values()):.1f}",
+        "%%TPLMAX%%": f"{max(v['inflation'].max() for v in cal.values()):.1f}",
+        "%%CALNSIDE%%": str(c["nside"]),
+        "%%CALNBAR%%": f"{c['ngal'] / c['npix']:.1f}",
+        "%%CALTOP%%": c["names"][ctop],
+        "%%CALSIG%%": f"{c['significance'][ctop]:.2f}",
+        "%%CALIID%%": f"{c['significance'][ctop] * c['inflation'][ctop]:.1f}",
+        "%%CALFWP%%": fwp,
+        "%%CALINFL%%": f"{c['inflation'][ctop]:.2f}",
         "%%FID%%": FIDUCIAL,
         "%%NGAL%%": f"{fid['ngal']:,}",
         "%%FSKY%%": f"{fsky(nside64['npix'], 64):.3f}",
@@ -474,7 +561,6 @@ def write_rst(fid, rows_ns):
         "%%AMINSHOT%%": f"{a_min_shot(3.0, nside64['ngal']):.2e}",
         "%%TOP%%": fid["names"][top],
         "%%TOPSNR%%": f"{snr[top]:.1f}",
-        "%%TOPCAL%%": f"{snr[top] / IID_INFLATION:.1f}",
     }
     body = _RST
     for k, v in subs.items():
@@ -488,19 +574,24 @@ def main():
     rows_ns = load_ls10_across_nside(FIDUCIAL)
     fid = next(r for r in rows_ns if r["nside"] == 64)
     prog = load_progressive()
+    cal = load_calibrated()
+    if FIDUCIAL not in cal:
+        raise SystemExit(f"no calibrated product for log M* >= {FIDUCIAL} under {SYSW_CAL}")
 
     fig_amin_vs_ngal(samples64)
     fig_amin_vs_nside(rows_ns)
     fig_crossover(rows_ns)
     fig_neff(rows_ns)
-    fig_pertemplate(fid)
+    fig_pertemplate(cal[FIDUCIAL])
     fig_detection_vs_amp(prog)
 
     # Scorecard: all 9 samples at NSIDE 64 (A_min-vs-N_gal) + fiducial across NSIDE.
     rows_scorecard = samples64 + [r for r in rows_ns if r["nside"] != 64]
     sc = write_scorecard(rows_scorecard)
-    rst = write_rst(fid, rows_ns)
+    ct = write_calibrated_table(cal)
+    rst = write_rst(fid, rows_ns, cal)
     print(f"[detectability_law] scorecard -> {sc}")
+    print(f"[detectability_law] calibrated-> {ct}")
     print(f"[detectability_law] page      -> {rst}")
     print(f"[detectability_law] figures   -> {STATIC}")
     for r in rows_ns:

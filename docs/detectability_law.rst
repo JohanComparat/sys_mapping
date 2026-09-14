@@ -34,8 +34,7 @@ The single substitution :math:`\sqrt{N_{\rm gal}}\to\sqrt{N_{\rm eff}}` carries
 the shot-noise idealisation :math:`A_{\min}=\nu/\sqrt{N_{\rm gal}}` into the
 correlated-field reality. The field statistic is **VIF-free** (the recovered
 combination is well-constrained even when individual templates are collinear —
-the standardised 11-template LS10 basis has second-moment condition number
-:math:`1.4\times10^{3}` at NSIDE 64, :math:`3.9\times10^{3}` at NSIDE 32), whereas the
+the LS10 basis has condition number :math:`\sim10^8`), whereas the
 per-template amplitude carries a variance-inflation factor
 :math:`{\rm VIF}_i=1/\sqrt{1-R_i^2}`. This is the quantitative form of *judge by
 the field, not the name*.
@@ -53,10 +52,18 @@ Rules of thumb
   refine (more independent measurements of the same smooth systematic) until the
   shot floor :math:`\nu/\sqrt{N_{\rm gal}}` — refine to just below the
   systematic's coherence scale, no finer.
-* **The honest error bar is the sandwich.** The per-template iid
-  :math:`\sigma_i` is :math:`\sim2\times` too tight for every method; multiply
-  detection SNRs by :math:`\approx1/1.9` (or use
-  ``sys_mapping.mock_sandwich_covariance``).
+* **Calibrate the error bar on matched mocks.** The iid :math:`\sigma_i` ignores
+  the correlation of the clustered field between pixels. Against 400
+  uncontaminated GLASS realisations carrying each sample's own matched spectrum,
+  the scatter of the amplitude divided by the iid error has a median over
+  templates of 1.8 to 3.1 per sample, rising with resolution
+  (NSIDE 16: 1.9; NSIDE 32: 1.8; NSIDE 64: 1.8 to 2.4; NSIDE 128: 2.9 to 3.1). Single templates span 0.9 to 7.7. No single
+  factor converts an iid SNR; ``sys_mapping.calibrated_template_significance``
+  measures it per template.
+* **The maximum over templates needs its own null.** A search over
+  :math:`n_{\rm sys}` templates reports the largest significance, so its p-value is
+  read from the largest significance of each null realisation (the family-wise
+  p), not from a per-template threshold.
 * **w(θ) is a weaker detector** — its contamination signal grows as
   :math:`A^2`, so the direct field regression sees fainter systematics.
 
@@ -64,15 +71,24 @@ LS10 worked example (log :math:`M_*\ge` 10.0)
 ------------------------------------------------
 
 The fiducial LS10 volume-limited sample (:math:`N_{\rm gal}=`\ 2,759,238,
-:math:`f_{\rm sky}\approx`\ 0.441) is **clustering-limited**: at the recommended
-NSIDE 64 the per-pixel noise :math:`\hat\sigma=`\ 0.397 is dominated by
-clustering (:math:`\bar n_{\rm pix}=`\ 127, shot
+:math:`f_{\rm sky}\approx`\ 0.441) is **clustering-limited**: at NSIDE 64 the per-pixel noise
+:math:`\hat\sigma=`\ 0.397 is dominated by clustering (:math:`\bar n_{\rm pix}=`\ 127, shot
 :math:`1/\bar n_{\rm pix}=`\ 0.0079), so only :math:`N_{\rm eff}/N_{\rm
 gal}=`\ 0.050 of the galaxies count toward detection. The smallest detectable
 systematic field RMS is :math:`A_{\min}(3\sigma)=`\ 8.09e-03 (:math:`5\sigma`:
-1.35e-02), versus the shot-floor 1.81e-03. The dominant real detection is
-**GAIA_nstar_faint** at iid SNR 7.0 (:math:`\approx`\ 3.7 calibrated) — the
-known LS10 BGS stellar-density systematic.
+1.35e-02), versus the shot-floor 1.81e-03. The leading template at NSIDE 64
+is **LS10_GALDEPTH_R** at iid SNR 6.8.
+
+Occupancy puts this sample at NSIDE 128 (mean 32.5 galaxies per
+pixel against a floor of 25). There the leading template is **GAIA_phot_rp_mean_flux** at a
+calibrated 4.48\ :math:`\sigma` (iid 4.2, inflation 0.93),
+family-wise :math:`p` ≤ 0.0025 from 400 realisations. It traces the Gaia
+stellar density, the known LS10 BGS systematic.
+
+.. csv-table:: Calibrated significance per sample, each at the resolution its occupancy supports.
+   The family-wise p is bounded below by 1/(N+1) for N realisations.
+   :file: _static/detectability_law/ls10_calibrated_significance.csv
+   :header-rows: 1
 
 .. figure:: /_static/detectability_law/fig1_Amin_vs_Ngal.png
    :width: 88%
@@ -85,7 +101,7 @@ known LS10 BGS stellar-density systematic.
 .. figure:: /_static/detectability_law/fig2_Amin_vs_nside.png
    :width: 88%
 
-   Pixel size at fixed :math:`N_{\rm gal}`: refining NSIDE 32→256 lowers
+   Pixel size at fixed :math:`N_{\rm gal}`: refining NSIDE 32→128 lowers
    :math:`A_{\min}` toward the shot floor (more resolved modes).
 
 .. figure:: /_static/detectability_law/fig3_crossover.png
@@ -102,9 +118,9 @@ known LS10 BGS stellar-density systematic.
 .. figure:: /_static/detectability_law/fig5_per_template_snr.png
    :width: 92%
 
-   Per-template detection SNR (iid vs sandwich-calibrated); stellar density
-   dominates. Individual templates are collinear (VIF-inflated); the *field* is
-   robust.
+   Per-template significance of the fiducial sample at NSIDE 128: iid
+   against calibrated on matched realisations. Individual templates are collinear
+   (VIF-inflated); the *field* is robust.
 
 .. figure:: /_static/detectability_law/fig6_detection_vs_amplitude.png
    :width: 88%
@@ -113,7 +129,8 @@ known LS10 BGS stellar-density systematic.
    progressive mocks.
 
 The per-sample (NSIDE 64) and per-NSIDE (fiducial sample) numbers are tabulated in
-``_static/detectability_law/ls10_detectability_scorecard.csv``.
+``_static/detectability_law/ls10_detectability_scorecard.csv``, the calibrated
+significances in ``_static/detectability_law/ls10_calibrated_significance.csv``.
 
 Empirical sweep on the remote (Stage 2 — run)
 ---------------------------------------------

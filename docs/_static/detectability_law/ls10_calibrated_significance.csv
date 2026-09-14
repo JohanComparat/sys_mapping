@@ -1,0 +1,10 @@
+log M* >=,NSIDE,galaxies per pixel,leading template,calibrated significance,family-wise p,median inflation,inflation range
+9.0,32,93.3,LS10_GALDEPTH_R,2.88,0.0524,1.8,0.9-3.5
+9.5,64,66.2,LS10_GALDEPTH_R,5.55,<= 0.0025,2.4,0.9-4.2
+10.0,128,32.5,GAIA_phot_rp_mean_flux,4.48,<= 0.0025,3.0,0.9-6.4
+10.25,128,39.0,GAIA_phot_rp_mean_flux,4.94,<= 0.0025,3.1,1.0-6.7
+10.5,128,38.5,GAIA_phot_rp_mean_flux,6.06,<= 0.0025,3.0,1.0-7.7
+10.75,128,33.0,GAIA_phot_rp_mean_flux,7.52,<= 0.0025,2.9,1.0-7.5
+11.0,64,74.8,GAIA_phot_rp_mean_flux,4.37,<= 0.0025,2.0,1.0-3.7
+11.25,64,25.1,GAIA_phot_g_mean_flux,3.80,<= 0.0025,1.8,1.0-2.9
+11.5,16,82.5,LS10_GALDEPTH_G,1.08,0.9302,1.9,1.1-5.1

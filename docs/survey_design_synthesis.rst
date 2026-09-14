@@ -79,8 +79,10 @@ Generalised rules of thumb
 #. **Detect the field, not the map:** the field statistic is VIF-free; individual
    collinear templates (cond :math:`\approx1.4\times10^{3}` for the standardised LS10
    basis at NSIDE 64) are not
-   identifiable. Calibrate per-template SNR with the sandwich (iid is
-   :math:`\sim2\times` optimistic).
+   identifiable. Calibrate per-template significance on matched mocks
+   (``sys_mapping.calibrated_template_significance``): on LS10 the iid error is
+   short by a median factor of 1.8 to 3.1 per sample, rising with resolution,
+   and by 0.9 to 7.7 for single templates.
 #. **Use the field regression, not** :math:`w(\theta)`, **to detect:** the
    :math:`w(\theta)` contamination signal grows as :math:`A^2` while the linear
    field regression grows as :math:`A`, so the field regression detects far
