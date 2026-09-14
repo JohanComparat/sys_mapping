@@ -1037,6 +1037,8 @@ def run_decontamination(
     preselect_seed: int = 0,
     preselect_rand_factor: int = 2,
     preselect_n_jobs: int = 1,
+    preselect_cl_input: np.ndarray | None = None,
+    preselect_cl_amplitude: float | None = None,
     # Required when preselect=True and preselect_method="isd"
     good_pixels: np.ndarray | None = None,
     n_total_footprint: int | None = None,
@@ -1133,6 +1135,13 @@ def run_decontamination(
         Random seed for GLASS mock generation.
     preselect_rand_factor:
         Ratio of randoms to galaxies in each GLASS mock (default 2).
+    preselect_cl_input:
+        The sample's matched spectrum for the ISD pre-selection null, typically from
+        :func:`~sys_mapping.glass_mocks.load_matched_cl`.  Without it, and without
+        ``preselect_cl_amplitude``, the null is the default power law and the mock
+        generator warns that it is not calibrated.
+    preselect_cl_amplitude:
+        Amplitude of a parametric null spectrum, to choose one deliberately.
     preselect_n_jobs:
         Parallel worker processes for the GLASS mock loop in ISD pre-selection
         (default 1 = serial; -1 = all cores).
@@ -1237,6 +1246,8 @@ def run_decontamination(
                 n_mocks=preselect_n_mocks, seed=preselect_seed,
                 rand_factor=preselect_rand_factor,
                 n_jobs=preselect_n_jobs,
+                cl_input=preselect_cl_input,
+                cl_amplitude=preselect_cl_amplitude,
             )
             keep = [s for s, p in zip(selected, isd_sig["p_values"])
                     if p <= preselect_p_threshold]

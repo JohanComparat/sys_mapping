@@ -57,6 +57,9 @@ CONTAM_IDX   = [2, 7]          # injected templates (family-2, two realisations)
 FAMILIES     = [0, 1, 2, 3, 4, 0, 1, 2, 3, 4,
                 0, 1, 2, 3, 4, 0, 1, 2, 3, 4]  # 4 realisations × 5 families
 Z_EDGES      = np.array([0.0, 0.5])
+# The demo's universe is a parametric field, and its calibration ensemble must be drawn
+# from the same one, so the spectrum is named once and passed to both.
+CL_AMPLITUDE = 5e-4
 NZ           = np.array([5_000_000.0])          # n(z) counts normalised to N_TOTAL
 N_MOCKS      = 100             # GLASS mocks for ISD p-value figures
 SEED         = 7
@@ -109,7 +112,8 @@ def _calibrated_template_snr(dg, delta_t, good, mean_count, n_mock=60, seed=SEED
     rng = np.random.default_rng(seed)
     fields = np.empty((n_mock, delta_t.shape[1]))
     for i in range(n_mock):
-        delta = generate_glass_delta_map(NSIDE, float(Z_EDGES[-1]), seed=seed + i)
+        delta = generate_glass_delta_map(NSIDE, float(Z_EDGES[-1]),
+                                         cl_amplitude=CL_AMPLITUDE, seed=seed + i)
         lam = mean_count * (1.0 + np.clip(delta[good], -0.999, None))
         counts = rng.poisson(lam).astype(float)
         fields[i] = counts / max(counts.mean(), 1e-9) - 1.0
@@ -141,6 +145,7 @@ def main():
     print(f"Generating GLASS full-sky mock ({N_TOTAL:,} galaxies, NSIDE={NSIDE}) …")
     cat = generate_glass_fullsky_mock(
         NSIDE, N_TOTAL, Z_EDGES, NZ, seed=SEED, rand_factor=RAND_FACTOR,
+        cl_amplitude=CL_AMPLITUDE,
     )
 
     print(f"Generating {N_TEMPLATES} systematic maps …")

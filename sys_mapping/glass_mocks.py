@@ -262,13 +262,39 @@ def load_matched_cl(source, sample: str | None = None,
     return np.asarray(cl, dtype=float)
 
 
+_DEFAULT_CL_AMPLITUDE = 5e-4
+
+
+def _resolve_spectrum(nside, cl_input, cl_amplitude, cl_slope, *, caller):
+    """The spectrum a mock is drawn from, announcing the one case that is silent.
+
+    A matched spectrum wins.  An explicit ``cl_amplitude`` is the caller's choice of a
+    parametric field, which a simulation whose truth is that power law legitimately
+    wants.  Neither given is the case that goes wrong: the default under-clusters a
+    real galaxy sample by a large factor, so a null built on it is too narrow and any
+    p-value calibrated against it is anticonservative.  That case warns.
+    """
+    if cl_input is not None:
+        return sanitise_cl(cl_input, 3 * nside)
+    if cl_amplitude is None:
+        warnings.warn(
+            f"{caller}: no cl_input and no cl_amplitude, so the mock uses the default "
+            f"power law {_DEFAULT_CL_AMPLITUDE:g} (l+1)^{cl_slope:g}.  It is not matched "
+            f"to any sample's clustering; a null built on it is not calibrated.  Pass "
+            f"cl_input from load_matched_cl, or cl_amplitude to choose a parametric "
+            f"field deliberately.",
+            UserWarning, stacklevel=3)
+        cl_amplitude = _DEFAULT_CL_AMPLITUDE
+    return _make_glass_cls(nside, amplitude=cl_amplitude, slope=cl_slope)
+
+
 def generate_glass_fullsky_mock(
     nside: int,
     n_total: int,
     z_edges: np.ndarray,
     nz: np.ndarray,
     *,
-    cl_amplitude: float = 5e-4,
+    cl_amplitude: float | None = None,
     cl_slope: float = -1.5,
     cl_input: np.ndarray | None = None,
     lognormal_shift: float | None = None,
@@ -340,12 +366,13 @@ def generate_glass_fullsky_mock(
     >>> z = rng_z.uniform(0.05, 0.26, 5000)
     >>> z_edges, nz = measure_nz(z, 0.05, 0.26, n_bins=5)
     >>> cat = generate_glass_fullsky_mock(nside=16, n_total=5000,
-    ...                                   z_edges=z_edges, nz=nz, seed=0)
+    ...                                   z_edges=z_edges, nz=nz,
+    ...                                   cl_amplitude=5e-4, seed=0)
     >>> len(cat['ra']) > 0
     True
-    >>> cat['ra'].min() >= 0.0 and cat['ra'].max() < 360.0
+    >>> bool(cat['ra'].min() >= 0.0 and cat['ra'].max() < 360.0)
     True
-    >>> cat['dec'].min() >= -90.0 and cat['dec'].max() <= 90.0
+    >>> bool(cat['dec'].min() >= -90.0 and cat['dec'].max() <= 90.0)
     True
     """
     import glass
@@ -365,10 +392,8 @@ def generate_glass_fullsky_mock(
     fields = (glass.lognormal_fields(shells) if lognormal_shift is None
               else glass.lognormal_fields(shells, shift=lambda _z: float(lognormal_shift)))
 
-    if cl_input is not None:
-        cl = sanitise_cl(cl_input, 3 * nside)
-    else:
-        cl = _make_glass_cls(nside, amplitude=cl_amplitude, slope=cl_slope)
+    cl = _resolve_spectrum(nside, cl_input, cl_amplitude, cl_slope,
+                           caller="generate_glass_fullsky_mock")
     cls_list = [cl]  # single shell → single auto-spectrum
     gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, cls_list))
 
@@ -420,7 +445,10 @@ def generate_glass_delta_map(
     nside: int,
     z_max: float,
     *,
-    cl_amplitude: float = 5e-4,
+    cl_amplitude: float | None = None,
+    cl_slope: float = -1.5,
+    cl_input: np.ndarray | None = None,
+    lognormal_shift: float | None = None,
     seed: int | None = None,
 ) -> np.ndarray:
     """Generate a single full-sky lognormal overdensity map with GLASS.
@@ -438,7 +466,16 @@ def generate_glass_delta_map(
     z_max:
         Upper edge of the single tophat redshift shell.
     cl_amplitude:
-        Amplitude of the galaxy angular power spectrum C_ℓ at ℓ=1.
+        Amplitude of a parametric spectrum ``cl_amplitude (l+1)^cl_slope``.  Pass it
+        to choose a parametric field deliberately; leaving both this and
+        ``cl_input`` unset warns.
+    cl_slope:
+        Slope of the parametric spectrum.
+    cl_input:
+        A tabulated spectrum, typically from :func:`load_matched_cl`; takes
+        precedence over the parametric form.
+    lognormal_shift:
+        GLASS lognormal shift; ``None`` uses GLASS's default.
     seed:
         Random seed for reproducibility.
 
@@ -451,7 +488,7 @@ def generate_glass_delta_map(
     --------
     >>> import numpy as np
     >>> from sys_mapping.glass_mocks import generate_glass_delta_map
-    >>> delta = generate_glass_delta_map(nside=16, z_max=0.3, seed=0)
+    >>> delta = generate_glass_delta_map(nside=16, z_max=0.3, cl_amplitude=5e-4, seed=0)
     >>> delta.shape
     (3072,)
     >>> bool((1.0 + delta).min() >= 0.0)
@@ -468,7 +505,8 @@ def generate_glass_delta_map(
 
     fields = (glass.lognormal_fields(shells) if lognormal_shift is None
               else glass.lognormal_fields(shells, shift=lambda _z: float(lognormal_shift)))
-    cl = _make_glass_cls(nside, amplitude=cl_amplitude)
+    cl = _resolve_spectrum(nside, cl_input, cl_amplitude, cl_slope,
+                           caller="generate_glass_delta_map")
     gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, [cl]))
 
     # Single shell → single delta map

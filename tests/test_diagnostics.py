@@ -11,6 +11,12 @@ from sys_mapping.diagnostics import (
     snr_template_ranking,
 )
 
+# These tests exercise GLASS mock mechanics on a parametric field chosen on purpose,
+# not a calibrated null, so the library's "not matched to any sample" warning is
+# expected here and would only bury real ones.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*not matched to any sample.*:UserWarning")
+
 
 class TestNullTestCrossCorrelations:
     def test_output_keys(self):

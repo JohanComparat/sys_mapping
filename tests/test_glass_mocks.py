@@ -9,6 +9,12 @@ import pytest
 
 import sys_mapping as sm
 
+# These tests exercise GLASS mock mechanics on a parametric field chosen on purpose,
+# not a calibrated null, so the library's "not matched to any sample" warning is
+# expected here and would only bury real ones.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*not matched to any sample.*:UserWarning")
+
 UCHUU_DATA = os.path.expanduser(
     "~/data/Uchuu/FullSky/mock_catalogues/"
     "MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/"
@@ -235,3 +241,53 @@ class TestLoadMatchedCl:
 
     def test_missing_sample_returns_none(self, tmp_path):
         assert sm.load_matched_cl(tmp_path, "NO_SUCH_SAMPLE", 64) is None
+
+
+class TestSpectrumIsChosenNotDefaulted:
+    """A mock whose spectrum nobody chose must say so.
+
+    The default power law under-clusters a real galaxy sample by a large factor, so a
+    null built on it is too narrow.  Choosing a parametric field explicitly is
+    legitimate (a simulation whose truth is that power law), and a matched spectrum is
+    the calibrated case; only the silent fall-through warns.
+    """
+
+    @staticmethod
+    def _args():
+        from sys_mapping.glass_mocks import measure_nz
+
+        z = np.random.default_rng(1).uniform(0.05, 0.26, 2000)
+        z_edges, nz = measure_nz(z, 0.05, 0.26, n_bins=3)
+        return dict(nside=8, n_total=2000, z_edges=z_edges, nz=nz, seed=0)
+
+    def test_neither_spectrum_nor_amplitude_warns(self):
+        pytest.importorskip("glass")
+        from sys_mapping.glass_mocks import generate_glass_fullsky_mock
+
+        with pytest.warns(UserWarning, match="not matched to any sample"):
+            generate_glass_fullsky_mock(**self._args())
+
+    @pytest.mark.parametrize("kind", ["amplitude", "matched"])
+    def test_a_chosen_spectrum_is_silent(self, kind):
+        pytest.importorskip("glass")
+        import warnings
+
+        from sys_mapping.glass_mocks import _make_glass_cls, generate_glass_fullsky_mock
+
+        extra = ({"cl_amplitude": 5e-4} if kind == "amplitude"
+                 else {"cl_input": _make_glass_cls(8, amplitude=2e-3)})
+        with warnings.catch_warnings():
+            warnings.filterwarnings("error", message=".*not matched to any sample.*")
+            generate_glass_fullsky_mock(**self._args(), **extra)
+
+    def test_delta_map_runs_and_accepts_a_matched_spectrum(self):
+        # It read lognormal_shift without declaring it, so every call raised NameError.
+        pytest.importorskip("glass")
+        from sys_mapping.glass_mocks import _make_glass_cls, generate_glass_delta_map
+
+        a = generate_glass_delta_map(8, 0.3, cl_amplitude=5e-4, seed=0)
+        b = generate_glass_delta_map(8, 0.3, cl_input=_make_glass_cls(8, amplitude=5e-2), seed=0)
+        assert a.shape == b.shape == (768,)
+        assert np.all(1.0 + a >= 0.0)
+        # A spectrum 100x stronger gives a visibly wider field on the same seed.
+        assert b.std() > 3 * a.std()

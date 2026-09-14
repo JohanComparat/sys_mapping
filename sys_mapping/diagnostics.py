@@ -1126,7 +1126,7 @@ def isd_template_significance(
     rand_factor: int = 10,
     n_jobs: int = 1,
     binning: str = "width",
-    cl_amplitude: float = 5e-4,
+    cl_amplitude: float | None = None,
     cl_input: np.ndarray | None = None,
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
@@ -1140,15 +1140,12 @@ def isd_template_significance(
        with :func:`~sys_mapping.glass_mocks.load_matched_cl`.  There is no
        universal value.
 
-       ``cl_amplitude`` is the parametric fallback and sets the clustering power
-       of the null through a fixed-slope power law.  The default
-       ``5e-4`` reproduces the data's *surface density* (hence its shot noise) but
-       gives :math:`\\sigma_{\\rm clus} \\approx 0.08` against LS10's
-       :math:`\\approx 0.39` --- 25x too little clustering variance.  A null that
-       under-clusters is too narrow, so the p-values it yields remain
-       anticonservative.  Fit the amplitude to the sample's measured
-       :math:`\\hat\\sigma` (see ``calibrate_glass_clustering.py`` in the
-       sys_mapping_benchmark repository) and pass it here.
+       ``cl_amplitude`` selects a parametric fixed-slope power law instead.  Left
+       unset together with ``cl_input``, the mock generator falls back to
+       ``5e-4`` and warns: that value reproduces the data's *surface density*
+       (hence its shot noise) but gives :math:`\\sigma_{\\rm clus} \\approx 0.08`
+       against LS10's :math:`\\approx 0.39`, 25x too little clustering variance,
+       so the null is too narrow and its p-values are anticonservative.
 
     For each template map, computes the ISD contamination metric
     :math:`\\Delta\\chi^2 = \\chi^2_{\\rm null} - \\chi^2_{\\rm model}` on the

@@ -16,6 +16,12 @@ import sys_mapping.diagnostics as D
 from sys_mapping.diagnostics import snr_template_ranking, null_test_cross_correlations
 from sys_mapping.regression import polynomial_ols_decontamination as poly_ols
 
+# These tests exercise GLASS mock mechanics on a parametric field chosen on purpose,
+# not a calibrated null, so the library's "not matched to any sample" warning is
+# expected here and would only bury real ones.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*not matched to any sample.*:UserWarning")
+
 
 @pytest.fixture(scope="module")
 def field():

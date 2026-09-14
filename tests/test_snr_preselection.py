@@ -23,6 +23,12 @@ from sys_mapping.maps import (
 from sys_mapping.model_selection import greedy_forward_select, snr_preselect
 from sys_mapping.simulation import LEVELS
 
+# These tests exercise GLASS mock mechanics on a parametric field chosen on purpose,
+# not a calibrated null, so the library's "not matched to any sample" warning is
+# expected here and would only bury real ones.
+pytestmark = pytest.mark.filterwarnings(
+    "ignore:.*not matched to any sample.*:UserWarning")
+
 # ---------------------------------------------------------------------------
 # Test parameters
 # ---------------------------------------------------------------------------

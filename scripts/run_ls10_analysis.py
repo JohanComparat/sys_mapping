@@ -175,7 +175,7 @@ def synthetic_templates(nside, n_families=5, seed=0):
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
-                   k_start=0, cl_amplitude=5e-4, cl_input=None, use_skewed=False):
+                   k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -191,11 +191,9 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     (``n_total = n_total_footprint × n_full_pix / n_good_pix``), and the overdensity is reconstructed
     on ``good_pix``.
 
-    ``cl_amplitude`` sets the **clustering power** of the null.  The default ``5e-4``
-    matches the data's surface density (hence shot noise) but under-clusters it by a
-    factor ~25 in variance, which makes the null too narrow and the resulting p-value
-    anticonservative.  Fit it per sample to the measured ``sigma_hat`` and pass it via
-    ``--lrt-null-cl-amplitude``.
+    ``cl_input`` is the sample's matched spectrum and sets the null's clustering.
+    ``cl_amplitude`` selects a parametric power law instead, reachable only under
+    ``--allow-parametric-null``.
     """
     from sys_mapping.glass_mocks import generate_glass_fullsky_mock
     n_full = hp.nside2npix(nside)
@@ -251,18 +249,25 @@ def _resolve_null_cl(args, sample_id, nside):
     calibrated to this sample's clustering.
     """
     src = getattr(args, "lrt_null_cl_file", None)
-    if not src:
-        return None
-    import sys_mapping as _sm
-    cl = _sm.load_matched_cl(src, sample_id, nside)
-    if cl is None:
-        print(f"  !! no matched spectrum for {sample_id} NSIDE{nside:04d} in {src}; "
-              f"falling back to the parametric power law -- the null will NOT be "
-              f"calibrated to this sample's large-scale clustering")
-    else:
+    cl = None
+    if src:
+        import sys_mapping as _sm
+        cl = _sm.load_matched_cl(src, sample_id, nside)
+    if cl is not None:
         print(f"  null spectrum: matched, {len(cl)} multipoles "
               f"({sample_id} NSIDE{nside:04d})")
-    return cl
+        return cl
+    where = (f"no matched spectrum for {sample_id} NSIDE{nside:04d} in {src}"
+             if src else "no --null-cl-file given")
+    if getattr(args, "allow_parametric_null", False):
+        print(f"  !! {where}; --allow-parametric-null, so every null is a fixed-slope "
+              f"power law and is NOT calibrated to this sample's clustering")
+        return None
+    raise SystemExit(
+        f"{where}.  A GLASS null built on the default power law under-clusters this "
+        f"sample and its p-values are anticonservative.  Pass --null-cl-file with a "
+        f"matched spectrum (match_glass_to_data.py), or --allow-parametric-null to "
+        f"accept an uncalibrated null knowingly.")
 
 
 def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, outdir, args):
@@ -310,11 +315,13 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         "p_value": float(p_mock),
         "reject_null": bool(p_mock < 0.05),
         "n_null": int(merged.size),
-        "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
-            "null_cl_source": ("matched spectrum: "
-                               + str(args.lrt_null_cl_file))
-                              if null_cl_input is not None else
-                              "parametric power law",
+        # The amplitude is recorded only when it set the spectrum: with a
+        # matched spectrum it was ignored, and grouping on it groups on a no-op.
+        "null_cl_source": ("matched spectrum: " + str(args.lrt_null_cl_file))
+                          if null_cl_input is not None else
+                          "parametric power law (not calibrated)",
+        "null_cl_amplitude": (None if null_cl_input is not None else
+                              args.lrt_null_cl_amplitude),
         "null_lambda_mean": float(np.mean(merged)),
         "null_lambda_max": float(np.max(merged)),
         "null_lambda": [float(x) for x in merged],
@@ -477,7 +484,19 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                preselect_p_threshold=0.05, preselect_n_mocks=100):
     import matplotlib.pyplot as plt
 
-    null_cl_input = _resolve_null_cl(args, sample_id, nside)
+    # A GLASS null is built by the ISD pre-selection, the ISD stopping threshold and
+    # the mock-calibrated LRT.  Resolve the matched spectrum -- and refuse without one
+    # -- only when this run builds at least one of them; a run fitting OLS alone
+    # needs none, and must not be stopped for a spectrum it would never use.
+    _methods = set(only_methods) if only_methods else {
+        "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"}
+    _builds_null = (
+        (preselect and preselect_method == "isd")
+        or (bool(_methods & {"ISD-1", "ISD-3"}) and getattr(args, "isd_n_mocks", 0) > 0)
+        or getattr(args, "lrt_null_mocks", 0) > 0
+    )
+    null_cl_input = (_resolve_null_cl(args, sample_id, nside)
+                     if _builds_null and not figures_only else None)
 
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -755,6 +774,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 z_edges=_z_edges, nz=_nz,
                 n_mocks=preselect_n_mocks, seed=0, rand_factor=2,
                 n_jobs=args.preselect_n_jobs,
+                cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
             )
             _keep = [s for s, p in zip(_selected, _isd_sig["p_values"])
                      if p <= preselect_p_threshold]
@@ -792,6 +812,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 nz=np.array([float(len(ra_gal))]),
                 n_mocks=args.isd_n_mocks, poly_order=3, binning="quantile",
                 seed=0, rand_factor=2, n_jobs=args.preselect_n_jobs,
+                cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
             )
             _isd_chi2_68 = np.percentile(_isd_null["delta_chi2_mocks"], 68, axis=0)
             print(f"  ISD chi2_68 = {np.array2string(_isd_chi2_68, precision=1)}")
@@ -1096,11 +1117,13 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             # χ² p for comparison + the empirical null summary (present when mock-calibrated)
             "p_chi2": float(_chi2.sf(lrt.lambda_lr, df=lrt.n_dof)),
             "n_null": (int(np.size(_null_lambda)) if _null_lambda is not None else 0),
-            "null_cl_amplitude": float(args.lrt_null_cl_amplitude),
-            "null_cl_source": ("matched spectrum: "
-                               + str(args.lrt_null_cl_file))
+            # The amplitude is recorded only when it set the spectrum: with a
+            # matched spectrum it was ignored, and grouping on it groups on a no-op.
+            "null_cl_source": ("matched spectrum: " + str(args.lrt_null_cl_file))
                               if null_cl_input is not None else
-                              "parametric power law",
+                              "parametric power law (not calibrated)",
+            "null_cl_amplitude": (None if null_cl_input is not None else
+                                  args.lrt_null_cl_amplitude),
             "null_lambda_mean": (float(np.mean(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda_max": (float(np.max(_null_lambda)) if _null_lambda is not None else None),
             "null_lambda": ([float(x) for x in np.asarray(_null_lambda)]
@@ -1686,18 +1709,21 @@ def main():
                              "mocks (fit additive+combined per mock) instead of the Wilks chi^2 — "
                              "the correlated field inflates the chi^2 statistic, so the default "
                              "p-value is overconfident. HEAVY (a full fit per mock): remote job.")
-    parser.add_argument("--lrt-null-cl-amplitude", type=float, default=5e-4,
-                        help="C_ell amplitude of the GLASS mocks forming the LRT null. "
-                             "The default 5e-4 matches the data's surface density but "
-                             "under-clusters it ~25x in variance, making the null too "
-                             "narrow and the p-value anticonservative. Fit it per sample "
-                             "to the measured sigma_hat (calibrate_glass_clustering.py).")
-    parser.add_argument("--lrt-null-cl-file", default=None,
-                        help="A *_match.json from match_glass_to_data.py, or a directory "
-                             "of them.  Gives the null the sample's own measured "
-                             "large-scale clustering instead of a fixed-slope power law. "
-                             "There is no universal spectrum: it must be matched for this "
-                             "sample, at this NSIDE, on this footprint.")
+    parser.add_argument("--null-cl-file", "--lrt-null-cl-file", dest="lrt_null_cl_file",
+                        default=None,
+                        help="A *_match.json from match_glass_to_data.py, or a directory of "
+                             "them.  Every GLASS null the run builds -- the ISD pre-selection "
+                             "p-values, the ISD stopping threshold and the LRT -- draws from "
+                             "this sample's own measured large-scale clustering.  Required "
+                             "whenever a null is built, unless --allow-parametric-null.")
+    parser.add_argument("--allow-parametric-null", action="store_true",
+                        help="Build the nulls from a fixed-slope power law when no matched "
+                             "spectrum is available.  The result is recorded as parametric: "
+                             "the default amplitude under-clusters LS10 about 25x in variance, "
+                             "so its p-values are anticonservative.")
+    parser.add_argument("--lrt-null-cl-amplitude", type=float, default=None,
+                        help="Amplitude of the power law under --allow-parametric-null. "
+                             "Unset uses the library default and says so.")
     parser.add_argument("--lrt-null-seed", type=int, default=90000,
                         help="Base seed for the --lrt-null-mocks ensemble.")
     parser.add_argument("--resume-null", action="store_true",

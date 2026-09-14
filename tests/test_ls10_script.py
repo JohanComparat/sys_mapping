@@ -174,3 +174,63 @@ class TestSkewedFlagParity:
         delta_g = np.array([0.05, -0.02]) @ delta_t + rng.standard_normal(1500) * 0.1
         res = sm.run_decontamination("OLS", delta_g, delta_t)
         assert "gamma_hat" in res and res["gamma_hat"] is None
+
+
+class TestNullSpectrumIsMandatory:
+    """No calibrated null is built on a spectrum nobody chose.
+
+    The default power law under-clusters an LS10 sample about 25x in variance, so a
+    null built on it is too narrow and its p-values are anticonservative.  The script
+    refuses to build one unless a matched spectrum resolves or the caller accepts an
+    uncalibrated null explicitly.
+    """
+
+    @staticmethod
+    def _args(**kw):
+        import argparse
+
+        base = dict(lrt_null_cl_file=None, allow_parametric_null=False,
+                    lrt_null_cl_amplitude=None)
+        base.update(kw)
+        return argparse.Namespace(**base)
+
+    def test_refuses_without_a_spectrum(self, ls10):
+        with pytest.raises(SystemExit, match="no --null-cl-file given"):
+            ls10._resolve_null_cl(self._args(), "SAMPLE", 64)
+
+    def test_refuses_when_the_directory_has_nothing_for_the_sample(self, ls10, tmp_path):
+        with pytest.raises(SystemExit, match="no matched spectrum for SAMPLE NSIDE0064"):
+            ls10._resolve_null_cl(self._args(lrt_null_cl_file=str(tmp_path)), "SAMPLE", 64)
+
+    def test_parametric_only_when_asked(self, ls10, capsys):
+        out = ls10._resolve_null_cl(self._args(allow_parametric_null=True), "SAMPLE", 64)
+        assert out is None
+        assert "NOT calibrated" in capsys.readouterr().out
+
+    def test_a_validated_match_is_returned(self, ls10, tmp_path):
+        import json
+
+        cl = [0.0, 1e-3, 5e-4, 2e-4, 1e-4]
+        (tmp_path / "SAMPLE_NSIDE0064_match.json").write_text(json.dumps({
+            "sample": "SAMPLE", "nside": 64, "cl_matched": cl,
+            "validation": {"passed": True, "large_scale_ratio": 1.0,
+                           "l_range": [2, 32], "tol": 0.1},
+        }))
+        out = ls10._resolve_null_cl(self._args(lrt_null_cl_file=str(tmp_path)), "SAMPLE", 64)
+        np.testing.assert_allclose(out, cl)
+
+    def test_the_old_flag_name_still_parses(self, ls10, monkeypatch):
+        import argparse
+
+        captured = {}
+
+        def _capture(self, *a, **kw):
+            captured["parser"] = self
+            raise SystemExit(0)
+
+        monkeypatch.setattr(argparse.ArgumentParser, "parse_args", _capture)
+        monkeypatch.setattr(sys, "argv", ["run_ls10_analysis.py"])
+        with pytest.raises(SystemExit):
+            ls10.main()
+        opts = {o for a in captured["parser"]._actions for o in a.option_strings}
+        assert {"--null-cl-file", "--lrt-null-cl-file", "--allow-parametric-null"} <= opts
