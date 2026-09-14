@@ -424,9 +424,11 @@ share information via stretch and walk moves.  Key properties:
   (recommendation: :math:`n_{\rm walkers} \geq 4\,n_{\rm dim}`, typical
   choice :math:`n_{\rm walkers} = 150` for :math:`n_{\rm dim} = 7`).
 
-The MAP estimate is taken as the **posterior median** of the flat chain
-(after discarding the burn-in phase).  The posterior variance is estimated
-from the chain covariance matrix.
+The reported point estimate is the per-parameter **posterior median** of the flat
+chain after the burn-in phase, from
+:func:`~sys_mapping.inference.posterior_median_params`.  It is neither the likelihood
+maximum nor the joint MAP.  The posterior variance is estimated from the chain
+covariance matrix.
 
 **Recommended settings:**
 
@@ -892,10 +894,11 @@ the maximised log-likelihood.  If the two likelihoods are nearly equal,
 models.
 
 **Technical implementation.**
-The LRT uses the same MCMC posterior median as the point estimate for both
-models.  The test statistic is computed by evaluating
-:func:`~sys_mapping.likelihood.make_log_likelihood` at the two parameter
-vectors and differencing:
+The LRT evaluates :func:`~sys_mapping.likelihood.make_log_likelihood` at the
+likelihood maximum of each model and differences the two.  Each maximum comes from
+:func:`~sys_mapping.inference.refine_to_mle`, which runs L-BFGS-B on the
+log-likelihood from the posterior median and from the ordinary-least-squares
+solution and keeps the higher:
 
 .. code-block:: python
 
@@ -907,13 +910,11 @@ evaluation cost is two forward passes through the likelihood
 CDF via ``scipy.stats.chi2.sf(lrt, df=r)`` where
 ``r = n_sys`` for the additive-vs-combined comparison.
 
-Because the MCMC posterior median — not a true MLE from gradient
-optimisation — is used as the parameter estimate, the LRT statistic is a
-conservative approximation: the posterior median is inside the posterior
-but may not be exactly at the likelihood maximum, so
-:math:`\lambda_{\rm LR}` may be slightly underestimated.  In practice,
-for well-sampled posteriors (``n_steps >= 1500``) the bias is
-negligible.
+Both points must be maxima.  The guarantee :math:`\lambda_{\rm LR} \ge 0`
+between nested models holds only there, and for the combined model's
+:math:`2 n_{\rm sys} + 1` near-degenerate parameters a posterior median sits well
+off the likelihood ridge.  A negative statistic warns, since it means the supplied
+points are not maxima.
 
 .. admonition:: The Wilks :math:`\chi^2` null is overconfident on a correlated field
    :class: important

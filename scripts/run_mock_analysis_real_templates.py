@@ -184,7 +184,7 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
         n_walkers=nw_add, n_steps=n_steps, n_burn=n_burn,
         seed=mock_id, progress=False,
     )
-    theta_add = sm.get_mle_params(flat_add)
+    theta_add = sm.posterior_median_params(flat_add)
     a_rot_add, _, _, _ = unpack_params(theta_add, n_sys, "additive")
     a_hat_add, _ = transform_params_from_rotated(
         np.asarray(a_rot_add), np.zeros(n_sys), R
@@ -201,7 +201,7 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
         n_walkers=nw_comb, n_steps=n_steps, n_burn=n_burn,
         seed=mock_id, progress=False,
     )
-    theta_comb = sm.get_mle_params(flat_comb)
+    theta_comb = sm.posterior_median_params(flat_comb)
     a_rot_comb, b_rot_comb, _, _ = unpack_params(theta_comb, n_sys, "combined")
     a_hat_comb, b_hat_comb = transform_params_from_rotated(
         np.asarray(a_rot_comb), np.asarray(b_rot_comb), R

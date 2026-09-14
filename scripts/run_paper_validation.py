@@ -204,7 +204,7 @@ def run_single_systematic(nside, n_real, n_mean, sigma_G, n_walkers, n_steps, n_
             flat_chain, _ = sm.run_mcmc(n_sys=1, model=model, delta_g_obs=delta_obs,
                                          delta_t=dt_rot, n_walkers=n_walkers, n_steps=n_steps,
                                          n_burn=n_burn, seed=ir, progress=False)
-            theta_r = sm.get_mle_params(flat_chain)
+            theta_r = sm.posterior_median_params(flat_chain)
             a_r, b_r, _, _ = unpack_params(theta_r, 1, model)
             a_orig, b_orig = transform_params_from_rotated(np.asarray(a_r), np.asarray(b_r), R)
             var_a, var_b = sm.get_param_variance_from_chain(flat_chain, 1, model)
@@ -278,7 +278,7 @@ def run_25sys(nside, n_real, n_sys, n_mean, sigma_G, n_walkers, n_steps, n_burn,
             flat_chain, _ = sm.run_mcmc(n_sys=n_sys, model=model, delta_g_obs=delta_obs,
                                          delta_t=dt_rot, n_walkers=n_walkers, n_steps=n_steps,
                                          n_burn=n_burn, seed=ir + 100, progress=False)
-            theta_r = sm.get_mle_params(flat_chain)
+            theta_r = sm.posterior_median_params(flat_chain)
             a_rot, b_rot, _, _ = unpack_params(theta_r, n_sys, model)
             a_orig, b_orig = transform_params_from_rotated(np.asarray(a_rot), np.asarray(b_rot), R)
             cov_a, cov_b = sm.get_param_covariance_from_chain(flat_chain, n_sys, model)
@@ -361,9 +361,16 @@ def run_table2(nside, n_real, n_sys, n_mean, sigma_G, n_walkers, n_steps, n_burn
             fc_alt, _ = sm.run_mcmc(n_sys=n_sys, model=alt_m, delta_g_obs=delta_obs,
                                      delta_t=dt_rot, n_walkers=n_walkers, n_steps=n_steps,
                                      n_burn=n_burn, seed=ir + 300, progress=False)
-            lrt = likelihood_ratio_test(delta_obs, dt_rot, sm.get_mle_params(fc_null),
-                                        sm.get_mle_params(fc_alt), null_model=null_m,
-                                        alt_model=alt_m, significance=0.05)
+            # Both points refined to likelihood maxima: the ratio is only
+            # non-negative between nested models when they are, and a posterior
+            # median is not one.
+            th_null = sm.refine_to_mle(sm.posterior_median_params(fc_null),
+                                       delta_obs, dt_rot, model=null_m)
+            th_alt = sm.refine_to_mle(sm.posterior_median_params(fc_alt),
+                                      delta_obs, dt_rot, model=alt_m)
+            lrt = likelihood_ratio_test(delta_obs, dt_rot, th_null, th_alt,
+                                        null_model=null_m, alt_model=alt_m,
+                                        significance=0.05)
             tag = null_m[:3]
             row[f"lambda_{tag}"] = float(lrt.lambda_lr)
             row[f"p_{tag}"] = float(lrt.p_value)

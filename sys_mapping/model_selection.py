@@ -211,7 +211,7 @@ def lrt_null_distribution(
         Templates on the fit pixels (same basis as the data fit; rotate first if the data used a
         rotated basis).
     fit_theta : callable(model, delta_g, delta_t) -> theta
-        Returns the MLE/posterior-median flat parameter vector for ``model`` on one mock — e.g. a
+        Returns the flat parameter vector at the likelihood maximum for ``model`` on one mock — e.g. a
         wrapper around :func:`~sys_mapping.regression.run_decontamination` (matching how the data
         were fit) or an OLS surrogate.
     null_model, alt_model, use_skewed :

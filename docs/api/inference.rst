@@ -1,8 +1,8 @@
 sys_mapping.inference
 =====================
 
-MCMC posterior sampling and MAP estimation via the `emcee
-<https://emcee.readthedocs.io>`_ ensemble sampler.
+MCMC posterior sampling via the `emcee <https://emcee.readthedocs.io>`_ ensemble
+sampler, posterior summaries, and refinement to the likelihood maximum.
 
 :func:`~sys_mapping.inference.run_mcmc` wraps ``emcee.EnsembleSampler``
 with sensible defaults (250 walkers, 1500 steps, 300 burn-in) and handles

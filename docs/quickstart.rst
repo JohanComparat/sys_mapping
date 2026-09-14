@@ -77,7 +77,7 @@ The pipeline has eight stages:
 3. Measure the observed overdensity per pixel.
 4. Rotate templates into a PCA basis to remove degeneracies.
 5. Run all six decontamination methods.
-6. Extract MAP estimates and diagnostics from the MCMC chains (MCMC methods only).
+6. Extract point estimates and diagnostics from the MCMC chains (MCMC methods only).
 7. Perform a likelihood ratio test to decide whether multiplicative contamination is significant (MCMC-comb only).
 8. Correct the two-point function for residual systematics.
 
@@ -330,8 +330,8 @@ Both MCMC methods recover :math:`\sigma` close to the injected value of 0.25.
 
 ----
 
-Step 6 — MCMC diagnostics: extract MAP estimates
---------------------------------------------------
+Step 6 — MCMC diagnostics: extract point estimates
+----------------------------------------------------
 
 .. note::
 
@@ -339,14 +339,15 @@ Step 6 — MCMC diagnostics: extract MAP estimates
    weights, the ``weights`` key in the results dict from Step 5 is sufficient
    for all methods.
 
-The maximum *a posteriori* (MAP) estimate is the marginal posterior median
-(robust to asymmetric tails).  ``run_decontamination()`` back-rotates the
+The point estimate is the per-parameter posterior median (robust to asymmetric
+tails).  It is neither the joint MAP nor the likelihood maximum; use
+:func:`~sys_mapping.inference.refine_to_mle` where a maximum is needed.  ``run_decontamination()`` back-rotates the
 parameters to the original template basis automatically and stores the full
 covariance matrix.
 
 .. code-block:: python
 
-   # ── 6. Extract MAP estimates from MCMC-comb ───────────────────────────────
+   # ── 6. Extract point estimates from MCMC-comb ─────────────────────────────
    res_comb = results["MCMC-comb"]
 
    a_hat   = res_comb["a_hat"]          # (n_sys,) — original basis
@@ -360,7 +361,7 @@ covariance matrix.
    #   True a: [ 0.05 -0.03  0.08]   Recovered: [ 0.049 -0.031  0.079]
    #   True b: [ 0.04  0.00 -0.06]   Recovered: [ 0.038  0.001 -0.059]
 
-**Noise debiasing.**  The squared MAP estimates are biased upward by the
+**Noise debiasing.**  The squared point estimates are biased upward by the
 posterior variance (see :doc:`methods`, section "Noise debiasing"):
 
 .. math::

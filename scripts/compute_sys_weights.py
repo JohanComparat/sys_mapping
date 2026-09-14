@@ -570,7 +570,7 @@ def run_model(
             vectorize=vectorize,
         )
 
-    theta_hat = sm.get_mle_params(flat_chain)
+    theta_hat = sm.posterior_median_params(flat_chain)
     a_rot, b_rot, sigma_hat, _ = unpack_params(theta_hat, n_sys, model)
     a_hat, b_hat = transform_params_from_rotated(
         np.asarray(a_rot), np.asarray(b_rot), rotation_matrix
@@ -766,8 +766,14 @@ def process_sample(
     lrt = sm.likelihood_ratio_test(
         delta_g,
         delta_t_rot,
-        sm.get_mle_params(res_add["flat_chain"]),
-        sm.get_mle_params(res_comb["flat_chain"]),
+        # Refined to likelihood maxima: a ratio between nested models is only
+        # non-negative when both points are maxima, and a posterior median is not
+        # one.  Differencing two medians is what drove lambda_LR negative on the
+        # LS10 grid.
+        sm.refine_to_mle(sm.posterior_median_params(res_add["flat_chain"]),
+                         delta_g, delta_t_rot, model="additive"),
+        sm.refine_to_mle(sm.posterior_median_params(res_comb["flat_chain"]),
+                         delta_g, delta_t_rot, model="combined"),
         null_model="additive",
         alt_model="combined",
         significance=0.05,

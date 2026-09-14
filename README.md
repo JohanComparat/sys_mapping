@@ -151,7 +151,7 @@ transformed back to the original basis after inference.
 
 ### Noise debiasing (Eq. 21)
 
-Because E[â²] = a² + Var[â], the squared MLE is noise-inflated.
+Because E[â²] = a² + Var[â], the squared estimate is noise-inflated.
 The debiased estimate is:
 
 ```
@@ -536,7 +536,7 @@ Produced by `scripts/compute_sys_weights.py` or `scripts/run_ls10_analysis.py`:
 | File | Contents |
 |---|---|
 | `{sample_id}_NSIDE{NNNN}_WEIGHTS.fits` | Per-galaxy systematic weights (`WEIGHT_SYS`, `WEIGHT_ADD`, `WEIGHT_COMB`) |
-| `{sample_id}_NSIDE{NNNN}_params.json` | MAP parameters and chain diagnostics for all methods |
+| `{sample_id}_NSIDE{NNNN}_params.json` | Point estimates and chain diagnostics for all methods |
 | `{sample_id}_NSIDE{NNNN}_partial_*.json` | Partial results from fast-method phases |
 
 ### Paper tables and simulation configs (`data/` — tracked)

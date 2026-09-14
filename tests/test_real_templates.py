@@ -301,7 +301,7 @@ class TestMCMCAdditiveRealTemplates:
             n_walkers=n_walkers, n_steps=200, n_burn=60,
             seed=_SEED, progress=False,
         )
-        theta = sm.get_mle_params(flat)
+        theta = sm.posterior_median_params(flat)
         a_rot, _, _, _ = unpack_params(theta, n_sys, "additive")
         a_hat, _ = transform_params_from_rotated(
             np.asarray(a_rot), np.zeros(n_sys), real_mock["R"]
@@ -338,7 +338,7 @@ class TestMCMCCombinedRealTemplates:
             n_walkers=n_walkers, n_steps=200, n_burn=60,
             seed=_SEED, progress=False,
         )
-        theta = sm.get_mle_params(flat)
+        theta = sm.posterior_median_params(flat)
         a_rot, b_rot, _, _ = unpack_params(theta, n_sys, "combined")
         a_hat, b_hat = transform_params_from_rotated(
             np.asarray(a_rot), np.asarray(b_rot), real_mock["R"]
@@ -357,7 +357,7 @@ class TestMCMCCombinedRealTemplates:
             n_walkers=n_walkers, n_steps=200, n_burn=60,
             seed=_SEED, progress=False,
         )
-        theta = sm.get_mle_params(flat)
+        theta = sm.posterior_median_params(flat)
         a_rot, b_rot, _, _ = unpack_params(theta, n_sys, "combined")
         _, b_hat = transform_params_from_rotated(
             np.asarray(a_rot), np.asarray(b_rot), real_mock["R"]
@@ -410,8 +410,8 @@ class TestLRTRealTemplates:
             seed=_SEED, progress=False,
         )
 
-        theta_add = sm.get_mle_params(flat_add)
-        theta_comb = sm.get_mle_params(flat_comb)
+        theta_add = sm.posterior_median_params(flat_add)
+        theta_comb = sm.posterior_median_params(flat_comb)
 
         result = likelihood_ratio_test(
             real_mock["delta_g"], real_mock["delta_t_rot"],
@@ -446,7 +446,7 @@ class TestLRTRealTemplates:
         )
         result = likelihood_ratio_test(
             real_mock["delta_g"], real_mock["delta_t_rot"],
-            sm.get_mle_params(flat_add), sm.get_mle_params(flat_comb),
+            sm.posterior_median_params(flat_add), sm.posterior_median_params(flat_comb),
             null_model="additive", alt_model="combined",
         )
         assert 0.0 <= result.p_value <= 1.0

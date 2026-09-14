@@ -37,7 +37,7 @@ from .maps import (
     inverse_variance_pixel_weights,
 )
 from .inference import (
-    make_log_prob, run_mcmc, run_additive_analytic, get_mle_params,
+    make_log_prob, run_mcmc, run_additive_analytic,
     posterior_median_params, refine_to_mle,
     get_param_variance_from_chain, get_param_covariance_from_chain,
 )
@@ -173,7 +173,6 @@ __all__ = [
     "make_log_prob",
     "run_mcmc",
     "run_additive_analytic",
-    "get_mle_params",
     "posterior_median_params",
     "refine_to_mle",
     "get_param_variance_from_chain",

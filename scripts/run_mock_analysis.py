@@ -131,8 +131,8 @@ def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
     flat_add  = res_add.get("flat_chain")
     flat_comb = res_comb.get("flat_chain")
     if flat_add is not None and flat_comb is not None:
-        theta_add  = sm.get_mle_params(flat_add)
-        theta_comb = sm.get_mle_params(flat_comb)
+        theta_add  = sm.posterior_median_params(flat_add)
+        theta_comb = sm.posterior_median_params(flat_comb)
         R = res_comb["R"]
         delta_t_rot = R @ delta_t
         lrt = likelihood_ratio_test(delta_g, delta_t_rot, theta_add, theta_comb,

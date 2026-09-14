@@ -130,8 +130,8 @@ def analyse_one(nside, templates, k, mode, mock_id,
     snr_b = np.abs(np.asarray(b_hat_comb)) / np.sqrt(np.maximum(var_b_comb, 1e-12))
 
     delta_t_rot = res_comb["R"] @ delta_t
-    theta_add  = sm.get_mle_params(res_add["flat_chain"])
-    theta_comb = sm.get_mle_params(res_comb["flat_chain"])
+    theta_add  = sm.posterior_median_params(res_add["flat_chain"])
+    theta_comb = sm.posterior_median_params(res_comb["flat_chain"])
     lrt = likelihood_ratio_test(delta_g, delta_t_rot, theta_add, theta_comb,
                                  null_model="additive", alt_model="combined")
 

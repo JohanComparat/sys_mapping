@@ -1,5 +1,5 @@
 Results: systematic weights
-============================
+===========================
 
 Per-galaxy systematic weights for the nine LS10 BGS volume-limited stellar-mass
 threshold samples, computed by ``scripts/run_ls10_analysis.py`` with 11
@@ -15,7 +15,7 @@ results.
    :local:
    :depth: 1
 
-----
+
 
 Run configuration
 -----------------
@@ -47,7 +47,7 @@ Run configuration
    * - OLS weight column
      - ``WEIGHT_OLS`` — ordinary least-squares regression
 
-----
+
 
 Sample overview
 ---------------
@@ -166,10 +166,10 @@ response is non-linear; on this grid they agree to within a few per cent.
   log M* ≥ 11.25).  The intermediate dense samples (log M* 10.0–11.0) remain
   below 1 at both NSIDEs.  **NSIDE 64 is the recommended analysis resolution.**
 
-----
+
 
 Systematics are detected: Likelihood Ratio Test
--------------------------------------------------
+-----------------------------------------------
 
 To decide whether multiplicative contamination is needed on top of an additive
 offset, we compare two nested models with a **Likelihood Ratio Test (LRT)**:
@@ -238,10 +238,10 @@ Critical value at 5 %: :math:`\chi^2_{11,\,0.95} \approx 19.7`.
 independent data points, amplifying the power of the test.  The dominant
 driver in all cases is GAIA stellar-density maps.
 
-----
+
 
 Fractional systematic uncertainty on :math:`w(\theta)`
---------------------------------------------------------
+-------------------------------------------------------
 
 The table below shows the fractional correction
 :math:`\delta w/w = (w_{\rm comb} - w_{\rm obs})/w_{\rm obs}`.
@@ -266,10 +266,10 @@ values are derived from the sys_mapping internal :math:`w(\theta)` (NSIDE 64,
    "11.25","+2.2 %", "17.4 % (at 181′)","6.5 %", "Large-scale dominated"
    "11.5", "+0.7 %", "9.7 % (at 97′)",  "3.3 %", "Statistics-dominated"
 
-----
+
 
 Is LS10 BGS (:math:`r < 19.5`) systematics-limited?
------------------------------------------------------
+---------------------------------------------------
 
 **Low-mass samples (log** :math:`M_* < 10.0` **)** — YES, correction is essential.
 The fractional correction reaches 5–8 % at :math:`\theta \approx 30'`.
@@ -288,10 +288,10 @@ correction on :math:`w(\theta)`.  BAO, ISW, and angular dipole analyses
 
 **Recommendation**: always use ``WEIGHT_COMB`` (NSIDE 64) for science-grade analyses.
 
-----
+
 
 Cross-sample comparison (NSIDE 64)
------------------------------------
+----------------------------------
 
 Key metrics at NSIDE 64.  :math:`\delta w/w` values at :math:`\theta = 30'`
 are from the TreeCorr HDF5 pipeline; n/a = no measurement available.
@@ -310,10 +310,10 @@ are from the TreeCorr HDF5 pipeline; n/a = no measurement available.
    "11.25, 0.35", "541 855", "21,555", "126.5", "**Yes**", "—", ":best-result:`0.3843`", "0.3931", "+2.2 %"
    "11.5, 0.35", "120 882", "21,344", "154.4", "**Yes**", "—", ":best-result:`0.6449`", "0.6627", "+0.7 %"
 
-----
+
 
 Per-sample results — all 9 samples
--------------------------------------
+----------------------------------
 
 For each sample: weight maps and histograms at all four NSIDEs, angular clustering
 w(θ) comparing observed and six corrected measurements, and a table of key numbers.
@@ -1247,10 +1247,10 @@ ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two
 
 ----
 
-MAP parameters — 11-template analysis (NSIDE 64)
+Point estimates — 11-template analysis (NSIDE 64)
 -------------------------------------------------
 
-The table below lists MAP estimates from the NSIDE = 64 run (11 templates).
+The table below lists posterior-median point estimates from the NSIDE = 64 run (11 templates).
 Column abbreviations:
 
 .. list-table::
@@ -1284,8 +1284,8 @@ Column abbreviations:
 
 The dominant systematic in all samples is **GAIA:nstar_faint** (stellar density).
 
-Additive MAP parameters :math:`\hat{a}_i` (MCMC-add, NSIDE 64)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Additive point estimates :math:`\hat{a}_i` (MCMC-add, NSIDE 64)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. csv-table::
    :header: "Sample (log M* ≥, z <)", "EBV", "GD_G", "GD_R", "GD_Z", "NOBS_R", "PSF_R", "ns_fnt", "ns_med", "bp_fl", "g_fl", "rp_fl"
@@ -1302,8 +1302,8 @@ Additive MAP parameters :math:`\hat{a}_i` (MCMC-add, NSIDE 64)
    "11.25, 0.35", +0.0089, -0.0234, -0.0193, +0.0333, -0.0270, +0.0000, +0.0130, +0.0036, +0.0053, +0.0049, -0.0071
    "11.5, 0.35", +0.0273, -0.0342, -0.0172, +0.0320, -0.0278, +0.0008, +0.0199, +0.0065, +0.0086, +0.0071, -0.0100
 
-Multiplicative MAP parameters :math:`\hat{b}_i` (MCMC-comb, NSIDE 64)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Multiplicative point estimates :math:`\hat{b}_i` (MCMC-comb, NSIDE 64)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. csv-table::
    :header: "Sample (log M* ≥, z <)", "EBV", "GD_G", "GD_R", "GD_Z", "NOBS_R", "PSF_R", "ns_fnt", "ns_med", "bp_fl", "g_fl", "rp_fl"
@@ -1325,7 +1325,7 @@ in nearly every sample.  The anti-correlated ``GAIA:nstar_medium`` (ns_med)
 reflects stellar colour selection at moderate magnitudes.  LS10:GALDEPTH_R
 captures imaging-depth variations in the :math:`r` band.
 
-----
+
 
 Outcome
 -------

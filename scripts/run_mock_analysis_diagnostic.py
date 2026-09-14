@@ -367,8 +367,8 @@ def main():
                                 n_burn=args.n_burn, seed=args.seed, progress=True)
 
     # MAP parameters
-    theta_add = sm.get_mle_params(flat_add)
-    theta_comb = sm.get_mle_params(flat_comb)
+    theta_add = sm.posterior_median_params(flat_add)
+    theta_comb = sm.posterior_median_params(flat_comb)
 
     a_rot_add, _, _, _ = unpack_params(theta_add, n_sys, "additive")
     a_rot_comb, b_rot_comb, _, _ = unpack_params(theta_comb, n_sys, "combined")

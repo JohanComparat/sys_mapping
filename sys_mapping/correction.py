@@ -32,8 +32,8 @@ def debias_params(
 
     Parameters
     ----------
-    a_hat : ``(n_sys,)`` MLE / posterior median additive parameters
-    b_hat : ``(n_sys,)`` MLE / posterior median multiplicative parameters
+    a_hat : ``(n_sys,)`` point estimate of the additive parameters
+    b_hat : ``(n_sys,)`` point estimate of the multiplicative parameters
     var_a : ``(n_sys,)`` posterior variance of a_hat
     var_b : ``(n_sys,)`` posterior variance of b_hat
 

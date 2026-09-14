@@ -357,25 +357,6 @@ def posterior_median_params(flat_chain: np.ndarray) -> np.ndarray:
     return np.median(flat_chain, axis=0)
 
 
-def get_mle_params(flat_chain: np.ndarray) -> np.ndarray:
-    """Deprecated alias for :func:`posterior_median_params`.
-
-    The name is wrong: this function has always returned a posterior median, and
-    reading it as a maximum-likelihood estimate is what allowed a likelihood ratio
-    to be built from two medians and come out negative.  Use
-    :func:`posterior_median_params` to report an amplitude, or
-    :func:`refine_to_mle` where a maximum is actually required.
-    """
-    warnings.warn(
-        "get_mle_params returns a posterior median, not an MLE; it is deprecated. "
-        "Use posterior_median_params to report an amplitude, or refine_to_mle "
-        "where a likelihood maximum is required.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    return posterior_median_params(flat_chain)
-
-
 def refine_to_mle(
     theta0: np.ndarray,
     delta_g_obs: np.ndarray,

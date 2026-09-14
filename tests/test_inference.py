@@ -229,11 +229,3 @@ class TestRefineToMLE:
                                         "additive", "combined")
         assert res.lambda_lr < 0  # reported, not clipped
 
-
-class TestPosteriorMedianRename:
-    def test_deprecated_alias_warns_and_agrees(self):
-        rng = np.random.default_rng(5)
-        chain = rng.standard_normal((2000, 4))
-        with pytest.warns(DeprecationWarning, match="posterior median"):
-            old = sm.get_mle_params(chain)
-        np.testing.assert_array_equal(old, sm.posterior_median_params(chain))
