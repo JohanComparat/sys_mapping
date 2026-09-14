@@ -85,6 +85,7 @@ from .regression import (
 from .diagnostics import (
     null_test_cross_correlations,
     residual_template_correlation_test,
+    calibrated_template_significance,
     snr_template_ranking,
     footprint_mask_diagnostics,
     isd_template_significance,
@@ -232,6 +233,7 @@ __all__ = [
     # diagnostics
     "null_test_cross_correlations",
     "residual_template_correlation_test",
+    "calibrated_template_significance",
     "snr_template_ranking",
     "footprint_mask_diagnostics",
     "isd_template_significance",

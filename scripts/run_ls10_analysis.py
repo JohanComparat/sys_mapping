@@ -191,6 +191,37 @@ def _subsample(lon, lat, k, n_max, seed=0):
     return lon[idx], lat[idx], k[idx]
 
 
+
+def null_overdensity_fields(n_mocks, nside, good_pix, n_total_footprint, z_edges, nz, seed,
+                            *, rand_factor=2, k_start=0, cl_amplitude=None, cl_input=None):
+    """Uncontaminated GLASS overdensity realisations on the sample's footprint.
+
+    Surface density matched to the data (``n_total = n_total_footprint x n_full / n_good``)
+    and clustering set by ``cl_input``, the sample's matched spectrum.  Realisation ``k``
+    always uses ``seed + k``, so a top-up of indices ``[k_start, k_start + n_mocks)``
+    reproduces exactly the realisations a longer run would have drawn.
+
+    Returns ``(n_mocks, n_good)``.
+    """
+    from sys_mapping.glass_mocks import generate_glass_fullsky_mock
+    n_full = hp.nside2npix(nside)
+    n_good = int(good_pix.sum())
+    n_total = int(n_total_footprint * n_full / n_good)
+    fields = np.empty((n_mocks, n_good))
+    for i, k in enumerate(range(k_start, k_start + n_mocks)):
+        cat = generate_glass_fullsky_mock(nside, n_total, z_edges, nz,
+                                          cl_input=cl_input, cl_amplitude=cl_amplitude,
+                                          seed=seed + k, rand_factor=rand_factor)
+        ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good_pix].astype(float)
+        nr = sm.pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)[good_pix].astype(float)
+        norm = ng.sum() / max(nr.sum(), 1e-9)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            dg = ng / (nr * norm) - 1.0
+        dg[~np.isfinite(dg)] = 0.0
+        fields[i] = dg
+    return fields
+
+
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
                    k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False):
@@ -213,25 +244,10 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     ``cl_amplitude`` selects a parametric power law instead, reachable only under
     ``--allow-parametric-null``.
     """
-    from sys_mapping.glass_mocks import generate_glass_fullsky_mock
-    n_full = hp.nside2npix(nside)
-    n_good = int(good_pix.sum())
-    n_total = int(n_total_footprint * n_full / n_good)      # full-sky count matching footprint density
-    # Mock k always uses seed+k, so a top-up runs only the missing indices
-    # [k_start, k_start+n_mocks) and merges exactly onto an existing null.
-    mock_fields = np.empty((n_good, n_mocks))
-    for i, k in enumerate(range(k_start, k_start + n_mocks)):
-        cat = generate_glass_fullsky_mock(nside, n_total, z_edges, nz,
-                                          cl_input=cl_input,
-                                          seed=seed + k, rand_factor=rand_factor,
-                                          cl_amplitude=cl_amplitude)
-        ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good_pix].astype(float)
-        nr = sm.pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)[good_pix].astype(float)
-        norm = ng.sum() / max(nr.sum(), 1e-9)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            dg = ng / (nr * norm) - 1.0
-        dg[~np.isfinite(dg)] = 0.0
-        mock_fields[:, i] = dg
+    mock_fields = null_overdensity_fields(
+        n_mocks, nside, good_pix, n_total_footprint, z_edges, nz, seed,
+        rand_factor=rand_factor, k_start=k_start,
+        cl_amplitude=cl_amplitude, cl_input=cl_input).T      # (n_good, n_mocks)
 
     def fit_theta(model, dg, dt):
         method = "MCMC-add" if model == "additive" else "MCMC-comb"
@@ -512,6 +528,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         (preselect and preselect_method == "isd")
         or (bool(_methods & {"ISD-1", "ISD-3"}) and getattr(args, "isd_n_mocks", 0) > 0)
         or getattr(args, "lrt_null_mocks", 0) > 0
+        or getattr(args, "significance_n_mocks", 0) > 0
     )
     null_cl_input = (_resolve_null_cl(args, sample_id, nside)
                      if _builds_null and not figures_only else None)
@@ -951,6 +968,44 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         from sys_mapping.correction import rotate_templates as _rt
         delta_t_rot, _R, _ = _rt(delta_t)
 
+    # ── Calibrated detection significance ─────────────────────────────────
+    # The independent-pixel significance |a_i| / sigma_iid fires on most clean
+    # realisations of a clustered field: its error is several times too small, and
+    # the number reported is the largest over the templates.  Score the amplitudes
+    # against their scatter across uncontaminated realisations drawn with this
+    # sample's matched spectrum, and the largest against the largest of each.
+    _significance = None
+    if getattr(args, "significance_n_mocks", 0) > 0:
+        _zs0, _zs1 = _parse_z_range(sample_id)
+        print(f"\nCalibrating detection significance on {args.significance_n_mocks} "
+              f"uncontaminated realisations ...", flush=True)
+        _sig_null = null_overdensity_fields(
+            args.significance_n_mocks, nside, good_pix, int(len(ra_gal)),
+            np.array([_zs0, _zs1]), np.array([float(len(ra_gal))]),
+            seed=args.significance_seed,
+            cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude)
+        _sig = sm.calibrated_template_significance(delta_g, delta_t, _sig_null)
+        _a_iid = np.linalg.lstsq(delta_t.T, delta_g, rcond=None)[0]
+        _res = delta_g - _a_iid @ delta_t
+        _sd_iid = np.sqrt(np.diag(np.var(_res) * len(delta_g) / (len(delta_g) - n_sys)
+                                  * np.linalg.inv(delta_t @ delta_t.T)))
+        _significance = {
+            "method": "OLS amplitude scored against uncontaminated realisations",
+            "n_null": _sig["n_null"],
+            "p_value_floor": 1.0 / (1 + _sig["n_null"]),
+            "significance": [float(v) for v in _sig["significance"]],
+            "p_values": [float(v) for v in _sig["p_values"]],
+            "family_wise_p": _sig["family_wise_p"],
+            # sigma_calibrated / sigma_iid per template: by how much the independent-pixel
+            # error understates the scatter on this sample's clustering.
+            "inflation": [float(v) for v in _sig["sigma"] / np.where(_sd_iid > 0, _sd_iid, np.nan)],
+        }
+        _top = int(np.argmax(_sig["significance"]))
+        print(f"  most significant: {template_names[_top]} at {_sig['significance'][_top]:.2f} "
+              f"calibrated; family-wise p = {_sig['family_wise_p']:.4f} "
+              f"(floor {1.0 / (1 + _sig['n_null']):.4f}); inflation median "
+              f"{np.nanmedian(_significance['inflation']):.1f}", flush=True)
+
     # ── LRT ───────────────────────────────────────────────────────────────
     # Empirical LRT null (set only when --lrt-null-mocks>0 AND both chains sampled).
     # Bind it up-front so the params dict below is safe even when MCMC-comb fails
@@ -1128,6 +1183,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             "rms_before": [float(v) for v in _tpl_rms_raw],
             "mean_before": [float(v) for v in _tpl_mean_raw],
         },
+        "significance": _significance,
         "a_hat_add": a_hat_add.tolist(),
         "b_hat_comb": b_hat_comb.tolist(),
         "var_a_add": var_a_add.tolist(),
@@ -1716,6 +1772,13 @@ def main():
                              "analytic, nuts, or emcee (legacy baseline).")
     parser.add_argument("--n-chains", type=int, default=None,
                         help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
+    parser.add_argument("--significance-n-mocks", type=int, default=0,
+                        help="Uncontaminated realisations calibrating the per-template "
+                             "detection significance and its family-wise p-value.  Its floor "
+                             "is 1/(N+1), so resolving the 3-sigma level of 0.0027 needs "
+                             "N >= 370.  0 skips it.")
+    parser.add_argument("--significance-seed", type=int, default=70000,
+                        help="Base seed for the --significance-n-mocks realisations.")
     parser.add_argument("--min-per-pixel", type=float, default=None,
                         help="Choose each sample's resolution: the finest NSIDE no finer "
                              "than --nside at which the footprint holds this many galaxies "

@@ -323,6 +323,114 @@ def null_test_cross_correlations(
     return {"correlations": correlations, "p_values": p_values}
 
 
+def calibrated_template_significance(
+    delta_g_obs: np.ndarray,
+    delta_t: np.ndarray,
+    null_delta: np.ndarray,
+) -> dict[str, np.ndarray | float | int]:
+    r"""Per-template detection significance calibrated on contamination-free realisations.
+
+    The least-squares amplitude of each template, :math:`\hat a_i`, is scored against
+    its scatter across ``null_delta``, realisations carrying the data's clustering and
+    no systematic.  Two corrections separate this from the independent-pixel
+    significance :math:`|\hat a_i| / \sigma^{\rm iid}_i`.
+
+    **The error scale.**  On a spatially correlated field the independent-pixel error
+    is too small, by a factor measured at 5 to 13 on clustered fields and dependent on
+    the shape of the clustering spectrum, so a significance read against it fires on
+    most clean realisations.  Here :math:`\sigma_i` is the standard deviation of
+    :math:`\hat a_i` across the null, which for a linear estimator is the mock sandwich.
+
+    **Multiplicity.**  A search over :math:`n_{\rm sys}` templates reports the most
+    significant of them, and a per-template threshold is crossed by *some* template far
+    more often than its nominal rate.  ``family_wise_p`` compares the largest calibrated
+    significance with the largest across each null realisation, which accounts for the
+    number of templates and for their mutual correlation.
+
+    Each null realisation is scored against a scatter estimated without it, so no
+    realisation is judged by a spread it helped set.
+
+    The null must carry the data's clustering: a matched spectrum from
+    :func:`~sys_mapping.glass_mocks.load_matched_cl`.  An under-clustered null gives a
+    scatter that is too small and repeats the defect this corrects.
+
+    Parameters
+    ----------
+    delta_g_obs:
+        Observed overdensity at the fitted pixels, shape ``(n_pix,)``.
+    delta_t:
+        Templates at the same pixels, shape ``(n_sys, n_pix)``, standardised on them.
+    null_delta:
+        Contamination-free overdensity realisations on the same pixels, shape
+        ``(n_null, n_pix)``.  At least ``n_sys + 3``; resolving a family-wise p-value of
+        0.0027 needs several hundred.
+
+    Returns
+    -------
+    Dictionary with ``"amplitudes"``, ``"sigma"``, ``"significance"`` and ``"p_values"``,
+    each ``(n_sys,)``; ``"family_wise_p"``; ``"null_max_significance"`` ``(n_null,)``;
+    and ``"n_null"``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping import calibrated_template_significance
+    >>> rng = np.random.default_rng(0)
+    >>> n_pix, n_sys = 3000, 3
+    >>> t = rng.standard_normal((n_sys, n_pix))
+    >>> null = rng.standard_normal((200, n_pix))
+    >>> clean = calibrated_template_significance(rng.standard_normal(n_pix), t, null)
+    >>> bool(clean["family_wise_p"] > 0.01)
+    True
+    >>> dirty = calibrated_template_significance(
+    ...     rng.standard_normal(n_pix) + 0.2 * t[1], t, null)
+    >>> bool(dirty["family_wise_p"] < 0.05) and int(np.argmax(dirty["significance"]))
+    1
+    """
+    delta_g_obs = np.asarray(delta_g_obs, dtype=float)
+    delta_t = np.atleast_2d(np.asarray(delta_t, dtype=float))
+    null_delta = np.atleast_2d(np.asarray(null_delta, dtype=float))
+    n_sys, n_pix = delta_t.shape
+    if delta_g_obs.shape != (n_pix,):
+        raise ValueError(f"delta_g_obs has shape {delta_g_obs.shape}; expected ({n_pix},)")
+    if null_delta.shape[1] != n_pix:
+        raise ValueError(
+            f"null_delta has {null_delta.shape[1]} pixels; the templates have {n_pix}")
+    n_null = null_delta.shape[0]
+    if n_null < n_sys + 3:
+        raise ValueError(
+            f"{n_null} null realisations cannot calibrate {n_sys} templates leaving one "
+            f"out; supply at least {n_sys + 3}")
+
+    # One least-squares operator serves the data and every realisation.
+    proj = np.linalg.pinv(delta_t.T)                        # (n_sys, n_pix)
+    a = proj @ delta_g_obs                                  # (n_sys,)
+    A = null_delta @ proj.T                                 # (n_null, n_sys)
+
+    sigma = A.std(axis=0, ddof=1)
+    sigma = np.where(sigma > 0, sigma, np.finfo(float).tiny)
+    sig = np.abs(a) / sigma
+    p_values = (1 + np.sum(np.abs(A) >= np.abs(a)[None, :], axis=0)) / (1 + n_null)
+
+    # Leave-one-out scatter for each realisation's own significance.
+    s1, s2 = A.sum(axis=0), (A ** 2).sum(axis=0)
+    s1_k, s2_k = s1[None, :] - A, s2[None, :] - A ** 2
+    var_k = (s2_k - s1_k ** 2 / (n_null - 1)) / (n_null - 2)
+    sd_k = np.sqrt(np.where(var_k > 0, var_k, np.finfo(float).tiny))
+    null_max = np.max(np.abs(A) / sd_k, axis=1)
+    family_wise_p = float((1 + np.sum(null_max >= np.max(sig))) / (1 + n_null))
+
+    return {
+        "amplitudes": a,
+        "sigma": sigma,
+        "significance": sig,
+        "p_values": p_values,
+        "family_wise_p": family_wise_p,
+        "null_max_significance": null_max,
+        "n_null": int(n_null),
+    }
+
+
 def residual_template_correlation_test(
     delta_corr: np.ndarray,
     delta_t: np.ndarray,

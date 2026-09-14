@@ -474,3 +474,87 @@ class TestResidualTestRequirements:
             rates[resid] = float(np.mean(np.asarray(ps) < 0.05))
         assert rates[0.0] <= 0.13          # nominal 5 %, 60 draws
         assert rates[0.08] >= 0.8
+
+
+class TestCalibratedTemplateSignificance:
+    """Detection significance that holds its size on a spatially correlated field.
+
+    The independent-pixel significance fires on most clean realisations because its
+    error is too small and because the reported number is a maximum over templates.
+    """
+
+    @staticmethod
+    def _setup(seed=3, n_sys=6, n_null=300):
+        import healpy as hp
+
+        rng = np.random.default_rng(seed)
+        npix = hp.nside2npix(32)
+        _, lat = hp.pix2ang(32, np.arange(npix), lonlat=True)
+        good = np.abs(lat) > 30
+
+        def field(fwhm, amp=1.0):
+            m = hp.smoothing(rng.standard_normal(npix), fwhm=np.radians(fwhm))[good]
+            return amp * (m - m.mean()) / m.std()
+
+        T = sm.standardise_on_footprint(np.array([field(f) for f in np.linspace(5, 25, n_sys)]))
+        null = np.array([field(8, 0.3) for _ in range(n_null)])
+        return field, T, null
+
+    def test_leave_one_out_scatter_matches_brute_force(self):
+        rng = np.random.default_rng(1)
+        t = rng.standard_normal((3, 600))
+        null = rng.standard_normal((30, 600))
+        out = sm.calibrated_template_significance(rng.standard_normal(600), t, null)
+        proj = np.linalg.pinv(t.T)
+        A = null @ proj.T
+        brute = []
+        for k in range(len(A)):
+            sd = np.delete(A, k, axis=0).std(axis=0, ddof=1)
+            brute.append(np.max(np.abs(A[k]) / sd))
+        np.testing.assert_allclose(out["null_max_significance"], brute, rtol=1e-8)
+
+    @pytest.mark.slow
+    def test_reproduces_the_false_positive_rate_and_removes_it(self):
+        field, T, null = self._setup()
+        n_sys = T.shape[0]
+        iid = fw = 0
+        trials = 300
+        for _ in range(trials):
+            d = field(8, 0.3)
+            a = np.linalg.lstsq(T.T, d, rcond=None)[0]
+            r = d - a @ T
+            cov = r.var() * len(d) / (len(d) - n_sys) * np.linalg.inv(T @ T.T)
+            iid += np.any(np.abs(a) / np.sqrt(np.diag(cov)) > 3)
+            fw += sm.calibrated_template_significance(d, T, null)["family_wise_p"] < 0.0027
+        assert iid / trials > 0.5            # the defect: most clean fields "detect"
+        assert fw / trials <= 0.02           # nominal 0.27 %; 300 draws
+
+    def test_per_template_thresholds_are_crossed_by_some_template_too_often(self):
+        # Multiplicity: calibrating the error alone leaves the family-wise rate high.
+        field, T, null = self._setup(seed=4)
+        crossed = np.mean([
+            np.any(sm.calibrated_template_significance(field(8, 0.3), T, null)["p_values"] < 0.05)
+            for _ in range(120)
+        ])
+        assert crossed > 0.15                # about 1 - 0.95^6 = 26 %
+
+    def test_detects_a_real_systematic_on_the_right_template(self):
+        field, T, null = self._setup(seed=5)
+        out = sm.calibrated_template_significance(field(8, 0.3) + 0.15 * T[2], T, null)
+        assert out["family_wise_p"] < 0.01
+        assert int(np.argmax(out["significance"])) == 2
+
+    @pytest.mark.parametrize("bad", ["obs", "null_pix", "too_few"])
+    def test_rejects_malformed_input(self, bad):
+        rng = np.random.default_rng(0)
+        t = rng.standard_normal((3, 400))
+        d = rng.standard_normal(400)
+        null = rng.standard_normal((20, 400))
+        if bad == "obs":
+            d = d[:300]
+        elif bad == "null_pix":
+            null = null[:, :300]
+        else:
+            null = null[:4]
+        with pytest.raises(ValueError):
+            sm.calibrated_template_significance(d, t, null)
