@@ -1,29 +1,23 @@
-Benchmarks: how long each stage takes
-======================================
+Benchmarks
+==========
 
-.. note::
-   Generated from ``docs/_static/benchmark/benchmarks.csv`` by
-   ``docs/generate_benchmark_page.py``.  The measurements are produced by the
-   `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-   repository, which is kept separate so this package's CI does not carry the
-   168 timing cases below.
+sys_mapping 1.2.0 (commit ``cf6b12a``), 11th Gen Intel(R) Core(TM) i9-11900H @ 2.50GHz, 2026-09-04.
+The re-run on 1.4.0 is campaign 20260915d on the GRICAD dahu cluster.
 
-Provenance
-----------
-
-Measured on 11th Gen Intel(R) Core(TM) i9-11900H @ 2.50GHz (16 logical cores, 62.5 GB RAM), Python 3.11.15, JAX 0.10.0 on the ``cpu`` backend with 64-bit precision enabled; NumPy 2.4.3, SciPy 1.17.1, healpy 1.19.0, BlackJAX 1.5, emcee 3.1.6.  Commit ``cf6b12a``, 2026-09-04T12:31:21+00:00.
-
-One-minute load average at the start of the run was 1.32 on 16 cores — the machine was effectively idle.
-
-Each entry is the **median** over repeated calls with JIT warm-up excluded;
-median rather than mean because JIT stragglers and scheduler noise are
-one-sided and inflate the mean.
+We time 168 cases of the pipeline with ``benchmark/benchmark_pipeline.py`` of the
+`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
+repository; ``docs/generate_benchmark_page.py`` renders
+``docs/_static/benchmark/benchmarks.csv`` into this page.
+Each entry is the median over repeated calls, with the JIT compilation of the first call
+excluded.
+The run used 16 cores, Python 3.11.15, JAX 0.10.0 (``cpu``, 64-bit on), NumPy 2.4.3, SciPy 1.17.1, healpy 1.19.0 and BlackJAX 1.5; the one-minute load average at the start was 1.32.
+MCMC-add is the analytic posterior and MCMC-comb NUTS with two chains, 400 warmup steps and 400 draws per chain.
 
 
 Per-function costs
 ------------------
 
-Numerically hot public API, JIT warm-up excluded.
+Public functions on the hot path.
 
 .. csv-table::
    :header: "Operation", "NSIDE 16, n_s=5", "NSIDE 16, n_s=11", "NSIDE 32, n_s=5", "NSIDE 32, n_s=11", "NSIDE 64, n_s=5", "NSIDE 64, n_s=11"
@@ -46,7 +40,7 @@ Numerically hot public API, JIT warm-up excluded.
 HEALPix map utilities
 ---------------------
 
-``pixelize_catalog`` uses :math:`10^5` galaxies.
+``pixelize_catalog`` bins :math:`10^5` galaxies.
 
 .. csv-table::
    :header: "Operation", "NSIDE 16, n_s=5", "NSIDE 16, n_s=11", "NSIDE 32, n_s=5", "NSIDE 32, n_s=11", "NSIDE 64, n_s=5", "NSIDE 64, n_s=11"
@@ -63,7 +57,7 @@ HEALPix map utilities
 Stage-1 pre-selection
 ---------------------
 
-All four ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking`.
+The ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking`.
 
 .. csv-table::
    :header: "Operation", "NSIDE 16, n_s=5", "NSIDE 16, n_s=11", "NSIDE 32, n_s=5", "NSIDE 32, n_s=11", "NSIDE 64, n_s=5", "NSIDE 64, n_s=11"
@@ -78,7 +72,7 @@ All four ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_rank
 Stage-2 decontamination
 -----------------------
 
-End-to-end per call to :func:`~sys_mapping.regression.run_decontamination`.
+One call to :func:`~sys_mapping.regression.run_decontamination` per method.
 
 .. csv-table::
    :header: "Operation", "NSIDE 16, n_s=5", "NSIDE 16, n_s=11", "NSIDE 32, n_s=5", "NSIDE 32, n_s=11", "NSIDE 64, n_s=5", "NSIDE 64, n_s=11"
@@ -92,22 +86,9 @@ End-to-end per call to :func:`~sys_mapping.regression.run_decontamination`.
    "``MCMC-comb``", "6.52 s", "35 s", "22.2 s", "33.8 s", "115 s", "169 s"
 
 
-Reading these
--------------
+Ranges
+------
 
-* The JAX kernels are **dispatch-dominated** at these sizes: the forward and
-  inverse contamination models differ by one element-wise division yet cost
-  almost the same, because both are microseconds of arithmetic behind a fixed
-  dispatch overhead.
-* ``likelihood_ratio_test`` is far more expensive than two likelihood
-  evaluations because **each call compiles two new likelihood functions**.
-  Build them once with :func:`~sys_mapping.likelihood.make_log_likelihood` and
-  difference them directly if you are testing repeatedly.
-* Stage 2 spans **6.4 orders of magnitude**, from the fastest
-  method to the slowest.  This is why
-  :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs
-  the methods fastest-first and can checkpoint after the fast phase.
-* Stage 1 ranking costs between 137 µs and 4.26 ms per
-  call, so pre-selection cost is dominated by the GLASS mock null, which is
-  embarrassingly parallel (``preselect_n_jobs``).
+Stage-2 calls span 6.4 decades, from 71.9 µs to 169 s.
+A Stage-1 ranking call takes 137 µs to 4.26 ms; the cost of pre-selection is the GLASS null, which runs in parallel over ``preselect_n_jobs``.
 

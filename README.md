@@ -1,461 +1,258 @@
 # sys_mapping
 
-[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/1.3.0/)
-[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/#)
+[![PyPI](https://img.shields.io/pypi/v/sys-mapping)](https://pypi.org/project/sys-mapping/)
+[![Docs](https://img.shields.io/badge/docs-latest-blue)](https://sys-mapping.readthedocs.io/en/latest/)
 [![Tests](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml/badge.svg)](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 
-**PyPI:** https://pypi.org/project/sys-mapping/1.3.0/
-**Docs:** https://sys-mapping.readthedocs.io/en/latest/#
+**Docs:** https://sys-mapping.readthedocs.io/en/latest/
 
-Joint inference of multiplicative and additive systematics in galaxy
-clustering. Implements a two-stage pipeline: fast SNR pre-selection (Stage 1)
-followed by six decontamination methods (Stage 2), with shared contamination
-model, template normalisation, noise debiasing, and two-point function
-correction infrastructure.
-
----
-
-## Stage 1 — Template pre-selection
-
-| Method | Speed | Description |
-|---|---|---|
-| `"data"` | < 1 ms | Pearson \|r\| between δg and each template (JAX-accelerated) |
-| `"template"` | < 1 ms | Per-template OLS \|t\|-statistic (JAX-accelerated) |
-| `"isd"` | ~10 ms | ISD Δχ² with GLASS mock significance (JAX-accelerated) |
-| `"peak"` | ~10 ms | Peak of the cross pseudo-Cℓ Ĉℓᵈᵗⁱ over a noise proxy |
-
-Pre-selection is integrated into `run_decontamination` via `preselect=True`.
-GLASS mocks are footprint-aware: surface density is matched to the data by
-scaling `n_total` by the footprint fraction before full-sky generation.
-
-## Stage 2 — Six decontamination methods
-
-| Method | Model | Parameter estimation |
-|---|---|---|
-| **OLS** | Additive | Ordinary least-squares pixel regression |
-| **ElasticNet** | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
-| **ISD-1** | Multiplicative weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
-| **ISD-3** | Multiplicative weight | Same, with a cubic marginal fit — the degree is in *one* template's value |
-| **MCMC-add** | Additive | Exact analytic posterior (default) / emcee, b=0 |
-| **MCMC-comb** | Combined | Gradient-based NUTS (default) / emcee, free a, b |
-
-All methods produce per-galaxy weights (`WEIGHT_SYS` / `WEIGHT_COMB`) for use
-downstream in two-point function estimators.
-
-Since v1.1.0 the MCMC methods default to faster samplers (`--sampler auto`):
-an exact Normal-Inverse-Gamma posterior for the linear-Gaussian additive model,
-and gradient-based BlackJAX NUTS (run under `jax.lax.scan`, multi-chain via
-`jax.vmap`) for the non-linear combined/skew models. The original gradient-free
-emcee sampler remains available as `--sampler emcee` (the validation baseline).
+Joint inference of multiplicative and additive systematics in galaxy clustering, after
+[Berlfein et al. 2024](https://arxiv.org/abs/2401.12293). The package pre-selects
+templates, fits the contamination with six methods, calibrates every detection statistic
+against GLASS realisations of the galaxy field, writes per-galaxy weights and corrects the
+angular correlation function with the full cross-template matrix.
 
 ---
 
-## Pipeline overview
+## Template pre-selection
+
+| Method | Statistic |
+|---|---|
+| `"data"` | Pearson \|r\| between δ_g and each template |
+| `"template"` | Per-template least-squares \|t\| |
+| `"isd"` | ISD Δχ², with p-values from GLASS realisations |
+| `"peak"` | Peak of the cross pseudo-Cℓ over a noise proxy |
+
+`run_decontamination(..., preselect=True)` runs the pre-selection before the fit.
+
+## Decontamination methods
+
+| Method | Model | Estimation |
+|---|---|---|
+| OLS | Additive | Least-squares pixel regression |
+| ElasticNet | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
+| ISD-1 | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
+| ISD-3 | Selection weight | The same with a cubic marginal fit in one template's value |
+| MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior |
+| MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix |
+
+`--sampler emcee` selects the emcee ensemble sampler for the MCMC methods.
+
+## Calibrated statistics
+
+Every null the package builds is a set of uncontaminated GLASS realisations drawn from a
+spectrum matched to the sample (`load_matched_cl`). Realisations are Poisson counts per
+footprint pixel (`draw_null_overdensity`).
+
+| Statistic | Function |
+|---|---|
+| Template significance and family-wise p-value | `calibrated_template_significance` |
+| Residual correlation with held-out templates | `residual_template_correlation_test` |
+| ISD stopping threshold | `isd_template_significance` |
+| Likelihood-ratio test, additive against combined | `likelihood_ratio_test(null_lambda=...)` with the null from `lrt_from_maxima` |
+
+The Wilks χ² p-value assumes independent pixels, which the clustered field violates, so it
+is overconfident. `lrt_from_maxima` takes λ_LR between the maxima of both models, so
+λ_LR ≥ 0.
+
+---
+
+## Pipeline
 
 ```
-Raw catalogs / randoms
+Template FITS maps (LS10, Gaia)       scripts/archive/build_systematic_maps.py
         │
         ▼
-scripts/archive/build_systematic_maps.py   ← build HEALPix template maps (GAIA DR2, LS10)
+Galaxy and random catalogues ─► pixelise, overdensity, resolution by occupancy
         │
         ▼
-    Template FITS files  (LS10_EBV_NSIDE_0064.fits, GAIA_nstar_faint_NSIDE_00064.fits, …)
+Pre-selection (optional) ─► six methods ─► calibrated significance, LRT, residual test
         │
         ▼
-  Stage 1: SNR pre-selection (data / template / ISD + GLASS mocks)
-  → snr_template_ranking()  /  isd_template_significance()
-  → run_decontamination(..., preselect=True)
+Per-galaxy weights (FITS) + w(θ) corrected with the full template correlation matrix
         │
         ▼
-  Stage 2: Full decontamination on reduced template set
-        │
-        ├──► scripts/run_ls10_analysis.py              ← LS10 BGS per-method weights + w(θ)
-        ├──► scripts/run_mock_analysis.py              ← parameter recovery on mocks
-        ├──► scripts/run_validation.py                 ← all methods × all scenarios
-        ├──► scripts/run_systematic_tests.py           ← all methods × template configs
-        └──► scripts/run_paper_validation.py           ← reproduce Berlfein 2024 Figs 2–8
-                │
-                ▼
-        scripts/compute_sys_weights.py    ← batch per-galaxy weights → WEIGHT_SYS, WEIGHT_ADD, WEIGHT_COMB
-                │
-                ▼
-        data/sys_weights/  ← consumed by sum_stat package
+data/sys_weights_auto/  ─► read by the sum_stat package
 ```
-
-**Quick start with pre-selection:**
 
 ```python
 import sys_mapping as sm
 
-# With preselect_method="isd", the GLASS null built for Stage 1 is reused to
-# calibrate the ISD stopping threshold — pass isd_chi2_68 explicitly otherwise.
 result = sm.run_decontamination(
     "ISD-1", delta_g, delta_t,
-    preselect=True,             # enable Stage 1
-    preselect_method="isd",     # use GLASS mock significance
-    preselect_n_mocks=100,
-    preselect_p_threshold=0.05,
-    good_pixels=good_pix,
-    n_total_footprint=len(ra_gal),
+    preselect=True, preselect_method="isd",
+    preselect_n_mocks=100, preselect_p_threshold=0.05,
+    good_pixels=good_pix, n_total_footprint=len(ra_gal),
     z_edges=z_edges, nz=nz, nside=nside,
+    preselect_cl_input=sm.load_matched_cl("matched_spectra/", sample, nside=nside),
 )
-print("Templates selected:", result["preselect_indices"])
-print("a_hat:", result["a_hat"])
+print(result["preselect_indices"], result["a_hat"])
 ```
 
-Or from the CLI:
-
-```bash
-python scripts/run_ls10_analysis.py \
-    --catalog-dir /path/to/BGS_VLIM_Mstar \
-    --only-methods OLS ISD-1 ElasticNet \
-    --preselect --preselect-method isd --preselect-n-mocks 100
-```
-
----
-
-## Method
-
-Core method: [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293)
-(MNRAS 531, 4954).
-
-### Contamination model (Eq. 11–13)
-
-The observed galaxy overdensity in pixel p is modelled as the linear combination
-of three nested models:
-
-| Model | Equation | Free params |
-|---|---|---|
-| Additive | `δ̂_g,p = δ_g,p + Σ_i a_i δ_{ti,p}` | a |
-| Multiplicative | `δ̂_g,p = δ_g,p (1 + Σ_i b_i δ_{ti,p})` | b, with a = 0 |
-| Combined | `δ̂_g,p = δ_g,p (1 + Σ_i b_i δ_{ti,p}) + Σ_i a_i δ_{ti,p}` | a, b |
-
-### Likelihoods (Eq. 17–18)
-
-Integrating out the true δ_g (assumed Gaussian with dispersion σ) gives:
-
-```
-ln L = −(N/2) ln(2πσ²) − Σ_p ln|1 + Σ_i b_i δ_{ti,p}|
-       − (1/2σ²) Σ_p [(δ̂_g,p − Σ_i a_i δ_{ti,p}) / (1 + Σ_i b_i δ_{ti,p})]²
-```
-
-An optional skew-normal extension (Eq. 18) adds `N ln 2 + Σ log Φ(γ δ_g,p / σ)`.
-
-### Template rotation (Appendix A)
-
-When templates are correlated, the PCA-rotated basis δ'_t = Vᵀ δ_t
-(where V diagonalises the template covariance C = VDVᵀ) makes each
-contamination parameter independently identifiable. Parameters are
-transformed back to the original basis after inference.
-
-### Noise debiasing (Eq. 21)
-
-Because E[â²] = a² + Var[â], the squared estimate is noise-inflated.
-The debiased estimate is:
-
-```
-ã²_i = max(â²_i − Var[â_i], 0)
-```
-
-### Two-point correction (Eq. 15–16)
-
-After debiasing, the observed angular correlation function is corrected:
-
-```
-ŵ_corr(θ) = [ŵ(θ) − Σ_i ã²_i C_{ti}(θ)] / [1 + Σ_i b̃²_i C_{ti}(θ)]
-```
-
-### Model selection (Eq. 19)
-
-Nested models are compared with the likelihood ratio test:
-
-```
-λ_LR = 2 [ln L(Θ̂) − ln L(Θ̂₀)] ~ χ²(r)
-```
-
-where r is the number of additional free parameters.
-
-> **The χ² null is overconfident here.** Wilks' theorem assumes independent
-> observations; the pixel likelihood uses σ²I on a spatially *correlated* field, so
-> λ_LR is inflated under H₀ and `chi2.sf` returns a p-value that is too small. Pass
-> `null_lambda=` (an ensemble of λ_LR from uncontaminated mocks, via
-> `lrt_null_distribution`) for a mock-calibrated p-value. On LS10 the χ² null fails
-> in *both* directions — see `docs/results_ls10.rst`. λ_LR is evaluated at a true
-> likelihood maximum: `refine_to_mle` maximises the log-likelihood from the posterior
-> median and from the OLS solution and keeps whichever start scores higher, so the
-> nesting guarantee λ_LR ≥ 0 holds. A negative value now warns.
+With `preselect_method="isd"` the pre-selection null also sets the ISD stopping threshold.
+The [quickstart](https://sys-mapping.readthedocs.io/en/latest/quickstart.html) builds
+`delta_g`, `delta_t` and a matched null from catalogues.
 
 ---
 
 ## Scripts
 
-### `scripts/archive/build_systematic_maps.py`
-
-Builds HEALPix systematic template maps from GAIA DR2 or LS10 BGS randoms.  It is
-archived: the maps it produces are an input to the pipeline rather than part of it,
-and they are built once per survey release.
-
-```bash
-# LS10 maps (EBV, GALDEPTH, PSFSIZE, NOBS)
-python scripts/archive/build_systematic_maps.py --source ls10 --nside 32 64 128 256
-
-# GAIA DR2 maps (G/BP/RP flux, star counts by magnitude)
-python scripts/archive/build_systematic_maps.py --source gaia --nside 64
-```
-
-### `scripts/compute_sys_weights.py`
-
-Batch pipeline: processes every `*_DATA.fits` / `*_RAND.fits` pair, runs
-all methods, writes per-galaxy systematic weights for the `sum_stat` package.
-
-```bash
-# All samples, default settings (NSIDE=64)
-python scripts/compute_sys_weights.py
-
-# GPU — vectorised walker evaluation
-python scripts/compute_sys_weights.py --device gpu
-
-# Single sample
-python scripts/compute_sys_weights.py \
-    --sample LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228
-```
-
-**Weighting scheme**
-
-> The weight depends on the method. `run_decontamination` returns the one that
-> inverts the model it fitted, in `result["weights"]`, and both production scripts
-> write that rather than recomputing from the fitted coefficients.
->
-> | Form | Methods | Formula | Clip |
-> |---|---|---|---|
-> | linear | `OLS`, `ElasticNet` | `1 / max(1 + Σ_i a_i·t_i(p), 1e-6)` | `[1/20, 20]` |
-> | exact | `MCMC-add`, `MCMC-comb` | `(1 + δ_g,clean(p)) / max(1 + δ_g,obs(p), 1e-6)` | `[1/20, 20]` |
-> | product | `ISD-1`, `ISD-3` | `Π_j 1 / (1 + F̂_j(t_j(p)))` | `[1/20, 20]` |
->
-> The exact inverse cancels the contamination when `(â, b̂) = (a, b)`; the linear form
-> is its first-order approximation. A linear reconstruction from `â` alone reproduces
-> neither the product nor the exact inverse, which is why the scripts read the field.
-
-| Column | Model | Source |
-|---|---|---|
-| `WEIGHT_OLS`, `WEIGHT_ENET` | Additive, linear fit | library, linear form |
-| `WEIGHT_ISD1`, `WEIGHT_ISD3` | Selection efficiency | library, cumulative product |
-| `WEIGHT_ADD` | Additive | library, exact inverse |
-| `WEIGHT_COMB` | Combined | library, exact inverse |
-| `WEIGHT_SYS` | Combined (recommended) | alias for `WEIGHT_COMB` |
-
-A written file records the convention in `WEIGHTVER`, `WEIGHTCON`, `WMAXCLIP` and
-`TPLBASIS`. This package writes version 3, a basis standardised over the analysis
-footprint, where the fitted amplitudes are in units of one template standard deviation.
-Lower versions carry a basis normalised elsewhere, so their amplitudes are on a
-different scale and are read with a warning.
-
-Both scripts take the same `--skewed` flag, defaulting off. It is opt-in because
-enabling the skew-normal also moves the additive model off its exact analytic
-posterior onto NUTS. `--no-footprint-standardise` and `--ct-from-pixels` reproduce a
-version-2 product.
-
 ### `scripts/run_ls10_analysis.py`
 
-Full pipeline on LS10 BGS catalogs: overdensity → all methods → correction
-→ w(θ) plots.
+The LS10 BGS pipeline: overdensity, all methods, calibrated statistics, weights and the
+corrected w(θ) for one sample or a directory of samples.
 
 ```bash
 python scripts/run_ls10_analysis.py \
     --catalog-dir /path/to/BGS_VLIM_Mstar \
-    --template-dir /path/to/systematics/ \
-    --nside 64 --output-dir results/ls10/
+    --template-dir ~/data/legacysurvey/dr10/systematics/0128 \
+    --nside 128 --min-per-pixel 25 \
+    --null-cl-file matched_spectra/ \
+    --significance-n-mocks 400 --lrt-null-mocks 50 \
+    --output-dir data/sys_weights_auto/
 ```
 
-### `scripts/run_validation.py`
+`--min-per-pixel` puts each sample at the finest NSIDE, no finer than `--nside`, whose
+footprint holds that many galaxies per pixel. `--null-cl-file` is required whenever a null
+is built; `--allow-parametric-null` uses a power law instead and records the product as
+parametric. `--null-draw` (`pixel` or `catalogue`) and `--lrt-null-method` (`maxima` or
+`nuts`) choose how null realisations are drawn and fitted. The phases, output keys and
+sentinel files are described in the
+[LS10 pipeline page](https://sys-mapping.readthedocs.io/en/latest/pipeline_ls10.html).
 
-Multi-method, multi-scenario validation on synthetic mocks (none /
-additive / multiplicative / combined contamination). Applies all six
-methods and compares against known ground truth.
+**Weights.** `run_decontamination` returns the weight that inverts the model each method
+fitted, and `run_ls10_analysis.py` writes it:
+
+| Form | Methods | Formula | Clip |
+|---|---|---|---|
+| linear | OLS, ElasticNet | `1 / max(1 + Σ_i a_i·t_i(p), 1e-6)` | `[1/20, 20]` |
+| exact | MCMC-add, MCMC-comb | `(1 + δ_g,clean(p)) / max(1 + δ_g,obs(p), 1e-6)` | `[1/20, 20]` |
+| product | ISD-1, ISD-3 | `Π_j 1 / (1 + F̂_j(t_j(p)))` | `[1/20, 20]` |
+
+| Column | Model |
+|---|---|
+| `WEIGHT_OLS`, `WEIGHT_ENET` | Additive, linear |
+| `WEIGHT_ISD1`, `WEIGHT_ISD3` | Selection efficiency, cumulative product |
+| `WEIGHT_ADD` | Additive, exact inverse |
+| `WEIGHT_COMB` | Combined, exact inverse |
+| `WEIGHT_SYS` | Alias of `WEIGHT_COMB`, the recommended weight |
+
+The header records the convention in `WEIGHTVER`, `WEIGHTCON`, `WMAXCLIP` and `TPLBASIS`.
+Version 3 marks templates standardised over the analysis footprint, so amplitudes are in
+units of one template standard deviation; lower versions are read with a warning.
+`--no-footprint-standardise` and `--ct-from-pixels` write a version-2 product. `--skewed`
+fits the skew-normal likelihood for MCMC-comb; MCMC-add stays Gaussian, and the
+likelihood-ratio test compares additive and combined maxima that both carry the skewness.
+
+### `scripts/compute_sys_weights.py`
+
+Batch weights for every `*_DATA.fits` / `*_RAND.fits` pair: OLS, MCMC-add and MCMC-comb,
+written as `WEIGHT_OLS`, `WEIGHT_ADD`, `WEIGHT_COMB` and `WEIGHT_SYS` in the linear form
+(`WEIGHTCON = linear-from-a_hat`).
 
 ```bash
-python scripts/run_validation.py --nside 64 --n-mocks 50 \
-    --output-dir results/validation/
+python scripts/compute_sys_weights.py --catalog-dir /path/to/BGS_VLIM_Mstar --nside 64
+python scripts/compute_sys_weights.py --sample LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228
 ```
 
-### `scripts/run_systematic_tests.py`
+### Validation and characterisation scripts
 
-Systematic test matrix: all methods × all template configurations (7
-synthetic templates, tiers of single and combined contamination types).
+| Script | Purpose |
+|---|---|
+| `run_validation.py` | All methods on synthetic mocks under four contamination scenarios |
+| `run_systematic_tests.py` | All methods across template configurations |
+| `run_mock_analysis.py` | Parameter recovery and LRT statistics on mocks (`--synthetic` or `--mock-dir`) |
+| `run_mock_analysis_diagnostic.py` | Diagnostic figures for one synthetic mock |
+| `run_mock_analysis_progressive.py` | Detection as the number of contaminated templates grows |
+| `run_mock_analysis_real_templates.py` | Recovery with Gaia and LS10 depth templates on the LS10 footprint |
+| `run_simulation_tests.py` | w(θ) recovery on GLASS and Uchuu mocks with injected systematics |
+| `run_paper_validation.py` | Berlfein et al. 2024 Figures 2–8 and Tables 2–3 on lognormal mocks |
+| `run_detectability_sweep.py` | Detection limit over NSIDE, density, f_sky and amplitude |
+| `benchmark_corrfunc_vs_treecorr.py` | Corrfunc against TreeCorr for w(θ) |
 
-```bash
-python scripts/run_systematic_tests.py --nside 64
-```
+All but `benchmark_corrfunc_vs_treecorr.py` take `--help`.
 
-### `scripts/run_mock_analysis.py`
-
-Parameter recovery on mock galaxy catalogs (LRT statistics).
-
-```bash
-# Synthetic mocks (no data files required)
-python scripts/run_mock_analysis.py --synthetic --n-mocks 20 --nside 32
-
-# Real mocks
-python scripts/run_mock_analysis.py \
-    --mock-dir /path/to/mocks --rand-file /path/to/randoms.fits \
-    --n-mocks 100 --output-dir results/mock_analysis/
-```
-
-### `scripts/run_mock_analysis_diagnostic.py`
-
-Deep-dive diagnostic figures for one synthetic mock (sky maps, template
-maps, weight histograms, per-template S/N).
-
-```bash
-python scripts/run_mock_analysis_diagnostic.py \
-    --nside 64 --n-sys 5 --seed 0 \
-    --output-dir results/mock_analysis_diagnostic/
-```
-
-### `scripts/run_mock_analysis_progressive.py`
-
-Progressive template contamination study: varies the number of
-contaminated templates (k=1,2,3) and contamination mode across mocks.
-
-### `scripts/run_mock_analysis_real_templates.py`
-
-Validation with real GAIA stellar and LS10 depth templates on the actual
-LS10 south footprint (~22 000 pixels at NSIDE=64).
-
-### `scripts/run_paper_validation.py`
-
-Reproduce Berlfein 2024 Figures 2–8 and Tables 2–3 on lognormal synthetic
-mocks.
-
-```bash
-# Quick test (NSIDE=32, 2 realisations)
-python scripts/run_paper_validation.py --nside 32 --n-real 2 --output-dir /tmp/val
-
-# Full paper settings (use HPC)
-python scripts/run_paper_validation.py --nside 512 --n-real 119 \
-    --n-walkers 250 --n-steps 1500 --n-burn 300
-```
-
-### Documentation-generation scripts
+### Documentation generators
 
 | Script | Output |
 |---|---|
-| `scripts/generate_results_ls10_summary.py` | `docs/results_ls10.rst`, `docs/results_ls10_recommendations.rst` and the nine `docs/results_ls10_*.rst` sample pages, from the issued products |
-| `scripts/plot_ls10_occupancy_products.py` | `docs/_static/results_ls10/wtheta_ratio_occupancy.png` |
-| `scripts/analyze_detectability_law.py` | `docs/detectability_law.rst` and its figures and tables |
-| `scripts/plot_runtime_scaling.py` | `docs/_static/runtime_scaling.png` |
-| `scripts/plot_simulation_tests.py` | simulation-test figures under `docs/_static/` |
-
-### `scripts/benchmark_corrfunc_vs_treecorr.py`
-
-Performance comparison between Corrfunc and TreeCorr for the angular
-two-point function estimator.
+| `generate_results_ls10_summary.py` | `docs/results_ls10.rst`, `docs/results_ls10_recommendations.rst` and the nine sample pages |
+| `plot_ls10_occupancy_products.py` | `docs/_static/results_ls10/wtheta_ratio_occupancy.png` |
+| `analyze_detectability_law.py` | `docs/detectability_law.rst`, figures and tables |
+| `make_survey_design_synthesis.py` | `docs/survey_design_synthesis.rst` and figures |
+| `coverage_report.py` | `docs/coverage.rst` from a coverage JSON, `jax_coverage.py` and an optional profile |
+| `plot_runtime_scaling.py` | `docs/_static/runtime_scaling.png` |
+| `plot_simulation_tests.py` | simulation-test figures under `docs/_static/` |
 
 ---
 
-## Server execution (bash/ — background, all cores)
+## Background runs (`bash/`)
 
-`bash/` provides scripts that launch each pipeline in the background with
-`nohup`, writing timestamped logs to `logs/` and a `.pid` file for process
-tracking. Each script sets `OMP_NUM_THREADS=$(nproc)` and JAX XLA flags.
+The scripts in `bash/` start a pipeline with `nohup`, write a timestamped log to `logs/`
+and a `.pid` file, and set the thread counts to `$(nproc)`.
 
 ```bash
-# LS10 analysis
 bash/ls10_analysis.sh
 CATALOG_DIR=/path/to/BGS bash/ls10_analysis.sh --sample LS10_VLIM_ANY_10.5_...
-
-# Paper validation
-bash/paper_validation.sh
-bash/paper_validation.sh --nside 512 --n-real 119   # full paper settings
-
-# Mock analysis
 bash/mock_analysis.sh --synthetic --n-mocks 20
-bash/mock_analysis.sh --mock-dir /path/to/mocks --rand-file /path/to/randoms.fits
-
-# Build template maps
-bash/build_maps.sh --source ls10
+bash/paper_validation.sh --nside 512 --n-real 119
 bash/build_maps.sh --source gaia --nside 64 128
+
+tail -f logs/ls10_analysis_<timestamp>.log
+kill -0 $(cat logs/ls10_analysis_<timestamp>.pid) && echo running
 ```
 
-**Monitoring**:
-```bash
-tail -f logs/ls10_analysis_20260505_143200.log
-kill -0 $(cat logs/ls10_analysis_20260505_143200.pid) && echo running || echo done
-kill $(cat logs/ls10_analysis_20260505_143200.pid)
-```
-
-**GPU notes**
-
-`--device gpu` lets JAX auto-detect the GPU backend. To enable GPU:
-
-```bash
-pip install 'jax[cuda12_pip]' \
-    -f https://storage.googleapis.com/jax-releases/jax_cuda_releases.html
-```
+`compute_sys_weights.py --device gpu` runs JAX on a GPU when `jax[cuda12]` is installed.
 
 ---
 
 ## Installation
 
-Install from [PyPI](https://pypi.org/project/sys-mapping/1.3.0/):
+Version 1.4.0 installs from the tagged source:
 
 ```bash
-pip install sys-mapping==1.3.0
+pip install "git+https://github.com/JohanComparat/sys_mapping@v1.4.0"
 ```
 
-Or install from source:
+For development:
 
 ```bash
-cd ~/sys_mapping
+git clone https://github.com/JohanComparat/sys_mapping && cd sys_mapping
 mamba env create -f environment.yml
 mamba activate sys_map
-pip install -e .
+pip install -e ".[dev]"
 ```
+
+PyPI carries version 1.3.0 (`pip install sys-mapping`).
 
 ---
 
 ## Tests
 
 ```bash
-pytest tests/ -v
+pytest -m "not slow"          # fast suite, run on pull requests
+pytest --cov=sys_mapping      # full suite with branch coverage, run on main and nightly
 ```
 
-Expect **471 passed, 16 skipped** with no marker filter (what CI runs), or
-**469 passed, 16 skipped, 2 deselected** with `-m "not slow"`.
-
-Test modules: `test_contamination`, `test_correction`, `test_likelihood`,
-`test_maps`, `test_inference`, `test_model_selection`, `test_bootstrap`,
-`test_power_spectrum`, `test_regression`, `test_diagnostics`, `test_mocks`,
-`test_real_templates`, `test_accuracy`, `test_covariance`, `test_samplers`,
-`test_simulation`, `test_glass_mocks`, `test_snr_preselection`,
-`test_jax_acceleration`, `test_utils`, `test_ls10_script`.
-
-The timing and micro-benchmark modules moved to
-[`sys_mapping_benchmark`](https://github.com/JohanComparat/sys_mapping_benchmark);
-they contributed 259 cases to CI and asserted wall-clock budgets rather than
-correctness.
+The suite collects the docstring examples, checks JAX kernels against NumPy references,
+and records which public functions survive `jax.jit`, `jax.vmap` and `jax.grad`. Branch
+coverage is 98.8 % and CI fails below 97 %. Per-module coverage, the JAX share and the wall
+time by library are on the [coverage page](https://sys-mapping.readthedocs.io/en/latest/coverage.html);
+test counts per module are on the [testing page](https://sys-mapping.readthedocs.io/en/latest/testing.html).
+Real-data tests skip when `~/data/legacysurvey/dr10/systematics/` is absent.
 
 ---
 
 ## Related repositories
 
-The paper and the benchmarks live in their own repositories, so this one stays the
-package and pipeline alone.
-
 | Repository | Contents |
 |---|---|
-| [`sys_mapping_benchmark`](https://github.com/JohanComparat/sys_mapping_benchmark) | timing harness, timing tests, and the algorithm-characterisation scripts |
-| `sys_mapping_paper` *(private)* | the LaTeX pipeline document: every equation traced to the code that evaluates it, plus the verification findings |
+| [`sys_mapping_benchmark`](https://github.com/JohanComparat/sys_mapping_benchmark) | Timing harness, algorithm-characterisation scripts, and the GRICAD job scripts that produce the LS10 products |
+| `sys_mapping_paper` (private) | The pipeline paper, with every equation traced to the code that evaluates it |
 
-Their **results** are documented here and render without either checkout:
-
-- [`docs/results_benchmark.rst`](docs/results_benchmark.rst) — how long each stage takes
-- [`docs/results_algorithm_characterisation.rst`](docs/results_algorithm_characterisation.rst) —
-  when correcting is worth it, how wrong the iid error bars are, and why the GLASS
-  calibration mocks are under-clustered
-
-To re-measure, clone the benchmark repository and point it back here:
+Their results are documented here: [benchmark](docs/results_benchmark.rst) and
+[algorithm characterisation](docs/results_algorithm_characterisation.rst).
 
 ```bash
 git clone https://github.com/JohanComparat/sys_mapping_benchmark
@@ -468,14 +265,13 @@ SYS_MAPPING_ROOT=~/software/sys_mapping python characterisation/run_crossterm_bi
 
 ## Documentation
 
-Full Sphinx documentation is in `docs/`, covering: overview, installation,
-quickstart, methods with paper references, validation results, LS10 BGS
-analysis results (9 samples × 4 NSIDEs), and full API reference.
-
 ```bash
-cd docs && make html
-# open docs/_build/html/index.html
+cd docs && make html    # docs/_build/html/index.html
 ```
+
+The documentation covers the method, the API, validation on mocks, the detectability law,
+and the LS10 BGS results: nine stellar-mass samples, each at the resolution its occupancy
+supports, with the same fits at NSIDE 32, 64 and 128 for comparison.
 
 ---
 
@@ -483,96 +279,78 @@ cd docs && make html
 
 | Module | Public symbols |
 |---|---|
-| `contamination` | `apply_contamination`, `invert_contamination`, `compute_two_point_correction`, `pack_params`, `unpack_params`, `n_free_params` |
-| `likelihood` | `make_log_likelihood` — factory returning a `@jax.jit` log-likelihood (Gaussian or skew-normal) |
-| `covariance` | `LowRankPrecision`, `build_lowrank_precision`, `mock_sandwich_covariance`, `sample_covariance`, `hartlap_factor`, `build_harmonic_precision` |
-| `maps` | `systematic_power_spectrum`, `generate_systematic_map`, `generate_systematic_maps`, `load_real_template`, `load_real_templates`, `pixelize_catalog`, `compute_overdensity`, `assign_template_values` |
-| `inference` | `make_log_prob`, `run_mcmc`, `run_additive_analytic`, `posterior_median_params`, `refine_to_mle`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
-| `nuts` | `run_nuts` (BlackJAX NUTS), `build_logdensity`, `default_n_chains` |
-| `correction` | `debias_params` (Eq. 21), `rotate_templates` (App. A), `transform_params_from_rotated`, `correct_two_point_function`, `correct_power_spectrum_harmonic` |
-| `model_selection` | `likelihood_ratio_test` → `LikelihoodRatioResult` (Eq. 19); `lrt_null_distribution` (mock-calibrated null), `snr_preselect`, `greedy_forward_select` |
-| `bootstrap` | `block_bootstrap_variance` — spatial block bootstrap via HEALPix coarsening (Sec. 6.2); `jackknife_covariance` |
-| `regression` | `elasticnet_contamination_fit`, `iterative_systematics_decontamination`, `polynomial_ols_decontamination`, `method_comparison`, `run_decontamination` |
-| `diagnostics` | `null_test_cross_correlations`, `snr_template_ranking`, `footprint_mask_diagnostics` |
+| `contamination` | `apply_contamination`, `invert_contamination`, `apply_nonlinear_contamination`, `TemplateResponse`, `evaluate_response`, `compute_two_point_correction`, `pack_params`, `unpack_params`, `n_free_params` |
+| `likelihood` | `make_log_likelihood`, a compiled Gaussian or skew-normal log-likelihood |
+| `covariance` | `LowRankPrecision`, `build_lowrank_precision`, `build_harmonic_precision`, `mock_sandwich_covariance`, `method_marginalised_covariance`, `sample_covariance`, `hartlap_factor` |
+| `maps` | `pixelize_catalog`, `compute_overdensity`, `assign_template_values`, `standardise_on_footprint`, `choose_nside_by_occupancy`, `inverse_variance_pixel_weights`, `load_real_template`, `load_real_templates`, `generate_systematic_map`, `generate_systematic_maps`, `systematic_power_spectrum` |
+| `inference` | `run_additive_analytic`, `run_mcmc`, `make_log_prob`, `posterior_median_params`, `refine_to_mle`, `get_param_variance_from_chain`, `get_param_covariance_from_chain` |
+| `nuts` | `run_nuts`, `build_logdensity`, `default_n_chains` |
+| `correction` | `debias_params`, `debias_params_matrix`, `rotate_templates`, `transform_params_from_rotated`, `correct_two_point_function`, `correct_power_spectrum_harmonic` |
+| `model_selection` | `likelihood_ratio_test`, `lrt_from_maxima`, `lrt_null_distribution`, `snr_preselect`, `greedy_forward_select` |
+| `bootstrap` | `block_bootstrap_variance`, `jackknife_covariance` |
+| `regression` | `run_decontamination`, `method_comparison`, `elasticnet_contamination_fit`, `iterative_systematics_decontamination`, `polynomial_ols_decontamination` |
+| `diagnostics` | `calibrated_template_significance`, `residual_template_correlation_test`, `isd_template_significance`, `isd_marginal_fit`, `snr_template_ranking`, `null_test_cross_correlations`, `vet_templates_against_tracer`, `footprint_mask_diagnostics` |
 | `mocks` | `generate_lognormal_field`, `make_galactic_mask`, `make_mock_catalog`, `make_mock_suite`, `MockCatalog` |
-| `glass_mocks` | `measure_nz`, `generate_glass_fullsky_mock`, `generate_glass_delta_map`, `sample_positions_from_delta` |
+| `glass_mocks` | `load_matched_cl`, `draw_null_overdensity`, `generate_glass_null_overdensity`, `generate_glass_delta_map`, `generate_glass_fullsky_mock`, `measure_nz`, `sanitise_cl`, `sample_positions_from_delta` |
 | `simulation` | `ContaminationConfig`, `LEVELS`, `make_contamination_grid`, `load_uchuu_mock`, `load_systematic_maps`, `apply_footprint_mask`, `inject_systematics`, `run_wtheta_recovery` |
 | `power_spectrum` | `measure_pseudo_cl`, `subtract_template_cl`, `harmonic_bias`, `mode_projection_bias` |
-| `utils` | `compute_covariance_matrix` (Eq. 24), `compute_amplitude_bias` (Eq. 25-26), `measure_two_point_function` (Landy-Szalay via TreeCorr), `measure_two_point_function_corrfunc`, `measure_kk_correlation_treecorr`, `measure_kk_correlation_corrfunc` |
-| `plotting` | `METHOD_COLORS`, `METHOD_LINESTYLES`, `METHOD_MARKERS`, `METHOD_LABELS`, `METHOD_ORDER` — shared colorblind-safe palette constants |
+| `utils` | `template_correlation_matrix`, `measure_two_point_function`, `measure_two_point_function_corrfunc`, `measure_cross_two_point_function`, `measure_kk_correlation_treecorr`, `measure_kk_correlation_corrfunc`, `measure_kk_covariance_treecorr`, `compute_covariance_matrix`, `compute_amplitude_bias` |
+| `plotting` | `METHOD_COLORS`, `METHOD_LINESTYLES`, `METHOD_MARKERS`, `METHOD_LABELS`, `METHOD_ORDER` |
 
-All symbols above are importable directly from `sys_mapping`.
-`LikelihoodRatioResult` must be imported as
-`from sys_mapping.model_selection import LikelihoodRatioResult`.
+The symbols above import from `sys_mapping` directly;
+`LikelihoodRatioResult` imports from `sys_mapping.model_selection`.
 
 ---
 
-## Berlfein 2024 equation cross-reference
+## Berlfein et al. 2024 equations in the code
 
 | Equation | Description | Implementation |
 |---|---|---|
-| Eq. 11 | Additive model | `contamination.py:apply_contamination` (model='additive') |
-| Eq. 12 | Multiplicative model | `contamination.py:apply_contamination` (model='multiplicative') |
-| Eq. 13 | Combined model | `contamination.py:apply_contamination` (model='combined') |
-| Eq. 15-16 | 2PCF correction | `contamination.py:compute_two_point_correction`; `correction.py:correct_two_point_function` |
-| Eq. 17 | Gaussian log-likelihood + Jacobian | `likelihood.py:make_log_likelihood` (skew=False) |
-| Eq. 18 | Skew-normal log-likelihood | `likelihood.py:make_log_likelihood` (skew=True) |
-| Eq. 19 | Likelihood ratio test | `model_selection.py:likelihood_ratio_test` |
-| Eq. 21 | Noise debiasing | `correction.py:debias_params` |
+| Eq. 11–13 | Additive, multiplicative and combined models | `contamination.py:apply_contamination` (the model follows from which of `a`, `b` are zero) |
+| Eq. 15–16 | Two-point correction | `contamination.py:compute_two_point_correction`; `correction.py:correct_two_point_function` |
+| Eq. 17 | Gaussian log-likelihood with Jacobian | `likelihood.py:make_log_likelihood` (`use_skewed=False`) |
+| Eq. 18 | Skew-normal log-likelihood | `likelihood.py:make_log_likelihood` (`use_skewed=True`) |
+| Eq. 19 | Likelihood-ratio test | `model_selection.py:likelihood_ratio_test` |
+| Eq. 21 | Noise debiasing | `correction.py:debias_params`, `debias_params_matrix` |
 | Eq. 24 | Template covariance matrix | `utils.py:compute_covariance_matrix` |
-| Eq. 25-26 | Amplitude bias ΔĀ | `utils.py:compute_amplitude_bias` |
-| App. A | PCA template rotation C = VDVᵀ | `correction.py:rotate_templates` + `transform_params_from_rotated` |
+| Eq. 25–26 | Amplitude bias ΔĀ | `utils.py:compute_amplitude_bias` |
+| App. A | PCA template rotation C = VDVᵀ | `correction.py:rotate_templates`, `transform_params_from_rotated` |
+
+Notes on the implementation:
+
+- The combined model is the paper form `δ̂_g = δ_g(1+b·t) + a·t`. The product
+  `(δ_g + a·t)(1+b·t)` differs by the second-order term `a·t·b·t`.
+- The Gaussian likelihood subtracts `Σ ln|1+b·t|`, the Jacobian of the forward map.
+- In the skew-normal likelihood the residual is shifted by `ξ = −σ·δ·√(2/π)` with
+  `δ = γ/√(1+γ²)`; the shifted residual `r` enters both the quadratic form and the CDF term
+  `Σ log Φ(γ·r/σ)`, and `N·ln 2` comes from the `2/σ` prefactor.
+- With `C = VDVᵀ`, `δ'_t = Vᵀ δ_t` and `a = V a'`, the covariance propagates as
+  `Cov[a] = V · Cov[a'] · Vᵀ`, the full matrix (`R.T @ cov_rot @ R` in
+  `regression.py:run_decontamination`).
+- The two-point correction uses the full `(n_sys, n_sys)` amplitude matrices and the
+  template correlation matrix from `template_correlation_matrix`, whose cross terms are
+  `ξ_ij = [ξ(t_i+t_j) − ξ_ii − ξ_jj]/2`.
 
 ---
 
 ## Data files
 
-### Generated outputs (`data/sys_weights_auto/`, `data/sys_weights/` — git-ignored)
+`data/` is not tracked. `scripts/run_ls10_analysis.py` writes:
 
-Produced by `scripts/run_ls10_analysis.py` (and `scripts/compute_sys_weights.py`).
-`data/sys_weights_auto/` holds the issued products, each sample at the resolution its
-occupancy supports; `data/sys_weights/` holds the same fits at NSIDE 32, 64 and 128.
+| Directory | Contents |
+|---|---|
+| `data/sys_weights_auto/` | The issued LS10 products, each sample at the resolution its occupancy supports |
+| `data/sys_weights/` | The same fits at NSIDE 32, 64 and 128 |
 
 | File | Contents |
 |---|---|
-| `{sample_id}_NSIDE{NNNN}_WEIGHTS.fits` | Per-galaxy systematic weights (`WEIGHT_SYS`, `WEIGHT_ADD`, `WEIGHT_COMB`) |
-| `{sample_id}_NSIDE{NNNN}_params.json` | Point estimates and chain diagnostics for all methods |
-| `{sample_id}_NSIDE{NNNN}_partial_*.json` | Partial results from fast-method phases |
-
-### Paper tables and simulation configs (`data/` — tracked)
-
-| File | Contents |
-|---|---|
-| `data/paper_tables/table1_mock_properties.csv` | KiDS-HOD mock survey properties |
-| `data/paper_tables/table2_lrt_results.csv` | LRT model-selection fractions |
-| `data/paper_tables/table3_cosmological_impact.csv` | Amplitude bias ΔĀ per model |
-| `data/simulation_config/contamination_params_25sys.csv` | 25 contamination parameters used in the paper |
-| `data/simulation_config/angular_bins.csv` | Log-spaced angular bins (0.5–60 arcmin) |
-
----
-
-## Equations vs. implementation — notes
-
-- **Combined model**: the code implements the exact paper form
-  `δ̂_g = δ_g(1+b·t) + a·t` (Eq. 13). The full product `(δ_g + a·t)(1+b·t)`
-  differs by the second-order term a·t·b·t, which is negligible for |a|, |b| ≪ 1.
-- **Jacobian sign**: the Gaussian likelihood subtracts `Σ ln|1+b·t|` (positive
-  Jacobian of the forward map), consistent with Eq. 17.
-- **Skew-normal**: the residual is shifted by `ξ = −σ·δ·√(2/π)` with
-  `δ = γ/√(1+γ²)`, and that shifted residual `r = δ_g,clean − ξ` enters **both**
-  the Gaussian quadratic form and the CDF argument — not only the CDF, as the
-  short form `ln L_gauss + N ln2 + Σ log Φ(γ δ_g/σ)` suggests. The CDF term is
-  `Σ log Φ(γ·r/σ) = Σ log_ndtr(z)`, and the `N·ln 2` comes from the `2/σ`
-  prefactor. Verified against the SN(ξ, σ, γ) density term by term.
-- **Covariance propagation through PCA**: with `C = VDVᵀ`, `δ'_t = Vᵀ δ_t` and
-  `a = V a'`, the correct propagation is `Cov[a] = V · Cov[a'] · Vᵀ`, i.e.
-  `R.T @ cov_rot @ R` for `R = Vᵀ`. The code implements exactly this
-  (`regression.py:948`) and propagates the **full** covariance matrix, not just
-  its diagonal — no uncorrelated-parameter assumption is needed.
+| `{sample_id}_NSIDE{NNNN}_WEIGHTS.fits` | Per-galaxy weights, seven columns |
+| `{sample_id}_NSIDE{NNNN}_params.json` | Point estimates, calibrated statistics and chain diagnostics |
+| `{sample_id}_NSIDE{NNNN}_partial_*.json` | Results of the fast-method phases |
 
 ---
 
 ## Reference
 
-Berlfein et al. 2024, *Joint inference of multiplicative and additive
-systematics in galaxy clustering*, MNRAS 531, 4954, arXiv:2401.12293.
+Berlfein et al. 2024, *Joint inference of multiplicative and additive systematics in galaxy
+clustering*, MNRAS 531, 4954, arXiv:2401.12293.

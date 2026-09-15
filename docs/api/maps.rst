@@ -1,13 +1,19 @@
 sys_mapping.maps
 ================
 
-HEALPix map utilities: pixelisation, overdensity estimation, and
-systematic template generation.
+HEALPix map utilities: pixelisation, overdensity estimation, resolution choice,
+template standardisation and synthetic template generation.
 
 **Inputs:** RA/Dec galaxy and random catalog arrays, or HEALPix NSIDE parameter.
 
 **Outputs:** HEALPix count maps, overdensity arrays ``delta_g`` at unmasked
 pixels, and template arrays ``delta_t`` of shape ``(n_sys, n_good_pix)``.
+
+:func:`~sys_mapping.maps.choose_nside_by_occupancy` returns the finest NSIDE whose
+mean footprint occupancy reaches a floor (25 galaxies per pixel by default), counting
+footprint pixels by the rule of :func:`~sys_mapping.maps.compute_overdensity`.
+:func:`~sys_mapping.maps.standardise_on_footprint` gives each template zero mean and
+unit rms over the fitted pixels.
 
 :func:`~sys_mapping.maps.inverse_variance_pixel_weights` builds the per-pixel
 weight :math:`A_k^2/(N_k + 2)` of Weaverdyck et al. 2026 (Eq. 8) from the same

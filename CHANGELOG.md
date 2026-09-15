@@ -4,6 +4,117 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.4.0] — 2026-09-15
+
+Every calibrated statistic draws its null from a validated matched spectrum, detection
+significances are scored against that null with a family-wise p-value, each LS10 sample is
+analysed at the resolution its occupancy supports, and the two-point correction carries
+every cross-template term. The mock nulls, the likelihood-ratio null and the template
+correlation matrix are one to two orders of magnitude faster, and the test suite measures
+line and branch coverage.
+
+### Removed
+
+- **`get_mle_params`.** It returned the per-parameter posterior median, which is neither a
+  maximum-likelihood point nor the joint MAP. Use `posterior_median_params` to report a
+  point estimate and `refine_to_mle` wherever a likelihood is compared.
+
+### Added
+
+- **`calibrated_template_significance`** — each template's least-squares amplitude over its
+  scatter across uncontaminated realisations, per-template p-values, and a family-wise
+  p-value for the largest significance, with leave-one-out. Over 2000 clean fields with 1000
+  realisations, `family_wise_p <= 0.05` occurs in 4.85 ± 0.48% and `<= 0.0027` in
+  0.35 ± 0.13%; the independent-pixel significance exceeds 3 on some template in 99.3%.
+- **`residual_template_correlation_test`** — correlation of the corrected density with each
+  template, χ² over the null variance, leave-one-out null χ² and p-value. For templates the
+  correction fitted the correlation is zero by construction, so the test applies to templates
+  or transforms the fit did not use.
+- **`choose_nside_by_occupancy`** — the finest NSIDE whose mean footprint occupancy reaches a
+  floor (default 25 galaxies per pixel), counting pixels by the rule of `compute_overdensity`.
+- **`template_correlation_matrix`** — the full `(n_sys, n_sys, n_θ)` template correlation from
+  the values each galaxy carries, with optional per-object weights.
+- **`standardise_on_footprint`** — zero mean and unit rms over the fitted pixels.
+- **`lrt_from_maxima`** — additive and combined maxima of many fields at once (least squares,
+  and L-BFGS vmapped over fields), for the likelihood-ratio null. 8 fields of 7 040 pixels with
+  11 templates take 0.15 s after compilation, against about 50 s for per-mock NUTS fits refined
+  to their maxima; λ agrees to a relative 8e-7. Each L-BFGS run stops at convergence (largest
+  gradient component below 1e-9) or after `n_iter` iterations.
+- **`draw_null_overdensity`, `generate_glass_null_overdensity`** — null realisations drawn as
+  Poisson counts per footprint pixel from the GLASS field: 0.01 s per realisation against
+  0.97 s for a pixelised catalogue, with the same pixel variance and amplitude scatter.
+- `run_nuts(dense_mass_matrix=True)` (default) — on the LS10 combined fit at NSIDE 32, half the
+  leapfrog steps per iteration and 2.5 times the minimum effective samples per second.
+- `isd_template_significance(draw=)`, `"pixel"` by default.
+- `scripts/run_ls10_analysis.py`: `--min-per-pixel`, `--significance-n-mocks`,
+  `--significance-seed`, `--null-cl-file` (alias of `--lrt-null-cl-file`),
+  `--allow-parametric-null`, `--null-draw`, `--lrt-null-method`, `--ct-max-galaxies`,
+  `--ct-auto-only`.
+- `scripts/jax_coverage.py`, `scripts/profile_by_library.py`, `scripts/coverage_report.py` and
+  `docs/coverage.rst`: static JAX share, wall time by library, per-module line and branch
+  coverage. `tests/test_jax_transformability.py` records which public numeric functions survive
+  `jit`, `vmap` and `grad`.
+- `scripts/plot_ls10_occupancy_products.py`; `scripts/generate_results_ls10_summary.py` writes
+  the LS10 summary, recommendations and nine sample pages from the issued products.
+
+### Changed
+
+- **GLASS nulls need a spectrum somebody chose.** `generate_glass_fullsky_mock`,
+  `generate_glass_delta_map`, `isd_template_significance` and `run_decontamination`'s
+  pre-selection take `cl_amplitude=None`; with neither a matched spectrum nor an amplitude they
+  warn and use the power law. `run_ls10_analysis.py` refuses to build a null without a matched
+  spectrum unless `--allow-parametric-null` is given.
+- **`load_matched_cl`** serves the validated spectrum nearest at or above the requested
+  resolution, and the finest below only when none is finer.
+- **`template_correlation_matrix`** builds cross terms from auto-correlations of summed
+  fields, `ξ_ij = [ξ(t_i + t_j) − ξ_ii − ξ_jj]/2`: exact, and 1.7 times faster at 11 templates.
+- **`make_log_likelihood`, `refine_to_mle` and `run_nuts`** compile once per configuration and
+  take the data as arguments. Repeat calls on 20 000-pixel fields: likelihood-ratio test
+  0.102 → 0.003 s, `refine_to_mle` 0.266 → 0.019 s, `run_nuts` 3.39 → 1.71 s.
+- **The ISD, ranking and null-test statistics run on their JAX kernels only**; the NumPy loops
+  they are checked against live in the test suite.
+- `debias_params`, `debias_params_matrix` and `standardise_on_footprint` accept JAX arrays and
+  trace under `jit`, `vmap` and `grad`; NumPy inputs behave as before.
+- `run_ls10_analysis.py` issues each sample at its occupancy-chosen resolution, corrects w(θ)
+  with the full cross-template matrix, stores the calibrated significance, draws every null per
+  pixel, and builds the likelihood-ratio null from batched maxima. The data statistic keeps, per
+  model, the higher-likelihood maximum of the NUTS refinement and the batched optimiser.
+- The test suite collects the 70 docstring examples and measures branch coverage; CI runs the
+  fast suite on pull requests and everything on `main` and nightly, and fails below 97%.
+
+### Fixed
+
+- `refine_to_mle` raised for `model="multiplicative"`: its analytic start passed `b=None`.
+- `run_decontamination` with ISD pre-selection and a p-value cut passed ISD a threshold for the
+  templates before the cut.
+- `generate_glass_delta_map` raised `NameError` on every call.
+- Under `--skewed`, the LS10 likelihood-ratio test compared a Gaussian additive fit with a
+  skew-normal combined fit.
+- A `--template-dir` without FITS maps silently switched the run to synthetic templates; it now
+  stops.
+- `isd_template_significance`'s `cl_amplitude=5e-4` default silenced the unmatched-spectrum
+  warning.
+- `compute_sys_weights.py` recorded `WEIGHTCON = library` for weights it reconstructs in the
+  linear form; it records `linear-from-a_hat`.
+- `lrt_from_maxima` returned the start (b = 0, λ = 0) when an L-BFGS step crossed a pixel where
+  `1 + b·t = 0` and the run ran off along the |b| → ∞ ridge; it happened on one of 100 NSIDE-64
+  synthetic mocks. The combined maximum is sought where every pixel's efficiency is positive, each
+  run keeps its best finite point and stops once the value or gradient is not finite, and it is
+  restarted from that point up to three times.
+- With pre-selection, `run_decontamination` reused a linear, equal-width ISD null as the stopping
+  threshold of an ISD fit of another degree on equal-occupancy bins; the pre-selection null now uses
+  the degree, bin count and binning of the ISD method it serves. `run_ls10_analysis.py` calibrates the
+  ISD threshold with its own cubic, equal-occupancy null and no longer reuses the pre-selection null.
+- The validation and characterisation scripts (`run_validation.py`, `run_systematic_tests.py`,
+  `run_mock_analysis*.py`, `run_simulation_tests.py`, `run_snr_preselection_demo.py`) run MCMC-add and
+  MCMC-comb through `run_decontamination` (analytic posterior and NUTS; `--sampler`, `--nuts-warmup`,
+  `--nuts-samples`), calibrate every ISD threshold on uncontaminated realisations of their own
+  generator, and pass an explicit GLASS spectrum. `run_simulation_tests.py` reads the Uchuu catalogue
+  from `.fits.gz` and stops when it is missing unless `--glass-only` is given.
+- `run_mock_analysis.py`, `run_mock_analysis_progressive.py` and
+  `run_mock_analysis_real_templates.py` evaluated the likelihood-ratio statistic at posterior
+  medians, where it can be negative; they take it between the maxima from `lrt_from_maxima`.
+
 ## [1.3.0] — 2026-09-14
 
 Three algorithms were doing something other than what they were named for, and the
@@ -604,10 +715,10 @@ this release replaces the gradient-free emcee sampler on the critical path.
 
 ---
 
-## [0.9.5] — 2026-03-xx
+## [0.9.5] — 2026-05-29
 
 - Simulation pipeline, five bug fixes, updated results.
 
-## [0.9.0] — 2026-01-xx
+## [0.9.0] — 2026-05-11
 
 - Initial public release.

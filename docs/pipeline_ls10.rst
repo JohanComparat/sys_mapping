@@ -1,21 +1,20 @@
 Running the real-data pipeline
 ==============================
 
-This page describes the input data and how to run ``sys_mapping`` on the
-Legacy Survey DR10 Bright Galaxy Survey (LS10 BGS), following the DESI-BGS
-selection described by `Hahn et al. 2023 <https://ui.adsabs.harvard.edu/abs/2023AJ....165..253H/abstract>`_.
-The galaxy and random samples are those used in
-`Comparat et al. 2025a <https://arxiv.org/abs/2503.19796>`_
-and are available on
-`Zenodo record 15111974 <https://zenodo.org/records/15111974>`_.
-For the mathematical background see :doc:`methods`; for the synthetic-mock
-tutorial see :doc:`quickstart`.  Results are documented in :doc:`results_ls10`.
+This page describes the inputs and the command that produce the systematic weights of
+the Legacy Survey DR10 Bright Galaxy Survey (LS10 BGS) samples, selected following
+`Hahn et al. 2023 <https://ui.adsabs.harvard.edu/abs/2023AJ....165..253H/abstract>`_.
+The galaxy and random samples are those of
+`Comparat et al. 2025a <https://arxiv.org/abs/2503.19796>`_, available on
+`Zenodo record 15111974 <https://zenodo.org/records/15111974>`_.  The phases of
+``scripts/run_ls10_analysis.py`` and its JSON outputs are described on
+:doc:`overview`, the mathematics on :doc:`methods`, and the results on
+:doc:`results_ls10`.
 
 .. warning::
 
-   The script uses **5 synthetic template families by default** when
-   ``--template-dir`` is omitted.  Always pass ``--template-dir`` pointing to
-   the real GAIA + LS10 FITS maps to get scientifically meaningful results::
+   Without ``--template-dir`` the script fits five synthetic template families.  Pass
+   the directory of the Gaia and LS10 maps for real results::
 
       --template-dir ~/data/legacysurvey/dr10/systematics/0128
 
@@ -27,9 +26,10 @@ Input data
 BGS VLIM samples
 ~~~~~~~~~~~~~~~~
 
-Nine volume-limited stellar-mass threshold samples spanning
-:math:`0.08 < z < 0.35`.  Each is a galaxy + random FITS pair located under
-``--catalog-dir`` (default ``~/data/legacysurvey/dr10/sweep/BGS_VLIM_Mstar``).
+Nine volume-limited stellar-mass threshold samples with :math:`0.05 < z < z_{\max}`.
+Each is a ``<sample>_DATA.fits`` and ``<sample>_RAND.fits`` pair under
+``--catalog-dir``.  The script reads ``RA``, ``DEC`` and, when present, the galaxy
+weight ``WEIGHT_COMP``.
 
 .. list-table::
    :header-rows: 1
@@ -79,10 +79,11 @@ Nine volume-limited stellar-mass threshold samples spanning
 Systematic templates
 ~~~~~~~~~~~~~~~~~~~~
 
-Eleven HEALPix maps from Legacy Survey imaging metadata and Gaia DR3, stored once per
-resolution under ``systematics/<NSIDE>/`` (NSIDE 32, 64, 128 and 256).  Pass the
-NSIDE 128 directory; the script downgrades the maps to each sample's resolution and
-standardises them to zero mean and unit variance over that sample's footprint.
+Eleven HEALPix maps, six from Legacy Survey imaging metadata and five from Gaia DR3,
+stored per resolution under ``systematics/0032``, ``0064``, ``0128`` and ``0256``.  The
+script reads every ``*.fits`` file in ``--template-dir``, downgrades each map to the
+sample's resolution, normalises it over its valid pixels, and standardises the basis
+again over the sample's footprint.
 
 .. list-table::
    :header-rows: 1
@@ -118,10 +119,9 @@ Running the pipeline
 The issued products
 ~~~~~~~~~~~~~~~~~~~
 
-Each sample is analysed at the finest NSIDE, up to 128, at which its mean footprint
-occupancy reaches 25 galaxies per pixel.  Every calibrated statistic draws its null
-from the sample's matched GLASS spectrum; the script refuses to build a null without
-one unless ``--allow-parametric-null`` is given.
+Each sample runs at the finest NSIDE, from 128 down, at which its mean footprint
+occupancy reaches 25 galaxies per pixel; the nine samples land at NSIDE 16 to 128.
+Every GLASS null is drawn from the sample's matched spectrum.
 
 .. code-block:: bash
 
@@ -135,27 +135,27 @@ one unless ``--allow-parametric-null`` is given.
        --sampler auto --no-rst \
        --output-dir data/sys_weights_auto/
 
-``--nside`` is the finest resolution tried; ``--min-per-pixel`` halves it until the
-occupancy floor is met, and the chosen NSIDE is written into every output file name.
-Without ``--min-per-pixel`` the sample is analysed at ``--nside`` as given.
+``--nside`` is the finest resolution tried, and ``--min-per-pixel`` halves it until the
+occupancy floor is met (NSIDE 8 at the coarsest).  Without ``--min-per-pixel`` the
+sample runs at ``--nside``.  The chosen NSIDE enters every output file name.
 
 The matched spectra are produced and validated by
 ``characterisation/match_glass_to_data.py`` in the ``sys_mapping_benchmark``
-repository, one ``*_match.json`` per sample and resolution.  ``load_matched_cl`` uses
-the file at the requested resolution when it passed validation, otherwise the validated
-file nearest at or above it, otherwise the finest below.
+repository, one ``<sample>_NSIDE<nside>_match.json`` per sample and resolution.
+:func:`~sys_mapping.glass_mocks.load_matched_cl` takes the file at the run's resolution
+if it passed validation, otherwise the nearest validated file above it, otherwise the
+finest validated file below.  When the run builds a null (ISD threshold, pre-selection,
+calibrated significance or LRT null) and no spectrum is found, the script stops unless
+``--allow-parametric-null`` is given.
 
 The additive-versus-combined likelihood ratio is calibrated with ``--lrt-null-mocks``
-(50 in the published grid); each realisation is a full additive and combined fit, so
-this is a cluster job.
+(50 in the published LRT grid at NSIDE 32 and 64).  With the default
+``--lrt-null-method maxima`` the realisations are maximised together by
+:func:`~sys_mapping.model_selection.lrt_from_maxima`; ``nuts`` fits each with NUTS and
+refines to the maximum.
 
-**Runtime.** OLS, ElasticNet and ISD take seconds to minutes per sample.  With
-``--sampler auto``, ``MCMC-add`` uses the exact Normal-Inverse-Gamma posterior
-(milliseconds) and ``MCMC-comb`` uses BlackJAX NUTS, about six hours at NSIDE 128 on
-eight cores.  The 400 significance realisations take about ten minutes at NSIDE 128.
-
-Key command-line options
-~~~~~~~~~~~~~~~~~~~~~~~~
+Command-line options
+~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
@@ -166,46 +166,97 @@ Key command-line options
      - Description
    * - ``--catalog-dir``
      - *(required)*
-     - Directory containing ``*_DATA.fits`` / ``*_RAND.fits`` pairs
+     - Directory of ``*_DATA.fits`` / ``*_RAND.fits`` pairs
    * - ``--sample``
      - all
-     - One sample, named without the ``_DATA.fits`` suffix
+     - One sample, named without ``_DATA.fits``
    * - ``--template-dir``
-     - *(none: synthetic)*
-     - Directory of HEALPix FITS maps; required for real results
+     - synthetic
+     - Directory of HEALPix FITS maps
    * - ``--nside``
      - 64
      - Resolution, or the finest tried with ``--min-per-pixel``
    * - ``--min-per-pixel``
      - off
-     - Occupancy floor that chooses the resolution per sample
+     - Mean galaxies per pixel that chooses the resolution per sample
    * - ``--null-cl-file``
-     - *(none)*
+     - none
      - Matched spectrum file or directory for every GLASS null
-   * - ``--significance-n-mocks``
-     - 0
-     - Realisations for the calibrated template significance
+       (alias ``--lrt-null-cl-file``)
+   * - ``--allow-parametric-null``
+     - off
+     - Build nulls from a power law when no matched spectrum is found
+   * - ``--lrt-null-cl-amplitude``
+     - library default
+     - Amplitude of that power law
+   * - ``--null-draw``
+     - ``pixel``
+     - Null realisations drawn per footprint pixel, or ``catalogue``
    * - ``--isd-n-mocks``
      - 30
-     - Realisations calibrating the ISD threshold
+     - Realisations calibrating the ISD threshold; 0 leaves it uncalibrated
+   * - ``--significance-n-mocks``
+     - 0
+     - Realisations for the calibrated template significance; 370 resolve 0.0027
+   * - ``--significance-seed``
+     - 70000
+     - Base seed of those realisations
    * - ``--lrt-null-mocks``
      - 0
      - Realisations for the mock-calibrated likelihood ratio
+   * - ``--lrt-null-method``
+     - ``maxima``
+     - ``maxima`` (batched maximisation) or ``nuts``
+   * - ``--lrt-null-seed``
+     - 90000
+     - Base seed of the LRT realisations
+   * - ``--resume-null``
+     - off
+     - Add realisations to an existing LRT null in ``params.json`` without refitting
    * - ``--sampler``
      - ``auto``
-     - ``analytic`` for MCMC-add, ``nuts`` for MCMC-comb
+     - ``auto``, ``analytic``, ``nuts`` or ``emcee``
+   * - ``--n-chains``
+     - 4 on CPU, 8 on GPU
+     - NUTS chains
+   * - ``--nuts-warmup``, ``--nuts-samples``
+     - 1000, 1000
+     - NUTS adaptation steps and draws per chain
+   * - ``--n-walkers``, ``--n-steps``, ``--n-burn``
+     - 210, 1500, 300
+     - emcee settings
+   * - ``--skewed``
+     - off
+     - Skew-normal likelihood for the combined model
+   * - ``--preselect``
+     - off
+     - Template pre-selection, with ``--preselect-method`` (``isd``),
+       ``--preselect-n-top``, ``--preselect-p-threshold`` (0.05),
+       ``--preselect-n-mocks`` (100), ``--preselect-n-jobs`` (1)
    * - ``--only-methods``
      - all
-     - Restrict to a subset, e.g. ``OLS ElasticNet``
+     - Subset of methods, e.g. ``OLS ElasticNet``
+   * - ``--ct-max-galaxies``
+     - 1 000 000
+     - Galaxies drawn for the template correlation matrix
    * - ``--ct-auto-only``
      - off
      - Drop the cross-template terms of the two-point correction
+   * - ``--ct-from-pixels``
+     - off
+     - Measure template correlations on pixel centres, as ``WEIGHTVER`` ≤ 2 products did
+   * - ``--no-footprint-standardise``
+     - off
+     - Keep the load-time template normalisation; writes ``WEIGHTVER`` 2
    * - ``--figures-only``
      - off
-     - Redraw figures from saved JSON without refitting
+     - Redraw figures and ``wtheta_data.json`` from saved JSON without refitting
    * - ``--force``
      - off
-     - Re-run even if output JSON already exists
+     - Re-run a sample whose output exists
+   * - ``--no-rst``
+     - off
+     - Leave ``docs/results_ls10.rst`` and ``docs/_static`` untouched
    * - ``--output-dir``
      - ``data/sys_weights/``
      - Output directory
@@ -218,15 +269,18 @@ Output files
 ::
 
    data/sys_weights_auto/
-   ├── <sample_id>_NSIDE<nside>_WEIGHTS.fits       # per-galaxy weights, all methods
-   ├── <sample_id>_NSIDE<nside>_params.json        # amplitudes, significance, LRT, σ̂
-   ├── <sample_id>_NSIDE<nside>_wtheta_data.json   # observed and corrected w(θ)
-   ├── <sample_id>_NSIDE<nside>_weight_map.png     # Mollweide weight maps
-   ├── <sample_id>_NSIDE<nside>_weight_hist.png    # weight distributions
-   └── <sample_id>_NSIDE<nside>_wtheta.png         # w(θ) before and after correction
+   ├── <sample>_NSIDE<nside>_WEIGHTS.fits       # per-galaxy weights, all methods
+   ├── <sample>_NSIDE<nside>_params.json        # amplitudes, significance, LRT, σ̂
+   ├── <sample>_NSIDE<nside>_wtheta_data.json   # observed and corrected w(θ)
+   ├── <sample>_NSIDE<nside>_weight_map.png     # Mollweide weight maps
+   ├── <sample>_NSIDE<nside>_weight_hist.png    # weight distributions
+   ├── <sample>_NSIDE<nside>_wtheta.png         # w(θ) before and after correction
+   └── summary_NSIDE<nside>.yaml                # samples run at that resolution
 
 The FITS header records ``WEIGHTVER`` (3), ``TPLBASIS`` (``footprint``), ``WEIGHTCON``
-and ``WMAXCLIP``.  The table holds one column per method plus ``WEIGHT_SYS``:
+(``library``), ``WMAXCLIP`` (20), ``SAMPLE``, ``NSIDE``, ``N_SYS`` and the likelihood
+ratio (``LRT_LAM``, ``LRT_P``, ``LRT_REJ``, ``LRT_CAL``).  The table holds one column
+per method and ``WEIGHT_SYS``:
 
 .. list-table::
    :header-rows: 1
@@ -235,9 +289,9 @@ and ``WMAXCLIP``.  The table holds one column per method plus ``WEIGHT_SYS``:
    * - Column
      - Description
    * - ``WEIGHT_OLS``
-     - OLS additive correction
+     - OLS
    * - ``WEIGHT_ENET``
-     - ElasticNet additive correction
+     - ElasticNet
    * - ``WEIGHT_ISD1``
      - ISD, degree 1
    * - ``WEIGHT_ISD3``
@@ -245,9 +299,12 @@ and ``WMAXCLIP``.  The table holds one column per method plus ``WEIGHT_SYS``:
    * - ``WEIGHT_ADD``
      - MCMC additive model
    * - ``WEIGHT_COMB``
-     - MCMC combined (additive and multiplicative) model
+     - MCMC combined model
    * - ``WEIGHT_SYS``
-     - Alias for ``WEIGHT_COMB``
+     - Copy of ``WEIGHT_COMB``
+
+Weights lie in :math:`[1/20, 20]`, and galaxies outside the fitted footprint have
+weight 1.
 
 Documentation pages
 ~~~~~~~~~~~~~~~~~~~

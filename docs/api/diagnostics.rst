@@ -1,8 +1,8 @@
 sys_mapping.diagnostics
 =======================
 
-Post-correction diagnostics: null tests, SNR-based template ranking,
-and footprint masking sensitivity analysis.
+Template significance, null tests, template ranking and footprint masking
+sensitivity.
 
 **Inputs:** Per-pixel weight array ``weights``, template maps ``delta_t``,
 observed overdensity ``delta_g_obs``.
@@ -10,9 +10,16 @@ observed overdensity ``delta_g_obs``.
 **Outputs:** Correlation arrays, p-values, SNR arrays, or dictionaries of
 masking-level results.
 
+* :func:`~sys_mapping.diagnostics.calibrated_template_significance` — each
+  template's least-squares amplitude divided by its scatter across uncontaminated
+  realisations, per-template p-values, and the family-wise p-value of the largest
+  significance.
+* :func:`~sys_mapping.diagnostics.residual_template_correlation_test` — correlation
+  of the corrected density with each template, a :math:`\chi^2` over the null
+  variance and its p-value from the realisations. For a template the correction
+  fitted, the correlation is zero by construction.
 * :func:`~sys_mapping.diagnostics.null_test_cross_correlations` — Pearson
-  :math:`r(w, t_i)` with permutation p-values; should be near zero after
-  correction.
+  :math:`r(w, t_i)` with permutation p-values.
 * :func:`~sys_mapping.diagnostics.snr_template_ranking` — three SNR
   estimators (``"template"``, ``"data"``, ``"peak"``) to rank which
   templates carry the most contaminating power.
@@ -22,7 +29,8 @@ masking-level results.
   polynomial fit ISD is built from, returning both :math:`\Delta\chi^2` and the
   fitted coefficients.
 * :func:`~sys_mapping.diagnostics.isd_template_significance` — the same statistic
-  calibrated against contamination-free GLASS mocks.
+  calibrated against contamination-free GLASS realisations, drawn per pixel by
+  default (``draw="pixel"``).
 * :func:`~sys_mapping.diagnostics.vet_templates_against_tracer` — rank-correlate
   each template against an external tracer of true structure (CMB lensing,
   Compton-*y*, weak-lensing convergence) and reject those that correlate.

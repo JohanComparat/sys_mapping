@@ -291,8 +291,13 @@ tuning. No single method dominates in all scenarios.
 .. rubric:: Implementation status in sys_mapping
 
 - ElasticNet regression: **implemented** (``regression.elasticnet_contamination_fit``).
-- Iterative reweighted OLS: **implemented** (``regression.polynomial_ols_decontamination``).
-- Method comparison framework: **implemented** (``regression.method_comparison``).
+- DES-Y1 iterative method: **implemented** as ISD with ``poly_order=1``
+  (``regression.iterative_systematics_decontamination``; see the Rodríguez-Monroy et al. 2025
+  entry).
+- Template subtraction and mode projection in harmonic space: **implemented**
+  (``power_spectrum.subtract_template_cl``, ``power_spectrum.mode_projection_bias``).
+- Method comparison framework: **implemented** (``regression.method_comparison``,
+  ``regression.run_decontamination``).
 
 ----
 
@@ -436,14 +441,22 @@ systematics.
 
 .. rubric:: Implementation status in sys_mapping
 
-All core methods from Berlfein+2024 are **fully implemented**:
+All core methods from Berlfein+2024 are **implemented**:
 
 - Forward/inverse contamination model: ``contamination``
-- JAX JIT-compiled likelihoods: ``likelihood``
-- emcee MCMC inference: ``inference``
-- PCA template rotation + noise debiasing: ``correction``
-- Two-point function correction: ``contamination.compute_two_point_correction``
-- Likelihood ratio model selection: ``model_selection``
+- JAX JIT-compiled Gaussian and skew-normal likelihoods: ``likelihood``
+- Posterior sampling: the exact Normal–Inverse-Gamma posterior for the additive model
+  (``inference.run_additive_analytic``) and BlackJAX NUTS for the combined and skew-normal
+  models (``nuts.run_nuts``); ``run_decontamination(sampler="emcee")`` runs emcee
+  (``inference.run_mcmc``) instead
+- PCA template rotation and noise debiasing: ``correction.rotate_templates``,
+  ``correction.debias_params``, and ``correction.debias_params_matrix`` for the full matrix
+- Two-point function correction: ``contamination.compute_two_point_correction``, with the
+  auto-only form of Eq. 15–16 or the full cross-template matrix from
+  ``utils.template_correlation_matrix``
+- Likelihood ratio model selection: ``model_selection.likelihood_ratio_test`` at maxima from
+  ``inference.refine_to_mle``, with a :math:`\chi^2` or mock-calibrated p-value
+  (``model_selection.lrt_from_maxima``)
 
 ----
 
@@ -477,41 +490,37 @@ Two complementary strategies applied to DES Y6 galaxy clustering:
    w \leftarrow \frac{w}{1 + \hat F_j(t_j)}, \quad j = \arg\max_i S_i,
 
 stopping when :math:`\max_i S_i < T_{\rm thresh}`.  :math:`\Delta\chi^2_{68}` is
-the 68th percentile of the same statistic on contamination-free mocks, which is
-what makes the threshold mean anything.
+the 68th percentile of the same statistic on contamination-free mocks.
 
-.. warning::
+.. note::
 
-   The order :math:`d` is the degree of the polynomial **in one template's
-   value**, not a multivariate polynomial order.  Reading it the second way ---
-   as this package did up to v1.2 --- produces a design matrix with
-   :math:`\binom{n_s+d}{d}-1` strongly collinear columns and a badly
-   ill-conditioned fit.  See Finding 20 in the technical paper, and
-   ``regression.polynomial_ols_decontamination`` for the routine that did it.
+   The order :math:`d` is the degree of the polynomial in one template's value, not a
+   multivariate polynomial order.  A multivariate polynomial of order :math:`d` in
+   :math:`n_s` templates has :math:`\binom{n_s+d}{d}-1` strongly collinear columns and an
+   ill-conditioned fit.
 
 .. rubric:: Pros and cons
 
 **Pros:**
-Well conditioned however many templates there are and however strongly they
-correlate, because each fit is a 1-D polynomial through ``n_bins`` points.  The
-mock-calibrated stopping rule refuses to correct what the data cannot resolve,
-which is the break-even rule enforced inside the method.  Captures non-linear
-response through the polynomial degree.
+Well conditioned for any number of templates and any correlation between them, because each
+fit is a 1-D polynomial through ``n_bins`` points.  The mock-calibrated stopping rule does not
+correct what the data cannot resolve.  Captures non-linear response through the polynomial
+degree.
 
 **Cons:**
-Marginal fits are blind to a contamination that only shows up as a *linear
-combination* of templates --- that is ElasticNet's strength, and the reason to
-run both.  The stopping threshold is meaningless without mock calibration, and
-generating that null is the expensive part.  Masking reduces effective survey
-area.
+Marginal fits do not see a contamination that appears only as a linear combination of
+templates, which ElasticNet fits.  The stopping threshold needs mock calibration, and
+generating that null is the expensive part.  Masking reduces effective survey area.
 
 .. rubric:: Implementation status in sys_mapping
 
-- ISD: **implemented** (``regression.iterative_systematics_decontamination``),
-  with the per-step marginal fit in ``diagnostics.isd_marginal_fit`` and the
-  mock calibration in ``diagnostics.isd_template_significance``.
-- The v1.2 multivariate-polynomial variant is retained as
-  ``regression.polynomial_ols_decontamination``, documented as **not** being ISD.
+- ISD: **implemented** as per-template marginal fits
+  (``regression.iterative_systematics_decontamination``; ``ISD-1`` and ``ISD-3`` in
+  ``regression.run_decontamination``), with the per-step fit in
+  ``diagnostics.isd_marginal_fit`` and the mock calibration of :math:`\Delta\chi^2_{68}` in
+  ``diagnostics.isd_template_significance``.
+- ``regression.polynomial_ols_decontamination`` fits a multivariate polynomial in all
+  templates at once; it is a separate method, not ISD.
 - Footprint masking diagnostics: **implemented** (``diagnostics.footprint_mask_diagnostics``).
 
 ----
@@ -605,8 +614,8 @@ power spectrum.
 
 .. rubric:: Implementation status in sys_mapping
 
-- SNR-based template ranking (all three definitions adapted for galaxy
-  clustering): **implemented** (``diagnostics.snr_template_ranking``).
+- SNR-based template ranking (the three definitions adapted for galaxy clustering, plus the
+  ISD :math:`\Delta\chi^2`): **implemented** (``diagnostics.snr_template_ranking``).
 - Full quadratic estimator for shear E/B coupling: **not planned**
   (specific to weak lensing; outside the scope of galaxy density maps).
 
@@ -623,7 +632,7 @@ Weaverdyck et al. 2026
 
 **Methods:**
 The reference end-to-end treatment of imaging systematics for a Stage-III lens
-sample, and the source of four features implemented here.  Its organising idea is
+sample, and the source of six features implemented here.  Its organising idea is
 that removing contamination is preferable to weighting it away, so masking, sample
 selection and weighting are designed together rather than applied in sequence.
 
@@ -686,10 +695,13 @@ contamination model applies; it says less about a sample that is not.
   (``correction.estimate_overcorrection_bias``, ``correction.debias_two_point_function``).
 - Method-marginalised covariance: **implemented**
   (``covariance.method_marginalised_covariance``).
-- Residual null test with Ledoit--Wolf shrinkage: **planned** --- the existing
-  ``diagnostics.null_test_cross_correlations`` uses bootstrap Pearson coefficients
-  and is reported failing with iid errors; a mock covariance with optimal shrinkage
-  is the stated fix.
+- Residual null test: **implemented** as ``diagnostics.residual_template_correlation_test``:
+  the correlation of the corrected density with each template, a :math:`\chi^2` against its
+  variance across null realisations put through the same correction, and an empirical
+  leave-one-out p-value.  The decile :math:`\chi^2` with a Ledoit--Wolf-shrunk covariance and
+  the KS test across templates are **not implemented**.
+- Calibrated per-template significance with a family-wise p-value: **implemented**
+  (``diagnostics.calibrated_template_significance``).
 - Leverage mask (high-dimensional outlier statistic on the template design matrix):
   **planned**.
 - Data-split consistency test: **planned**.
@@ -751,7 +763,7 @@ variance to expect.
   2024; ``contamination``, ``likelihood``).
 - Independent corroboration of the break-even threshold (they find no OLS-based
   method detects contamination below :math:`\epsilon,\beta \simeq 0.01`): consistent
-  with ``docs/detectability_law``; **no code change needed**.
+  with :doc:`detectability_law`; **no code change needed**.
 - Variance-minimisation estimator of :math:`\beta` as a seventh method: **planned**.
 - Power-law template linearisation: **planned**.
 - Monopole / mean-density bias: **planned**.  ``maps.compute_overdensity`` divides the

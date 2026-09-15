@@ -3,18 +3,19 @@ sys_mapping.contamination
 
 Forward and inverse contamination model (Berlfein et al. 2024, Eq. 11–13).
 
-Implements the three nested models (additive, multiplicative, combined),
-parameter packing/unpacking for the emcee/scipy interface, and the
-pixel-level two-point correction formula.
+The forward model :math:`\delta_g^{\rm obs} = \delta_g(1 + \mathbf b\cdot\mathbf t) +
+\mathbf a\cdot\mathbf t` in three nested forms: additive (:math:`\mathbf b=0`),
+multiplicative (:math:`\mathbf a=0`) and combined (both free). The module packs and
+unpacks the parameter vector shared by the likelihood and the samplers, and computes
+the two-point correction with scalar, per-template or full-matrix amplitudes.
 
 Also implements a second, injection-only forward model:
 :func:`~sys_mapping.contamination.apply_nonlinear_contamination` applies a
 per-template *selection efficiency*
-``1 + delta_obs = (1 + delta_true) * prod_i (1 + F_i(t_i))`` in which ``F`` need
-not be linear.  That is the model ISD's weight inverts, and it is not Eq. 13 --
-the two coincide only when every ``F`` is linear and ``a = b``.  It exists
-because a contamination linear in every template is one a linear marginal fit
-already suffices for, so it cannot distinguish ``ISD-1`` from ``ISD-3``.
+``1 + delta_obs = (1 + delta_true) * prod_i (1 + F_i(t_i))`` with ``F`` not
+necessarily linear. This is the model the ISD weight inverts. It reduces to Eq. 13
+to first order when every ``F_i`` is linear, with ``a = b``. A non-linear ``F``
+separates ``ISD-1`` from ``ISD-3``, which a linear contamination cannot.
 
 **Key paper:** `Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_ — see also :doc:`../methods`.
 

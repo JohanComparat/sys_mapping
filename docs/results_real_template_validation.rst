@@ -1,196 +1,172 @@
-Real-template single-mock validation
-=====================================
+Real-template validation
+========================
 
-Beyond purely synthetic templates, ``sys_mapping`` is validated on a single
-fixed mock built from **real observational systematic maps**: the GAIA DR3
-faint-star density and the Legacy Survey DR10 galaxy depth in the z band.
-This test exercises the full pipeline — from FITS loading and normalisation
-through inference, model selection, and diagnostics — with physically
-realistic template structure rather than toy random fields.
+sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15), laptop Intel Core i9-11900H, 2026-09-15; the mock run took 31 min on a shared machine and the test suite 14 s.
 
-The test is implemented in ``tests/test_real_templates.py`` and the
-analysis script ``scripts/run_mock_analysis_real_templates.py``.
+We contaminate synthetic catalogues with two observational systematic maps, the Gaia DR3 faint-star
+density and the Legacy Survey DR10 z-band galaxy depth, next to three synthetic templates, and
+recover the amplitudes with the six methods. The run is ``scripts/run_mock_analysis_real_templates.py``;
+its per-mock results are in
+``docs/_static/results_real_template_validation/mock_results_real_templates.csv``.
+The integration tests in ``tests/test_real_templates.py`` exercise the same templates on a fixed
+mock at NSIDE 32.
 
-Mock configuration
-------------------
+Mocks
+-----
 
 .. list-table::
-   :widths: 40 60
    :header-rows: 1
+   :widths: 35 65
 
    * - Parameter
      - Value
    * - NSIDE
-     - 64 (pixel area ≈ 0.84 deg²; 49 152 pixels total)
-   * - Survey footprint
-     - LS10 depth valid mask: **22 641 pixels** (46.1 % of sky)
-   * - Templates :math:`n_s`
-     - 5 (synth_0, synth_1, synth_2, GAIA nstar_faint, LS10 GALDEPTH_Z)
-   * - :math:`a_i^{\rm true}` (additive)
-     - :math:`(0.08,\ {-0.05},\ 0.06,\ {-0.04})`
-   * - :math:`b_i^{\rm true}` (multiplicative)
-     - :math:`(0.04,\ 0.00,\ {-0.03},\ 0.05)`
-   * - Mean galaxies per pixel :math:`\bar{n}`
-     - 50
-   * - Random / galaxy ratio
-     - 8×
-   * - Seed
-     - 7
+     - 64
+   * - Footprint
+     - pixels where both real maps are defined, 22 641 (46.1 % of the sky)
+   * - Templates
+     - synth_0, synth_1, synth_2 (families 0, 1, 2), ``GAIA_nstar_faint``, ``LS10_GALDEPTH_Z``;
+       the real maps have zero mean and unit variance on their own footprints
+   * - True field
+     - lognormal, :math:`\sigma = 0.5`, :math:`C_\ell \propto (\ell+1)^{-2}`
+   * - Contamination
+     - :math:`\hat\delta_g = \delta_g (1 + \sum_i b_i t_i) + \sum_i a_i t_i`, with
+       :math:`a_i, b_i \sim \mathcal{N}(0, 0.1^2)` drawn per mock
+   * - Galaxies
+     - 30 per pixel on average, 589 000 to 713 000 per mock; randoms at 8 times that density
+   * - Mocks
+     - 5, seeds 0 to 4
 
-Note that template 1 (``synth_1``) has :math:`b_1^{\rm true} = 0` (purely
-additive contamination), while templates 0, 2, and 3 carry non-zero
-multiplicative amplitudes — a realistic mixed-contamination scenario.
+All methods run through :func:`~sys_mapping.regression.run_decontamination`: MCMC-add is the exact
+analytic posterior and MCMC-comb NUTS with 4 chains of 1 000 warmup steps and 1 000 draws.
+ISD is calibrated on 50 uncontaminated mocks from the same generator. Its
+:math:`\Delta\chi^2_{68}` for synth_0, synth_1, synth_2, Gaia and depth is 1.8, 1.6, 167, 291 and
+211 at degree 1, and 4.4, 4.8, 215, 497 and 428 at degree 3: the three large-scale maps correlate
+with the clustered field by chance much more than synth_0 and synth_1.
+The likelihood ratio :math:`\lambda_{\rm LR}` is taken between the additive and combined maxima.
 
-Method recovery
----------------
-
-All six implemented methods are applied to this single fixed mock.
-The mean absolute additive-parameter recovery error
-:math:`\langle|\hat{a}_i - a_i^{\rm true}|\rangle` across the four
-templates is reported below, together with the tolerance used in
-``test_real_templates.py``.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 25 25 18 32
-
-   * - Method
-     - Mean :math:`|\hat{a}_i - a_i^{\rm true}|`
-     - Tolerance
-     - Notes
-   * - OLS
-     - < 0.20
-     - 0.20
-     - Ordinary least-squares pixel regression; fastest method
-   * - ElasticNet
-     - < 0.25
-     - 0.25
-     - Cross-validated (3 folds); requires ``scikit-learn ≥ 1.3``
-   * - ISD-1 (poly_order = 1)
-     - < 0.25
-     - 0.25
-     - Converges in < 50 iterations
-   * - ISD-3 (poly_order = 3)
-     - n/a (numerically unstable)
-     - finite values only
-     - 34 expanded features for :math:`n_s = 4`; ill-conditioned with real correlated templates
-   * - MCMC-additive
-     - < 0.25
-     - 0.25
-     - Chain shape :math:`(n_w \times 160,\; n_s + 1)` with :math:`n_w \geq 12`
-   * - MCMC-combined
-     - < 0.30 for :math:`\hat{a}_i`; < 0.30 for :math:`\hat{b}_i`
-     - 0.30
-     - Chain shape :math:`(n_w \times 160,\; 2n_s + 1)` with :math:`n_w \geq 20`
-
-Results (5 mocks, NSIDE = 64)
------------------------------
+Additive amplitudes
+-------------------
 
 .. figure:: _static/results_real_template_validation/real_template_a_recovery.png
-   :width: 90%
+   :width: 100%
    :align: center
 
-   **Additive parameter recovery** (:math:`\hat{a}_i` vs :math:`a_i^{\rm true}`) across
-   5 mocks and all methods.  MCMC-comb achieves RMS bias 0.042, comparable to OLS (0.044).
-
-.. figure:: _static/results_real_template_validation/real_template_b_recovery.png
-   :width: 90%
-   :align: center
-
-   **Multiplicative parameter recovery** (:math:`\hat{b}_i` vs :math:`b_i^{\rm true}`);
-   only MCMC-comb estimates :math:`b_i`.
+   :math:`\hat a_i - a_i^{\rm true}` per template and method over the 5 mocks.
 
 .. figure:: _static/results_real_template_validation/real_template_method_rms.png
    :width: 70%
    :align: center
 
-   **Mean RMS additive bias per method** across 5 mocks.
-   ISD-3 is numerically unstable with correlated real templates (RMS = 0.26).
+   Rms of :math:`\hat a_i - a_i^{\rm true}` over the 25 template–mock pairs, per method.
+
+.. list-table:: Rms of :math:`\hat a_i - a_i^{\rm true}` over the 5 mocks.
+   :header-rows: 1
+   :widths: 20 13 13 13 13 13 15
+
+   * - Method
+     - synth_0
+     - synth_1
+     - synth_2
+     - Gaia
+     - depth
+     - all
+   * - OLS
+     - 0.011
+     - 0.009
+     - 0.040
+     - 0.086
+     - 0.019
+     - 0.044
+   * - ElasticNet
+     - 0.019
+     - 0.017
+     - 0.030
+     - 0.064
+     - 0.022
+     - 0.035
+   * - ISD-1
+     - 0.011
+     - 0.008
+     - 0.046
+     - 0.081
+     - 0.056
+     - 0.049
+   * - ISD-3
+     - 0.011
+     - 0.009
+     - 0.046
+     - 0.076
+     - 0.051
+     - 0.046
+   * - MCMC-add
+     - 0.011
+     - 0.009
+     - 0.040
+     - 0.086
+     - 0.019
+     - 0.044
+   * - MCMC-comb
+     - 0.013
+     - 0.010
+     - 0.040
+     - 0.079
+     - 0.011
+     - 0.040
+
+MCMC-add reproduces OLS to the third decimal. ISD-1 and ISD-3 take 2 to 4 steps and stop on the
+threshold in every mock. Every template they leave at :math:`\hat a = 0` is synth_2, Gaia or
+depth, the three maps with the large :math:`\Delta\chi^2_{68}`; Gaia is left at zero in 9 of the
+10 ISD fits. The Gaia amplitude has the largest error for every method.
+
+Multiplicative amplitudes and sampling
+--------------------------------------
+
+.. figure:: _static/results_real_template_validation/real_template_b_recovery.png
+   :width: 70%
+   :align: center
+
+   :math:`\hat b_i - b_i^{\rm true}` of MCMC-comb per template over the 5 mocks.
+
+The rms of :math:`\hat b_i - b_i^{\rm true}` is 0.038, 0.033, 0.042 and 0.064 for synth_0,
+synth_1, synth_2 and depth, and 0.51 for Gaia, whose errors are +0.74, −0.77, −0.15, +0.11 and
++0.38 in the five mocks.
+NUTS converged in mocks 0 and 1 (:math:`\hat R = 1.00`, effective sample size 3 600 and 5 700,
+64 s and 48 s). In mocks 2, 3 and 4 the chains did not mix: :math:`\hat R` is 23.0, 24.4 and 23.2,
+the effective sample size 2, with no divergent transitions, in 317 s, 854 s and 534 s.
+MCMC-add takes 0.1 s per mock after 5 s of compilation on the first.
+
+Model selection
+---------------
 
 .. figure:: _static/results_real_template_validation/real_template_lrt_statistics.png
    :width: 70%
    :align: center
 
-   **Likelihood-ratio test statistics** across mocks.
-   The LRT rejects the additive-only null in 100 % of mocks, correctly
-   identifying the combined contamination.
+   :math:`\lambda_{\rm LR}` of the additive against the combined model over the 5 mocks.
 
-Model selection and diagnostics
---------------------------------
+Every mock carries non-zero :math:`b_i`, and :math:`\lambda_{\rm LR}` is 1 439, 1 647, 787, 858 and
+783, so the :math:`\chi^2` test rejects the additive model at 5 % in all five. On a clustered field
+that :math:`\chi^2` p-value is too small (:ref:`lrt-methods`).
 
-* **LRT** — the additive null hypothesis (:math:`b_i = 0\ \forall i`) is
-  rejected at the 5 % level in all 5 mocks (100 % rejection rate),
-  correctly reflecting non-zero multiplicative amplitudes.
+Integration tests
+-----------------
 
-* **Null test** — median maximum Pearson correlation between OLS-corrected
-  weights and templates satisfies :math:`\max_i |r_i| \approx 0.34`,
-  confirming partial residual removal.
+``tests/test_real_templates.py`` builds one mock at NSIDE 32 from synth_0, synth_1, Gaia and depth,
+with :math:`a = (0.08, -0.05, 0.06, -0.04)`, :math:`b = (0.04, 0, -0.03, 0.05)`, 50 galaxies per
+pixel and seed 7. Its 39 tests check shapes, finiteness and termination for OLS, ElasticNet, ISD-1
+and ISD-3, MCMC chains of the additive and combined models, the likelihood ratio test and the
+calibrated residual test, and recovery of the amplitudes within 0.20 to 0.30. All 39 passed in
+14 s. The tests skip when the NSIDE 32 maps are absent from
+``~/data/legacysurvey/dr10/systematics/0032/``.
 
-* **SNR ranking** — real GAIA and LS10 templates carry detectable systematic
-  signal (at least one template SNR :math:`> 0.01`).
+Reproduce
+---------
 
-.. note::
-   The per-template SNR uses the **MCMC posterior** variance (the chain covariance).  Single-fit
-   pixel-likelihood errors are overconfident on a correlated field *in general* (see :doc:`methods`;
-   the OLS-:math:`\sigma` case on :doc:`results_snr_preselection` is ~2× too tight), so the honest
-   per-template error is the mock-covariance sandwich
-   (:func:`~sys_mapping.covariance.mock_sandwich_covariance`).  The weak
-   :math:`\mathrm{SNR}>0.01` "signal present" check here is unaffected, but a quantitative detection
-   threshold should use the calibrated σ.
+.. code-block:: bash
 
-Running the validation
-----------------------
-
-Ensure the FITS files are present (the test resolves
-``~/data/legacysurvey/dr10/systematics/0032/``; see
-:func:`~sys_mapping.maps.load_real_templates`), then::
-
-    conda activate sys_map
-    pytest tests/test_real_templates.py -v
-
-Expected output::
-
-    28 passed in ~113 s
-
-For a full multi-mock run with all methods (NSIDE = 64)::
-
-    python scripts/run_mock_analysis_real_templates.py \
-        --syst-dir ~/data/legacysurvey/dr10/systematics/0064 \
-        --nside 64 --n-mocks 5 \
-        --output-dir docs/_static/results_real_template_validation/
-
-Or at NSIDE = 32 (faster)::
-
-    python scripts/run_mock_analysis_real_templates.py \
-        --syst-dir ~/data/legacysurvey/dr10/systematics/0032 \
-        --nside 32 --n-mocks 5 \
-        --output-dir docs/_static/results_real_template_validation/
-
-----
-
-Outcome
--------
-
-The 28-test real-template validation suite was executed in the ``sys_map``
-conda environment (Python 3.11, JAX 64-bit, scikit-learn ≥ 1.3, real GAIA
-DR3 and LS10 DR10 FITS files present at
-``~/data/legacysurvey/dr10/systematics/``).
-
-**Results: 28 passed, 0 failed, 0 errors (runtime ≈ 113 s).**
-
-All six decontamination methods complete without error on the real-template
-footprint mock.  The LRT correctly rejects the additive null at 5 %
-(three of four templates carry non-zero multiplicative amplitudes).  Residual
-template correlations satisfy :math:`\max_i |r_i| < 0.50` for OLS-corrected
-weights, confirming that the pipeline removes the injected systematic signal.
-
-.. note::
-
-   The real-template FITS files reside in NSIDE-specific subdirectories:
-   ``~/data/legacysurvey/dr10/systematics/0032/`` (NSIDE=32) and
-   ``~/data/legacysurvey/dr10/systematics/0064/`` (NSIDE=64).
-   Tests skip automatically when these paths are absent.
-
-These results validate that ``sys_mapping`` works end-to-end with physically
-realistic systematic maps before being applied to the real LS10 BGS data
-(see :doc:`results_ls10`).
+   python scripts/run_mock_analysis_real_templates.py \
+       --syst-dir ~/data/legacysurvey/dr10/systematics/0064 \
+       --nside 64 --n-mocks 5 \
+       --output-dir docs/_static/results_real_template_validation/
+   pytest tests/test_real_templates.py

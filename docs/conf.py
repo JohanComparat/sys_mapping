@@ -1,11 +1,14 @@
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.abspath(".."))
 
 project = "sys_mapping"
 author = "JohanComparat"
-release = "1.2.0"
+with open(os.path.join(os.path.dirname(__file__), "..", "sys_mapping", "__init__.py")) as _init:
+    release = re.search(r'^__version__ = "([^"]+)"', _init.read(), re.M).group(1)
+version = release
 
 extensions = [
     "sphinx.ext.autodoc",
@@ -57,4 +60,4 @@ source_suffix = {
 master_doc = "index"
 
 # Suppress duplicate-object warnings from dataclass field auto-documentation
-suppress_warnings = ["app.add_node", "ref.duplicate", "autodoc"]
+suppress_warnings = ["app.add_node", "ref.duplicate", "autodoc", "myst.header"]

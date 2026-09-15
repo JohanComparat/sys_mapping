@@ -1,80 +1,46 @@
 Results: SNR-based Template Pre-selection
 =========================================
 
-Overview
---------
+sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15), laptop Intel Core i9-11900H, 2026-09-15; the run took 0.5 min.
 
-When tens or hundreds of imaging-systematic maps are available, running the
-full Bayesian decontamination pipeline on all of them simultaneously is
-computationally expensive and numerically ill-conditioned.  The SNR pre-selection
-pipeline addresses this by inserting a fast Stage 1 before the full Stage 2
-decontamination:
+Stage 1 ranks every candidate template by a fast statistic and keeps a short list; Stage 2 runs
+the decontamination on that list. We test Stage 1 on a simulation in which two of 20 templates
+are injected, with ``scripts/run_snr_preselection_demo.py``. Every number below is in
+``docs/_static/results_snr_preselection/summary.json``.
 
-**Stage 1 — SNR ranking.**
-All candidate templates are scored by their correlation with the observed galaxy
-overdensity.  The top-:math:`K` templates are retained.
-
-**Stage 2 — Full decontamination.**
-The reduced template set is passed to the standard greedy forward selection or
-Bayesian MCMC pipeline.
-
-This document validates Stage 1 against a controlled simulation where the
-injected templates are known a priori.
-
-Three ranking statistics are implemented (see :mod:`sys_mapping.diagnostics`):
+The ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking` are:
 
 .. list-table::
    :header-rows: 1
    :widths: 20 80
 
-   * - Method key
-     - Description
+   * - Method
+     - Statistic
    * - ``"data"``
-     - Pearson cross-correlation :math:`|r|` between the observed overdensity
-       :math:`\delta_g` and each template :math:`\delta_t`.
+     - Pearson :math:`|r|` between :math:`\delta_g` and the template
    * - ``"template"``
-     - OLS regression of :math:`\delta_g` on each template individually;
-       SNR = :math:`|\hat\alpha| / \sigma_{\hat\alpha}` (absolute *t*-statistic).
+     - :math:`|\hat\alpha|/\sigma_{\hat\alpha}` of the one-template least-squares fit, with the
+       independent-pixel :math:`\sigma_{\hat\alpha}`
    * - ``"isd"``
-     - ISD :math:`\Delta\chi^2` contamination metric
-       (Rodríguez-Monroy et al. 2025, arXiv:2509.07943, Sec. IV.A.1).
-       Pixels are binned by template value; a polynomial is fit to the
-       binned galaxy density; :math:`\Delta\chi^2 = \chi^2_\mathrm{null} -
-       \chi^2_\mathrm{model}` measures how much the polynomial reduces the
-       scatter.
+     - :math:`\Delta\chi^2 = \chi^2_{\rm null} - \chi^2_{\rm model}` of a polynomial fit to the
+       binned relation between density and template value (Rodríguez-Monroy et al. 2025,
+       Sec. IV.A.1); here degree 1 and 10 equal-width bins
+   * - ``"peak"``
+     - peak of the cross-spectrum :math:`C_\ell^{gt}` over the noise level (not used here)
 
-A fourth optional statistic, ``"peak"``, ranks templates by the peak amplitude
-of the cross-power spectrum :math:`C_\ell^{gT}`.
+:func:`~sys_mapping.diagnostics.isd_template_significance` turns :math:`\Delta\chi^2` into a
+p-value by comparing it with uncontaminated GLASS realisations on the same footprint,
+:math:`p = (N_{\ge} + 1)/(N_{\rm mocks} + 1)`.
 
-.. warning::
+The ISD statistic accumulates the per-bin variance in centred two-pass form. Under ``jax.jit``
+the algebraically equal :math:`\langle\delta^2\rangle - \langle\delta\rangle^2` is contracted
+into a fused multiply-add that returns :math:`\sim10^{-20}` instead of zero for a one-pixel bin.
+The kernels therefore require :math:`N_\beta \ge 2` pixels per bin, a bin variance above
+:math:`10^{-12}` times the variance of :math:`\delta_g`, and at least two surviving bins; they
+agree with the NumPy fallback to :math:`4\times10^{-15}`.
 
-   The per-bin variance in the ``"isd"`` statistic is accumulated in **centred
-   two-pass** form.  The algebraically equivalent
-   :math:`\langle\delta^2\rangle - \langle\delta\rangle^2` must not be used: under
-   ``jax.jit`` XLA contracts it into a fused multiply-add whose rounding returns
-   :math:`\sim10^{-20}` rather than zero for a bin holding one pixel, which then
-   passes a small-positive guard and contributes an inverse variance of
-   :math:`\sim10^{19}`, swamping the whole :math:`\Delta\chi^2`.  Three guards
-   follow from this and are enforced in both JAX kernels: a bin needs
-   :math:`N_\beta \ge 2` pixels, its variance must exceed :math:`10^{-12}` times
-   the variance of :math:`\delta_g` over the footprint (a floor relative to the
-   field's own scatter, not an absolute constant), and :math:`\Delta\chi^2` is
-   zero when fewer than two bins survive.  The kernels reproduce the NumPy
-   fallback in the same function to :math:`4\times10^{-15}`.
-
-   The figures on this page were regenerated against the fixed kernels and are
-   byte-identical to the previous version: the synthetic templates here sit on a
-   well-populated footprint that never produces a bin with fewer than two pixels.
-   The defect was visible only on the real, skewed LS10 templates.
-
-For a rigorous significance test, :func:`sys_mapping.diagnostics.isd_template_significance`
-compares :math:`\Delta\chi^2_\mathrm{data}` against a distribution of
-:math:`\Delta\chi^2_\mathrm{mock}` values computed from GLASS systematic-free
-mocks on the same footprint, producing mock-based *p*-values.
-
-
-Simulation setup
-----------------
+Simulation
+----------
 
 .. list-table::
    :header-rows: 1
@@ -82,266 +48,152 @@ Simulation setup
 
    * - Parameter
      - Value
-   * - HEALPix resolution
-     - NSIDE = 32 (:math:`n_\mathrm{pix}` = 12 288)
-   * - Galaxy count
-     - 15 000 000 (full sky)
-   * - Redshift shell
-     - :math:`0 \le z \le 0.5` (single tophat bin)
-   * - Systematic templates
-     - 20 synthetic maps; families 0–4 generated 4× with independent seeds
-       (see :func:`sys_mapping.maps.generate_systematic_maps`)
-   * - Injected templates
-     - Templates **2** and **7** (★ in figures) — two realisations of family 2
-   * - Contamination model
-     - Additive: :math:`\delta_g^\mathrm{obs} = \delta_g^\mathrm{clean}
-       + a \,\delta_{t_2} + a \,\delta_{t_7}`
-   * - Contamination levels
-     - low :math:`(a=0.02)`, medium :math:`(a=0.05)`, high :math:`(a=0.10)`
-   * - GLASS mocks for ISD
-     - 100 systematic-free full-sky mocks on the same footprint
+   * - Resolution
+     - NSIDE 32, full sky (12 288 pixels)
+   * - Galaxies
+     - 15 000 000 (1 221 per pixel), one shell :math:`0 \le z \le 0.5`
+   * - Clustering
+     - GLASS lognormal field, parametric spectrum with ``cl_amplitude = 5e-4``
+   * - Templates
+     - 20 maps, four realisations of each of the families 0 to 4 of
+       :func:`~sys_mapping.maps.generate_systematic_maps`
+   * - Injected
+     - T2 and T7, both family 2: :math:`\delta_g^{\rm obs} = \delta_g + a\,(t_2 + t_7)`
+   * - Levels
+     - low :math:`a = 0.02`, medium 0.05, high 0.10
+   * - Null
+     - 100 uncontaminated GLASS realisations with the same spectrum, seeds 17 to 116
 
-The figure-generating script is ``scripts/run_snr_preselection_demo.py``.
-
-
-HEALPix maps
-------------
-
-The panel below shows the simulated galaxy overdensity, representative template
-maps, and the contaminated field at medium level.
+The universe and the null share the parametric spectrum because the simulation has no data to
+match; an analysis of data uses the sample's matched spectrum
+(:func:`~sys_mapping.glass_mocks.load_matched_cl`).
 
 .. figure:: /_static/results_snr_preselection/01_maps.png
    :width: 100 %
    :alt: HEALPix maps of the simulated universe and systematic templates
 
-   **Left to right, top row:** Clean galaxy overdensity :math:`\delta_g`,
-   two injected templates (T2, T7), a representative noise template.
-   **Bottom row:** Contaminated overdensity at medium level and the
-   residual contamination signal.
+   Top: clean overdensity, the injected templates T2 and T7, and the noise template T0.
+   Bottom: the overdensity at the medium level and the injected contamination alone.
 
-
-SNR ranking
------------
-
-The bar charts below show the SNR score assigned to each template by each
-ranking method at the three contamination levels.  The two injected
-templates (★) are coloured in coral red; noise templates in grey.
-
-Data cross-correlation method
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Ranking
+-------
 
 .. figure:: /_static/results_snr_preselection/02_snr_ranking_data.png
    :width: 100 %
    :alt: SNR bar chart for the data cross-correlation method
 
-   **Data cross-correlation** :math:`|r|`.  Both injected templates rank
-   first and second at all three contamination levels.  Noise templates
-   have scores consistent with zero within statistical fluctuations.
-
-OLS *t*-statistic method
-^^^^^^^^^^^^^^^^^^^^^^^^^
+   Pearson :math:`|r|` per template at the three levels; injected templates in red.
 
 .. figure:: /_static/results_snr_preselection/02_snr_ranking_template.png
    :width: 100 %
    :alt: SNR bar chart for the OLS t-statistic method
 
-   **OLS** :math:`|\hat\alpha|/\sigma_{\hat\alpha}`.  The signal-to-noise
-   ratio is generally sharper than the Pearson correlation because the
-   template standard deviation is factored into the denominator.
-
-   The bars use the **independent-pixel** :math:`\sigma_{\hat\alpha}`, which is overconfident on
-   the correlated GLASS field.  The black ticks (``calibrated``) show the **correlated-noise**
-   SNR — the per-template mock-covariance *sandwich* error
-   (:func:`~sys_mapping.covariance.mock_sandwich_covariance`, estimated from an ensemble of
-   uncontaminated reconstructions); it is roughly **2× lower** across templates.  The template
-   *ranking* is preserved (the inflation is ~uniform), but a fixed detection cut (dotted line at
-   SNR = 3) admits fewer templates under the honest error.  See :ref:`lrt-methods` and
-   :doc:`methods` for the general caveat.
-
-ISD :math:`\Delta\chi^2` method
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   :math:`|\hat\alpha|/\sigma_{\hat\alpha}` with the independent-pixel error (bars) and with the
+   error from 60 uncontaminated realisations (black ticks); dotted line at 3.
 
 .. figure:: /_static/results_snr_preselection/02_snr_ranking_isd.png
    :width: 100 %
    :alt: SNR bar chart for the ISD Delta-chi2 method
 
-   **ISD** :math:`\Delta\chi^2` (Rodríguez-Monroy et al. 2025).
-   The statistic grows quadratically with amplitude, making it highly
-   sensitive at medium and high contamination but potentially
-   less sensitive than the correlation at low levels.
+   ISD :math:`\Delta\chi^2` per template at the three levels.
 
+All three statistics rank T7 first, T2 second and the noise template T8 third at every level.
 
-Detection sensitivity vs amplitude
-------------------------------------
+.. list-table:: Injected templates (T2, T7) and the largest noise template, per level.
+   :header-rows: 1
+   :widths: 22 26 26 26
+
+   * - Statistic
+     - low (0.02)
+     - medium (0.05)
+     - high (0.10)
+   * - :math:`|r|`
+     - 0.34, 0.38; 0.021
+     - 0.58, 0.61; 0.035
+     - 0.68, 0.69; 0.040
+   * - :math:`|\hat\alpha|/\sigma`, independent pixels
+     - 40.3, 46.0; 2.3
+     - 79.5, 85.3; 3.9
+     - 102.0, 106.4; 4.4
+   * - :math:`|\hat\alpha|/\sigma`, realisations
+     - 14.0, 12.8; 2.1
+     - 36.5, 31.0; 4.2
+     - 73.9, 61.4; 8.4
+   * - ISD :math:`\Delta\chi^2`
+     - 1 623, 2 130; 6.9
+     - 6 335, 7 276; 17.5
+     - 10 369, 11 210; 20.3
 
 .. figure:: /_static/results_snr_preselection/03_detection_vs_amplitude.png
    :width: 80 %
    :alt: SNR of injected template 2 as a function of contamination amplitude
 
-   SNR assigned to injected template 2 as a function of contamination
-   amplitude :math:`a` for the three methods.  Vertical dotted lines mark
-   the three canonical levels.  All methods increase monotonically with
-   amplitude.  The data and template methods are approximately linear in
-   :math:`a`; the ISD :math:`\Delta\chi^2` grows roughly as :math:`a^2`.
+   Statistics of T2 against the injected amplitude :math:`a`; dotted lines mark the three levels.
 
+For T2 at :math:`a = 0` the independent-pixel :math:`|\hat\alpha|/\sigma` is 2.99 and the
+realisation-calibrated one 0.96. At :math:`a` = 0.01, 0.05 and 0.15 the calibrated value is 6.5,
+36.5 and 111.4, and :math:`|r|` is 0.18, 0.58 and 0.70. :math:`\Delta\chi^2` rises from 6 at
+:math:`a = 0` to 402 at 0.01 and 11 747 at 0.15.
 
-ISD mock-based *p*-values
---------------------------
+ISD p-values
+------------
 
 .. figure:: /_static/results_snr_preselection/04_pvalues.png
    :width: 100 %
    :alt: Mock-based p-values from ISD significance test
 
-   Mock-based *p*-values from :func:`sys_mapping.diagnostics.isd_template_significance`
-   with :math:`N_\mathrm{mocks} = 100` GLASS systematic-free mocks.
-   The red dashed line marks the conventional :math:`p = 0.05` threshold.
-   At all three levels, both injected templates (T2, T7) are significantly
-   detected (:math:`p \le 1/N_\mathrm{mocks}`), while all 18 noise templates
-   scatter around :math:`p \sim 0.5`.
+   Mock-based p-values from 100 GLASS realisations; dashed line at :math:`p = 0.05`.
 
-
-Full pipeline: pre-selection then decontamination
---------------------------------------------------
+T2 and T7 reach the floor :math:`p = 1/101` at every level. The 18 noise templates have median
+p-values of 0.66, 0.59 and 0.50 at the three levels. T8 has :math:`p = 0.099` at the low level
+and 0.020 at the medium and high levels; no other noise template falls below 0.10.
+The 68th percentile of the null :math:`\Delta\chi^2` is 10 to 15 for the four family-2 templates
+and 0.8 to 2.7 for the others.
 
 .. figure:: /_static/results_snr_preselection/05_pipeline_result.png
    :width: 60 %
    :alt: Detection summary table
 
-   Detection summary: green cell = both injected templates T2 and T7 appear
-   in the top-3 ranking (out of 20); grey cell = at least one is missed.
+   Whether both T2 and T7 are among the three highest-ranked templates, per statistic and level.
 
-All three methods successfully recover both injected templates in the top-3
-at every contamination level.  In practice, selecting the top :math:`K`
-templates (with :math:`K` chosen conservatively, e.g. :math:`K = N/2`
-of the initial pool) and then running greedy forward selection on the
-reduced set is a robust and computationally efficient strategy.
+Both injected templates are in the top three for every statistic at every level.
 
-
-Computational cost
-------------------
-
-The ranking step is fast regardless of the galaxy count; it operates on
-pixelised maps (here: 12 288 values) and 20 templates.
+Cost
+----
 
 .. figure:: /_static/results_snr_preselection/06_timing.png
    :width: 65 %
    :alt: Wallclock time per ranking method
 
-   Best-of-5 wallclock time for a single call to
-   :func:`~sys_mapping.diagnostics.snr_template_ranking` with 20 templates on
-   NSIDE = 32.
+   Best of five calls of :func:`~sys_mapping.diagnostics.snr_template_ranking`, 20 templates,
+   12 288 pixels.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 20 55
+One ranking call takes 0.74 ms for ``"data"``, 0.96 ms for ``"template"`` and 3.3 ms for
+``"isd"``. The 100-realisation null of :func:`~sys_mapping.diagnostics.isd_template_significance`,
+drawn per pixel, takes 1 to 2 s per level.
 
-   * - Method
-     - Typical time
-     - Notes
-   * - ``"data"``
-     - < 1 ms
-     - Pearson correlation; JAX batched matrix multiply — :math:`\mathcal{O}(n_\mathrm{pix} \times n_\mathrm{templates})`
-   * - ``"template"``
-     - < 1 ms
-     - Per-template OLS *t*-statistic; JAX vmap over templates
-   * - ``"isd"``
-     - 1–10 ms
-     - JAX vmap over templates, fixed-size bins, analytic linear regression;
-       falls back to NumPy for ``poly_order > 1`` or ``fracdet`` weighting
-
-The dominant runtime cost in practice is the GLASS mock generation for
-:func:`~sys_mapping.diagnostics.isd_template_significance`: each of the
-:math:`N_\mathrm{mocks}` systematic-free mocks requires drawing galaxy
-positions from the pixelised density field (:math:`\mathcal{O}(N_\mathrm{total})`).
-At 15 M galaxies and ``rand_factor=2``, each mock takes roughly 1–5 s,
-making the total ISD significance cost
-:math:`\sim N_\mathrm{mocks} \times 3\,\mathrm{s}` on a modern workstation.
-
-
-Choosing the number of mocks for ISD significance
---------------------------------------------------
-
-The mock-based *p*-value estimate has a finite resolution of
-:math:`1/(N_\mathrm{mocks}+1)` and a standard error that scales as
-:math:`\sim 1/\sqrt{N_\mathrm{mocks}}` for noise-template p-values near 0.5.
-The figure below quantifies how many mocks are needed for the noise-template
-p-values to converge.
+Number of realisations
+----------------------
 
 .. figure:: /_static/results_snr_preselection/07_mock_convergence.png
    :width: 100 %
    :alt: Mock convergence of ISD p-values
 
-   **Left:** p-values for all 20 templates as a function of :math:`N_\mathrm{mocks}`
-   (reusing the 100-mock run at the high contamination level by subsampling the
-   mock :math:`\Delta\chi^2` matrix).
-   Coral lines = injected templates (T2, T7); grey lines = 18 noise templates;
-   red dashed = :math:`p=0.05` threshold; dotted black = theoretical lower
-   bound :math:`1/(N+1)`.
-   **Right:** convergence metric — maximum absolute change of any noise-template
-   p-value relative to the :math:`N=100` reference, as a function of
-   :math:`N_\mathrm{mocks}`.  The vertical green dashed line marks the first
-   :math:`N` where this change falls below 0.05.
+   Left: p-values at the high level from the first :math:`N` of the 100 realisations, injected
+   templates in red, with the floor :math:`1/(N+1)`. Right: the largest change of a noise-template
+   p-value relative to :math:`N = 100`.
 
-The injected templates saturate at the minimum attainable p-value
-:math:`1/(N+1)` from the very first few mocks, confirming that even
-:math:`N_\mathrm{mocks}=5` is sufficient to *detect* a strongly contaminating
-template.  The noise-template p-values, however, require more mocks to stabilise:
-the convergence metric falls below 0.05 only around :math:`N \approx 50\text{–}100`.
+The p-values of T2 and T7 follow the floor :math:`1/(N+1)` from :math:`N = 5`. The largest change
+of a noise-template p-value relative to :math:`N = 100` is 0.50 at :math:`N = 5`, 0.15 at 20, 0.062
+at 50 and 0.035 at 75. The floor also sets the smallest reportable p-value: a threshold
+:math:`\alpha` needs :math:`N \ge 1/\alpha - 1` realisations, 19 for 0.05 and 99 for 0.01.
 
-**Rule of thumb:**
+Reproduce
+---------
 
-.. math::
+.. code-block:: bash
 
-   N_\mathrm{mocks} \;\ge\; \max\!\left(20,\; \left\lceil \frac{5}{\alpha} \right\rceil\right)
-
-where :math:`\alpha` is the target significance level.
-
-.. list-table::
-   :header-rows: 1
-   :widths: 30 30 40
-
-   * - Target :math:`\alpha`
-     - Minimum :math:`N_\mathrm{mocks}`
-     - Notes
-   * - 0.10
-     - 50
-     - Fast pre-screening
-   * - 0.05
-     - 100
-     - Standard significance level
-   * - 0.01
-     - 500
-     - High-confidence selection
-
-
-Conclusion
-----------
-
-* **All three SNR ranking methods** (data cross-correlation, OLS *t*-statistic,
-  ISD :math:`\Delta\chi^2`) correctly identify both injected templates as the
-  highest-ranking candidates at all tested contamination amplitudes
-  (:math:`a \ge 0.02`) with 15 M galaxies and 20 templates.
-
-* **The data and template methods** are approximately linear in amplitude,
-  reliable from the lowest tested level, and execute in < 1 ms.  They are the
-  fastest route to a short-list.
-
-* **The ISD** :math:`\Delta\chi^2` **method** follows Rodríguez-Monroy et al.
-  (2025).  Its mock-based p-value provides a rigorous significance test without
-  assumptions about the null distribution.  The mock generation is the dominant
-  cost; :math:`N_\mathrm{mocks} = 100` is sufficient for a 5 % significance
-  threshold.
-
-* **Recommended workflow:**
-
-  1. Run ``method="data"`` on all candidate templates to build a short-list
-     (< 1 ms; free).
-  2. Apply :func:`~sys_mapping.diagnostics.isd_template_significance` on the
-     short-list with :math:`N_\mathrm{mocks} \ge 100` to obtain rigorous
-     p-values (minutes).
-  3. Pass templates with :math:`p < 0.05` to
-     :func:`~sys_mapping.model_selection.greedy_forward_select` or the Bayesian
-     MCMC pipeline.
+   python scripts/run_snr_preselection_demo.py
 
 API reference
 -------------

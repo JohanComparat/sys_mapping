@@ -38,7 +38,6 @@ density maps.
    results_progressive_contamination
    results_real_template_validation
    results_simulation_tests
-   results_glass_simulation_tests
    results_snr_preselection
    results_algorithm_characterisation
    results_benchmark

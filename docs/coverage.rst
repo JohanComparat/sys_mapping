@@ -10,29 +10,30 @@ How much of the package the test suite exercises, and how much of its numerical 
 Test coverage
 -------------
 
-The suite covers 2226 of 2240 statements (99.4%) and 489 of 506 branches (96.6%), 98.9% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
+The suite covers 2386 of 2401 statements (99.4%) and 520 of 540 branches (96.3%), 98.8% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
 
 .. csv-table::
    :header: "module", "statements", "lines %", "branches", "branches %", "combined %"
 
-   "__init__.py", "20", "100.0", "0", "—", "100.0"
+   "__init__.py", "21", "100.0", "0", "—", "100.0"
+   "_array.py", "6", "100.0", "0", "—", "100.0"
    "bootstrap.py", "55", "100.0", "8", "100.0", "100.0"
    "contamination.py", "119", "98.3", "50", "96.0", "97.6"
-   "correction.py", "106", "99.1", "20", "95.0", "98.4"
+   "correction.py", "109", "99.1", "20", "95.0", "98.4"
    "covariance.py", "97", "99.0", "32", "96.9", "98.4"
-   "diagnostics.py", "291", "99.7", "54", "96.3", "99.1"
-   "glass_mocks.py", "154", "99.4", "42", "97.6", "99.0"
-   "inference.py", "144", "98.6", "24", "95.8", "98.2"
-   "likelihood.py", "40", "100.0", "6", "100.0", "100.0"
-   "maps.py", "135", "100.0", "46", "95.7", "98.9"
+   "diagnostics.py", "297", "99.7", "58", "96.6", "99.2"
+   "glass_mocks.py", "173", "98.8", "46", "95.7", "98.2"
+   "inference.py", "155", "98.7", "28", "92.9", "97.8"
+   "likelihood.py", "49", "100.0", "10", "100.0", "100.0"
+   "maps.py", "137", "100.0", "46", "95.7", "98.9"
    "mocks.py", "121", "100.0", "24", "100.0", "100.0"
-   "model_selection.py", "136", "99.3", "28", "96.4", "98.8"
-   "nuts.py", "78", "100.0", "14", "100.0", "100.0"
+   "model_selection.py", "212", "99.5", "36", "97.2", "99.2"
+   "nuts.py", "98", "100.0", "18", "100.0", "100.0"
    "plotting.py", "5", "100.0", "0", "—", "100.0"
    "power_spectrum.py", "45", "100.0", "12", "100.0", "100.0"
-   "regression.py", "315", "99.4", "80", "96.2", "98.7"
+   "regression.py", "318", "99.4", "82", "95.1", "98.5"
    "simulation.py", "214", "98.6", "38", "92.1", "97.6"
-   "utils.py", "165", "100.0", "28", "100.0", "100.0"
+   "utils.py", "170", "100.0", "32", "100.0", "100.0"
 
 JAX coverage
 ------------
@@ -40,32 +41,32 @@ JAX coverage
 Static share
 ~~~~~~~~~~~~
 
-Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 704 numeric source lines, 185 (26%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 15 mix JAX with other libraries and 69 call none of it.
+Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 737 numeric source lines, 216 (29%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 16 mix JAX with other libraries and 68 call none of it.
 
 .. csv-table::
    :header: "module", "numeric lines", "JAX lines", "JAX %", "functions jax/mixed/other", "other libraries (lines)"
 
    "bootstrap", "18", "0", "0", "0/0/4", "numpy 15, healpy 3"
    "contamination", "30", "14", "47", "4/0/4", "numpy 16"
-   "correction", "39", "1", "3", "0/1/7", "numpy 38"
+   "correction", "32", "1", "3", "0/1/5", "numpy 31"
    "covariance", "31", "5", "16", "2/1/3", "numpy 26"
-   "diagnostics", "143", "70", "49", "10/3/5", "numpy 67, healpy 4, scipy 2"
-   "glass_mocks", "38", "0", "0", "0/0/7", "numpy 26, glass 12"
+   "diagnostics", "144", "70", "49", "10/3/5", "numpy 67, healpy 5, scipy 2"
+   "glass_mocks", "45", "0", "0", "0/0/9", "numpy 33, glass 12"
    "inference", "60", "29", "48", "1/3/4", "numpy 32, emcee 1, scipy 1"
    "likelihood", "9", "9", "100", "1/0/0", "—"
-   "maps", "33", "0", "0", "0/0/10", "numpy 28, healpy 5"
+   "maps", "30", "0", "0", "0/0/9", "numpy 25, healpy 5"
    "mocks", "34", "4", "12", "0/1/5", "numpy 24, healpy 8"
-   "model_selection", "25", "9", "36", "0/2/4", "numpy 14, scipy 2"
+   "model_selection", "59", "40", "68", "1/3/4", "numpy 17, scipy 2"
    "nuts", "30", "25", "83", "4/1/0", "numpy 5"
    "power_spectrum", "13", "0", "0", "0/0/4", "numpy 10, healpy 3"
    "regression", "82", "15", "18", "1/3/4", "numpy 64, sklearn 3"
    "simulation", "51", "4", "8", "0/1/9", "numpy 37, healpy 6, treecorr 5"
-   "utils", "68", "0", "0", "0/0/9", "numpy 44, treecorr 17, corrfunc 7"
+   "utils", "69", "0", "0", "0/0/9", "numpy 45, treecorr 17, corrfunc 7"
 
 Transformability
 ~~~~~~~~~~~~~~~~
 
-``tests/test_jax_transformability.py`` applies ``jax.jit``, ``jax.vmap`` and, where a gradient is meaningful, ``jax.grad`` to the public numeric functions and checks the result against the eager call. 18 of 46 cases pass; 6 of 17 functions pass every transform that applies. The failures are strict expected failures, so a function that becomes transformable fails the suite until its entry is removed.
+``tests/test_jax_transformability.py`` applies ``jax.jit``, ``jax.vmap`` and, where a gradient is meaningful, ``jax.grad`` to the public numeric functions and checks the result against the eager call. 27 of 46 cases pass; 9 of 17 functions pass every transform that applies. The failures are strict expected failures, so a function that becomes transformable fails the suite until its entry is removed.
 
 .. csv-table::
    :header: "function", "jit", "vmap", "grad", "blocked by"
@@ -75,8 +76,8 @@ Transformability
    "invert_contamination", "yes", "yes", "yes", ""
    "compute_two_point_correction", "yes", "yes", "yes", ""
    "compute_two_point_correction[matrix]", "yes", "yes", "yes", ""
-   "debias_params", "no", "no", "no", "np.maximum on the amplitudes (correction.py)"
-   "debias_params_matrix", "no", "no", "no", "np.linalg.eigh on the debiased matrix (correction.py)"
+   "debias_params", "yes", "yes", "yes", ""
+   "debias_params_matrix", "yes", "yes", "yes", ""
    "correct_two_point_function", "no", "no", "no", "np.asarray on w_obs (correction.py)"
    "rotate_templates", "no", "no", "—", "np.linalg.eigh on the second moment (correction.py)"
    "transform_params_from_rotated", "yes", "yes", "yes", ""
@@ -85,41 +86,40 @@ Transformability
    "calibrated_template_significance", "no", "no", "—", "np.linalg.pinv and input validation (diagnostics.py)"
    "residual_template_correlation_test", "no", "no", "—", "np.asarray and input validation (diagnostics.py)"
    "snr_template_ranking", "no", "no", "—", "np.asarray before the JAX kernel (diagnostics.py)"
-   "standardise_on_footprint", "no", "no", "no", "np.asarray (maps.py)"
+   "standardise_on_footprint", "yes", "yes", "yes", ""
    "posterior_median_params", "no", "no", "—", "np.median (inference.py)"
 
 Where a pipeline run spends its time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A profiled run of ``scripts/run_ls10_analysis.py`` (log M* ≥ 10.0 at NSIDE 32, 40 significance and 10 ISD realisations, NUTS 500+500, cross-template matrix from 10⁶ galaxies), own time per library from ``scripts/profile_by_library.py``; 728 s in total. Time spent executing compiled XLA code is counted under JAX.
+A profiled run of ``scripts/run_ls10_analysis.py`` (one LS10 sample), own time per library from ``scripts/profile_by_library.py``; 682 s in total. Time spent executing compiled XLA code is counted under JAX.
 
 .. csv-table::
    :header: "library", "seconds", "share %"
 
-   "treecorr", "523", "71.8"
-   "jax", "129", "17.7"
-   "healpy", "26", "3.5"
-   "other", "25", "3.5"
-   "sys_mapping", "21", "2.9"
-   "numpy", "3", "0.4"
+   "jax", "359", "52.6"
+   "treecorr", "298", "43.7"
+   "other", "19", "2.8"
+   "numpy", "2", "0.3"
+   "healpy", "2", "0.3"
+   "sys_mapping", "1", "0.1"
 
 By stage, cumulative time of the package functions that dominate:
 
 .. csv-table::
    :header: "function", "calls", "seconds", "share %"
 
-   "template_correlation_matrix", "1", "497", "68.2"
-   "run_nuts", "1", "120", "16.4"
-   "measure_two_point_function", "1", "34", "4.7"
-   "generate_glass_fullsky_mock", "50", "28", "3.9"
-   "isd_template_significance", "1", "11", "1.5"
-   "correct_two_point_function", "8", "7", "0.9"
-   "run_additive_analytic", "1", "2", "0.3"
-   "elasticnet_contamination_fit", "1", "0", "0.1"
-   "iterative_systematics_decontamination", "2", "0", "0.0"
+   "run_nuts", "1", "346", "50.7"
+   "template_correlation_matrix", "1", "272", "39.9"
+   "measure_two_point_function", "1", "36", "5.3"
+   "correct_two_point_function", "8", "6", "0.9"
+   "run_additive_analytic", "1", "4", "0.5"
+   "isd_template_significance", "1", "2", "0.3"
+   "elasticnet_contamination_fit", "1", "1", "0.1"
+   "iterative_systematics_decontamination", "2", "1", "0.1"
    "calibrated_template_significance", "1", "0", "0.0"
 
-The run compiled 306 XLA programs.
+The run compiled 308 XLA programs.
 
 Outside JAX
 ~~~~~~~~~~~

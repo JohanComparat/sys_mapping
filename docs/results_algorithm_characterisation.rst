@@ -1,16 +1,15 @@
-Algorithm characterisation: when does correcting actually help?
-================================================================
+Algorithm characterisation
+==========================
 
-.. note::
-   Three studies that together answer *when the decontamination is worth applying* and
-   *how far its stated uncertainties can be trusted*.  The first re-analyses existing
-   simulation output; the second and third are new measurements.
-
-   The scripts live in the separate
-   `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-   repository, under ``characterisation/``; point them at a checkout of this package
-   with ``SYS_MAPPING_ROOT``.  The data behind every table below is committed here
-   under ``_static/characterisation/``, so this page renders standalone.
+Provenance, with the data in ``_static/characterisation/``: :ref:`char-break-even` from
+campaign F, tag 20260907c (sys_mapping 1.2.0, dahu, 2026-09-07 to 09-08);
+:ref:`char-variance-inflation` from campaign C, tag 20260904 (dahu, 2026-09-04; healpy and
+NumPy only); :ref:`char-null-spectra` from campaign B, tag 20260904b (1.2.0, dahu,
+2026-09-04 to 09-05) and campaign M, tags 20260906m and 20260907m (1.2.0, dahu, 2026-09-06
+to 09-07); :ref:`char-crossterms` from the LS10 amplitudes of campaign P, tag 20260912p
+(1.2.0, dahu, 2026-09-11 to 09-12), evaluated with 1.4.0 on a laptop on 2026-09-15. Scripts:
+`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_,
+``characterisation/``.
 
 .. contents:: On this page
    :local:
@@ -23,29 +22,26 @@ Algorithm characterisation: when does correcting actually help?
 1. The break-even condition
 ---------------------------
 
-Two large simulation campaigns already existed and had never been joined:
-``results/detectability_sweep_*.csv`` (14 400 rows) measures *field-level detection*
-against amplitude, while ``data/simulations/nside*/results_summary.json`` (18
-configurations) measures *w(θ) correction quality*.  The first says when a systematic
-is detectable; the second says whether correcting helped.
-
-**The mechanism.**  Correcting removes a bias but injects the noise of the fitted
-amplitudes.  Writing
+We measure when a correction improves :math:`w(\theta)` on the family-F simulations, in the
+three tables below. Each cell is a GLASS mock of 500 000 galaxies from the parametric
+spectrum :math:`5\times10^{-4}\,(\ell+1)^{-1.5}`, contaminated through five LS10 and Gaia
+templates (additive, multiplicative and combined, per-template amplitudes 0.02, 0.05 and
+0.10) and corrected by the six methods, ISD with a :math:`\Delta\chi^2_{68}` calibrated on
+30 clean mocks. Fifty seeds at NSIDE 32 and 64 and 34 at NSIDE 128 give 134 cells × 9
+configurations × 6 methods = 7236 method–configuration cells.
 
 .. math::
 
    A = {\rm rms}\Bigl(\sum_i a_i^{\rm true} t_i\Bigr), \qquad
    \Delta A = {\rm rms}\Bigl(\sum_i (\hat a_i - a_i^{\rm true})\, t_i\Bigr)
 
-for the field the correction must remove and the mis-fit field it adds back, the
-correction can only help when the recovered field is closer to the truth than to
-zero, i.e. when :math:`A/\Delta A \gtrsim 1`.  Both quantities are computable from
-what is already stored (``a_true``, ``a_hat``, and the named templates).
+are the additive field the correction removes and the mis-fit field it adds back, so
+correcting helps once :math:`A/\Delta A \gtrsim 1`. The improvement factor is
+:math:`B_{\rm cont}/B_{\rm corr}`, with
+:math:`B = \lVert w - w_{\rm true}\rVert_2 / \lVert w_{\rm true}\rVert_2` over ten bins from
+0.13 to 8.2 deg; a cell is helped when it exceeds 1.
 
-**Result.**  :math:`A/\Delta A` predicts the sign of the effect across all 180
-method–configuration cells:
-
-.. list-table::
+.. list-table:: Additive and combined cells (4824)
    :header-rows: 1
    :widths: 40 30 30
 
@@ -53,87 +49,105 @@ method–configuration cells:
      - correction helped
      - correction hurt
    * - :math:`A/\Delta A > 1`
-     - **57**
-     - 15
+     - 3971
+     - 351
    * - :math:`A/\Delta A < 1`
-     - 23
-     - **85**
+     - 236
+     - 266
 
-Rank correlation between :math:`\log(A/\Delta A)` and :math:`\log` improvement is
-**+0.73**; the simple rule "correct only if :math:`A/\Delta A>1`" is right in 79 % of
-cells.
+"Correct only if :math:`A/\Delta A > 1`" is right in 87.8 % of these cells; the Spearman
+correlation between :math:`\log(A/\Delta A)` and the log improvement factor is +0.42
+(n = 4824). In the 2412 multiplicative cells :math:`A = 0`: ISD-1, ISD-3 and ElasticNet
+apply no additive correction in 562, and correcting helped in 749 of the other 1850.
 
-**This explains the Uchuu results.**  The Uchuu configurations sit at median
-:math:`A/\Delta A = 0.76` (below break-even) and helped in only 16.7 % of cells; the
-GLASS ones sit at 1.28 and helped in 72.2 %.
-
-**And it identifies the cause.**  Splitting by scenario isolates it, because the
-``multiplicative`` fit/inject mismatch cannot apply to additive-only runs:
-
-.. list-table::
+.. list-table:: Per method, additive and combined cells (804 each)
    :header-rows: 1
-   :widths: 20 12 16 16 16
+   :widths: 25 25 25 25
 
-   * - scenario
-     - n
-     - helped
+   * - method
      - median :math:`A/\Delta A`
-     - rule accuracy
-   * - additive
-     - 60
-     - 60.0 %
-     - 1.39
-     - 80.0 %
-   * - multiplicative
-     - 60
-     - 23.3 %
-     - 0.98
-     - 71.7 %
-   * - combined
-     - 60
-     - 50.0 %
-     - 1.15
-     - 85.0 %
+     - helped
+     - rule right
+   * - OLS
+     - 2.26
+     - 88.9 %
+     - 78.0 %
+   * - ISD-1
+     - 1.89
+     - 95.5 %
+     - 95.5 %
+   * - ISD-3
+     - 1.88
+     - 94.3 %
+     - 94.3 %
+   * - ElasticNet
+     - 2.23
+     - 89.1 %
+     - 79.0 %
+   * - MCMC-add
+     - 2.26
+     - 82.0 %
+     - 94.2 %
+   * - MCMC-comb
+     - 2.28
+     - 73.5 %
+     - 86.1 %
 
-Restricting further to **additive-only on Uchuu** — where the fitted model is exactly
-the injected one — gives 0 % helped at low and medium amplitude
-(:math:`A/\Delta A = 0.45` and :math:`0.61`) and 70 % at high
-(:math:`A/\Delta A = 0.72`).  The failure therefore is **not** caused by the
-multiplicative model mismatch; it is the detection threshold.  Correcting a
-systematic you cannot measure makes the answer worse.
+.. list-table:: Per resolution, additive and combined cells
+   :header-rows: 1
+   :widths: 20 20 20 20 20
 
-.. admonition:: Practical rule
-   :class: important
+   * - NSIDE
+     - cells
+     - median :math:`A/\Delta A`
+     - helped
+     - rule right
+   * - 32
+     - 1800
+     - 2.26
+     - 96.7 %
+     - 96.7 %
+   * - 64
+     - 1800
+     - 2.19
+     - 88.7 %
+     - 88.1 %
+   * - 128
+     - 1224
+     - 1.48
+     - 71.1 %
+     - 74.5 %
 
-   Estimate :math:`\Delta A` from the fit covariance and correct only when
-   :math:`A/\Delta A > 1`.  Below that, applying weights degrades :math:`w(\theta)`.
+Every ISD cell lies above break-even. Per-cell values are in
+``breakeven_20260907c_joined.csv``, counts in ``breakeven_20260907c_summary.json``.
 
 ----
 
 .. _char-variance-inflation:
 
-2. How wrong the iid error bars are
-------------------------------------
+2. Inflation of the independent-pixel error
+-------------------------------------------
 
-The recorded null test reports a 3σ false-positive rate of 76–96 % where 0.27 % is
-expected, but only as a flag.  ``run_variance_inflation.py`` measures the
-inflation directly on uncontaminated mocks, comparing the empirical scatter of
-:math:`\hat a` across realisations against the analytic OLS error the pipeline
-reports:
+We measure how far the analytic OLS error underestimates the scatter of the fitted
+amplitudes on uncontaminated maps, in the two tables below, through
 
 .. math::
 
-   \kappa_i = \frac{\sigma^{\rm emp}[\hat a_i]}{\sigma^{\rm iid}[\hat a_i]}
+   \kappa_i = \frac{\sigma^{\rm emp}[\hat a_i]}{\sigma^{\rm iid}[\hat a_i]}, \qquad
+   \kappa_{\rm field} = \Bigl(\frac{\langle A^2\rangle}{s^2\, n_s / n_{\rm pix}}\Bigr)^{1/2},
+   \quad A^2 = {\rm mean}\bigl[(\hat a \cdot t)^2\bigr],
 
-**Control.**  On pure-Poisson maps — the regime where the iid likelihood is valid —
-:math:`\kappa` lands in :math:`[0.987, 1.021]` across **all twenty** cells and the
-per-template FPR(3σ) has median 0.26 % against a nominal 0.27 %.  The measurement is
-sound, which is what licenses the rest of this section.
+the denominator of :math:`\kappa_{\rm field}` being :math:`\langle A^2\rangle` under the
+independent-pixel model. Each cell fits the first :math:`n_s \in \{3, 5, 7, 9, 11\}` of
+eleven LS10 and Gaia maps to 2000 realisations at 127 galaxies per pixel, at NSIDE 32 and
+64, for a lognormal field with :math:`C_\ell \propto (\ell+1)^{-\alpha}`,
+:math:`\alpha \in \{1, 1.5, 2, 2.5, 3\}`, :math:`\sigma_{\rm clus} \in \{0.2, 0.4\}`, and
+for a Poisson-only control; tag 20260907c repeats the grid with identical values.
 
-**Clustered fields**, at the package default spectrum (:math:`\alpha = 2`) and
-:math:`\sigma_{\rm clus} = 0.4`, from 2000 realisations per cell:
+In the control :math:`\kappa_{\rm field}` lies in [0.987, 1.021] over the 100 fits and the
+per-template 3σ false-positive rate has median 0.26 % against a nominal 0.27 %.
 
-.. list-table::
+.. list-table:: :math:`\kappa_{\rm field}` at :math:`\alpha = 2`, :math:`\sigma_{\rm clus} = 0.4`
    :header-rows: 1
    :widths: 14 14 14 14 14 14
 
@@ -156,25 +170,14 @@ sound, which is what licenses the rest of this section.
      - 9.80
      - 8.76
 
-(:math:`\kappa` field.)  So the reported error is **5–13× too tight** at the default
-spectrum, and 2–23× across the full range of spectra tested.  Two trends: the
-inflation **grows with resolution** (finer pixels resolve more of the clustering the
-iid model calls noise) and **shrinks with template count** (more templates absorb more
-of it into the model).  The FPR for *any* of the :math:`n_s` templates is 96–100 % at
-NSIDE 32 and 99–100 % at NSIDE 64.
+:math:`\kappa_{\rm field}` is 5.3–12.9 at this spectrum and 2.1–22.7 over the grid, larger at
+NSIDE 64 than at 32 in every cell. Some template exceeds 3σ in 96–100 % of realisations at
+NSIDE 32 and 99–100 % at NSIDE 64 at this spectrum, and in 55–100 % over the grid. Doubling
+:math:`\sigma_{\rm clus}` from 0.2 to 0.4 changes :math:`\kappa_{\rm field}` by 2–7 %.
 
-**It is almost independent of the clustering amplitude.**  Doubling
-:math:`\sigma_{\rm clus}` from 0.2 to 0.4 moves :math:`\kappa` by under 5 % in every
-cell (7.09 → 7.41 at NSIDE 32, :math:`n_s=3`; 10.29 → 10.75 at NSIDE 64,
-:math:`n_s=7`).  What sets the inflation is the *shape* of the clustering, not how
-much of it there is.
-
-**It depends strongly on that shape.**  Scanning
-:math:`C_\ell \propto (\ell+1)^{-\alpha}` at NSIDE 64, :math:`n_s=11`:
-
-.. list-table::
+.. list-table:: Spectral slope at NSIDE 64, :math:`n_s = 11`, :math:`\sigma_{\rm clus} = 0.4`
    :header-rows: 1
-   :widths: 20 16 16 16 16 16
+   :widths: 30 14 14 14 14 14
 
    * - :math:`\alpha`
      - 1.0
@@ -182,229 +185,143 @@ much of it there is.
      - 2.0
      - 2.5
      - 3.0
-   * - :math:`\kappa` field
+   * - :math:`\kappa_{\rm field}`
      - 2.73
      - 5.10
      - 8.76
      - 12.80
      - 16.10
+   * - any template > 3σ
+     - 88.6 %
+     - 99.4 %
+     - 100 %
+     - 100 %
+     - 100 %
 
-so :math:`\kappa` must always be quoted with the spectrum it was measured on.  The
-FPR exceeds 96 % at every slope tested, though — that conclusion is robust.
-
-.. note::
-
-   These numbers supersede an earlier six-cell grid measured at
-   :math:`n_{\rm real} = 150`, whose source data was overwritten before it could be
-   committed.  The present 100-cell run reproduces it where the two overlap
-   (:math:`\alpha = 2`, :math:`\sigma_{\rm clus} = 0.4`) to within 1–4 % at every
-   shared cell.  The earlier grid also quoted :math:`n_s = 1`, which the new grid does
-   not cover, so the old headline of ":math:`\kappa` up to 18.4" is not reproduced
-   here and has been dropped rather than carried forward unverified.
+:func:`~sys_mapping.diagnostics.calibrated_template_significance` and
+:func:`~sys_mapping.covariance.mock_sandwich_covariance` take the amplitude scatter from null
+realisations. All rows are in ``variance_inflation_20260904.csv``.
 
 ----
 
-.. _char-glass-underclustered:
+.. _char-null-spectra:
 
-3. The mocks used for calibration are under-clustered
-------------------------------------------------------
+3. Clustering of the calibration nulls
+--------------------------------------
 
-.. warning::
+Footprint matching fixes the density of a null mock but not its clustering. We compare
+:math:`\sigma_{\rm clus} = (\hat\sigma^2 - 1/\bar n)^{1/2}` of the LS10 samples with that of
+two nulls in the table below. In campaign B the power-law null
+:math:`5\times10^{-4}\,(\ell+1)^{-1.5}` for :math:`\log M_\star \ge 10.0` at NSIDE 64 holds
+127.3 galaxies per pixel against the data's 127.4 and has :math:`\hat\sigma = 0.118`
+against 0.397; with the galaxy and random-catalogue shot terms removed,
+:math:`\sigma_{\rm clus} = 0.045` against 0.387 (median of five seeds).
 
-   The GLASS mocks are the null hypothesis for **three** separate calibrations —
-   Stage-1 ISD p-values, the mock-calibrated LRT, and the sandwich covariance.  The
-   footprint-matching rule guarantees they reproduce the data's *surface density*, and
-   therefore its shot noise, but **nothing constrains their clustering**.
+The data columns are from campaign B. The null columns are from ``match_glass_to_data.py``
+(campaign M), which measures a mock through the data's estimator on the sample's
+footprint: the power law is its first iteration, the matched spectrum the fit that
+:func:`~sys_mapping.glass_mocks.load_matched_cl` serves, measured on eight seeds the fit
+did not use. The large-scale ratio is the mock-to-data band power over the multipoles of
+:math:`r_p = 5`–20 :math:`h^{-1}` Mpc, or the largest scales the map resolves; a spectrum
+is validated when it is within 0.10 of 1 and the density within 3 % plus its uncertainty.
 
-Generating a mock exactly as the pipeline does for the fiducial LS10 sample
-(``calibrate_glass_clustering.py``):
+.. csv-table:: Clustering of the data and of the two nulls
+   :header: "log M* ≥", "NSIDE", ":math:`\bar n`", ":math:`\sigma_{\rm clus}` data", ":math:`\sigma_{\rm clus}` power law", ":math:`\sigma_{\rm clus}` matched", "large-scale ratio", ":math:`\ell` range"
+   :widths: 10 8 10 12 14 12 12 12
 
-.. list-table::
-   :header-rows: 1
-   :widths: 30 22 22 22
+   "9.00", "32", "96.6", "0.538", "0.037", "0.510", "1.016", "31–63"
+   "9.50", "32", "264.5", "0.467", "0.036", "0.436", "1.016", "45–64"
+   "10.00", "32", "509.4", "0.378", "0.036", "0.349", "0.997", "57–64"
+   "10.25", "32", "610.9", "0.339", "0.035", "0.315", "1.020", "16–64"
+   "10.50", "32", "602.5", "0.321", "0.036", "0.297", "1.015", "16–64"
+   "10.75", "32", "517.4", "0.302", "0.035", "0.278", "1.017", "16–64"
+   "11.00", "32", "299.1", "0.291", "0.036", "0.268", "1.012", "16–64"
+   "11.25", "32", "100.0", "0.315", "0.037", "0.287", "1.006", "16–64"
+   "11.50", "32", "22.3", "0.392", "0.035", "0.349", "1.017", "16–64"
+   "9.00", "64", "24.2", "0.645", "0.042", "0.606", "0.972", "31–126"
+   "9.50", "64", "66.1", "0.509", "0.043", "0.471", "0.927", "45–89"
+   "10.00", "64", "127.4", "0.387", "0.043", "0.370", "1.016", "64–128"
+   "10.25", "64", "152.7", "0.334", "0.044", "0.320", "0.997", "77–128"
+   "10.50", "64", "150.6", "0.298", "0.043", "0.280", "0.950", "90–128"
+   "10.75", "64", "129.4", "0.269", "0.044", "0.251", "0.957", "106–128"
+   "11.00", "64", "74.8", "0.274", "0.044", "0.256", "0.912", "117–128"
+   "11.25", "64", "25.0", "0.328", "0.041", "0.307", "0.962", "118–128"
+   "11.50", "64", "5.6", "0.485", "—", "—", "—", "—"
 
-   * -
-     - :math:`\bar n` (gal/pix)
-     - :math:`\hat\sigma`
-     - :math:`\sigma_{\rm clus}`
-   * - LS10, log M\ :sub:`*` ≥ 10.0, NSIDE 64
-     - 127.35
-     - 0.3969
-     - 0.3869
-   * - GLASS mock (default ``cl_amplitude=5e-4``)
-     - 127.32
-     - 0.1179
-     - 0.0777
+The power law gives :math:`\sigma_{\rm clus} = 0.035`–0.044, 0.07–0.16 of the data's, a
+clustering variance 38 to 230 times too low. The matched spectra give 0.89–0.96 of the
+data's :math:`\sigma_{\rm clus}`, large-scale ratios of 0.912–1.020 and densities within
+2.0 %. For :math:`\log M_\star \ge 11.5` at NSIDE 64 (5.6 galaxies per pixel) no fit is
+validated and :func:`~sys_mapping.glass_mocks.load_matched_cl` serves the NSIDE 32 fit; an
+NSIDE 128 analysis uses the NSIDE 64 fit. Per-cell details are in
+``null_spectra_nside32_64.csv``, the spectra in ``matched_spectra/`` of the benchmark
+repository.
 
-The shot noise matches to four digits — the footprint matching works exactly as
-designed.  But for this cell at the package default the **clustering variance is 25×
-too low** (5× in :math:`\sigma`), and
-the mock's total scatter is 3.4× smaller than the data's.  The mocks therefore sit
-close to the shot-noise-dominated regime **where the iid likelihood is valid** —
-precisely the regime the real data is not in.
+A null for data draws from the sample's matched spectrum (``--null-cl-file`` in
+``run_ls10_analysis.py``):
 
-The consequence is that all three "calibrated" quantities are calibrated against a
-null that is too narrow, and remain overconfident.  This does not overturn the LS10
-detections (the data :math:`\lambda_{\rm LR}` sits 30–60× above the null maximum, a
-wide margin) but it does mean the margin is overstated.
+.. code-block:: python
 
-**The fix.**  Scanning ``cl_amplitude`` until the mock reproduces the measured
-:math:`\hat\sigma`:
+   cl = sm.load_matched_cl("matched_spectra", sample=sample_id, nside=nside)
+   null = sm.generate_glass_null_overdensity(
+       400, nside, good_pixels, n_galaxies_footprint, z_max, seed=0, cl_input=cl)
+   significance = sm.calibrated_template_significance(delta_g, delta_t, null)
 
-.. list-table::
-   :header-rows: 1
-   :widths: 25 25 25 25
-
-   * - ``cl_amplitude``
-     - :math:`\hat\sigma`
-     - :math:`\sigma_{\rm clus}`
-     - ratio to data
-   * - 5.0e-4 *(default)*
-     - 0.1179
-     - 0.0777
-     - 0.20×
-   * - 1.0e-2
-     - 0.2234
-     - 0.2051
-     - 0.53×
-   * - **3.8e-2**
-     - **0.3965**
-     - **0.3864**
-     - **1.00×**
-
-The scan above is a single cell.  Root-finding the amplitude properly — over all nine
-samples at four resolutions with five seeds each, 180 fits — shows it is **not one
-number to correct once**:
-
-.. list-table:: Fitted ``cl_amplitude`` (median over converged seeds)
-   :header-rows: 1
-   :widths: 20 20 20 20 20
-
-   * - :math:`\log M_\star \ge`
-     - NSIDE 32
-     - NSIDE 64
-     - NSIDE 128
-     - NSIDE 256
-   * - 9.00
-     - 0.1038
-     - 0.0922
-     - 0.0791
-     - —
-   * - 9.50
-     - 0.0813
-     - 0.0603
-     - 0.0692
-     - —
-   * - 10.00
-     - 0.0534
-     - 0.0363
-     - 0.0432
-     - 0.0395
-   * - 10.25
-     - 0.0431
-     - 0.0269
-     - 0.0327
-     - 0.0313
-   * - 10.50
-     - 0.0386
-     - 0.0212
-     - 0.0261
-     - 0.0244
-   * - 10.75
-     - 0.0343
-     - 0.0168
-     - 0.0203
-     - —
-   * - 11.00
-     - 0.0314
-     - 0.0169
-     - 0.0195
-     - —
-   * - 11.25
-     - 0.0351
-     - 0.0198
-     - —
-     - —
-   * - 11.50
-     - 0.0431
-     - 0.0005
-     - —
-     - —
-
-Median over the 143 converged fits is 3.4e-2, a factor **69** above the default, with
-1–5 % seed-to-seed scatter — so the spread across the table is real.  Three things
-matter more than the median:
-
-* The amplitude tracks how much of each sample's variance is clustering rather than
-  shot noise, not the stellar mass as such.
-* The :math:`\log M_\star \ge 11.5`, NSIDE 64 cell needs **no** correction: at
-  :math:`\bar n = 5.6` galaxies per pixel the default already reproduces the measured
-  :math:`\sigma_{\rm clus}` to 1 %.  A single global rescaling would have
-  over-clustered exactly the samples that were already right.
-* The dashes are a limit of the method, not gaps in the run: all 37 non-converged fits
-  lie at NSIDE ≥ 128, where these samples fall below roughly five galaxies per pixel
-  and the mock's shot noise alone exceeds the target scatter, so no amplitude
-  reproduces it.  At NSIDE 32 and 64 — where the calibrated statistics are actually
-  evaluated — the grid is complete.
-
-:func:`~sys_mapping.diagnostics.isd_template_significance` and the LRT null builder
-both accept ``cl_amplitude``, so the fitted value can be passed per sample.
+``cl_amplitude`` is for synthetic studies whose truth is that power law, as in
+:ref:`char-break-even`; a mock given neither ``cl_input`` nor ``cl_amplitude`` warns.
 
 ----
 
 .. _char-crossterms:
 
-4. The dropped cross-terms
----------------------------
+4. Cross-template terms of the two-point correction
+---------------------------------------------------
 
-The two-point correction keeps only template *auto*-correlations, while the
-contamination an additive field imprints is its full autocorrelation
-:math:`\sum_{ij} a_i a_j \xi_{ij}(\theta)`.  ``run_crossterm_bias.py``
-evaluates both forms using the **amplitudes actually fitted to LS10**:
+A two-point correction removes :math:`\sum_{ij} a_i a_j \xi_{ij}(\theta)`. The LS10 products
+apply the full :math:`(n_{\rm sys}, n_{\rm sys}, n_\theta)` matrix in the PCA-rotated basis,
+66 correlations at :math:`n_{\rm sys} = 11` measured on the galaxies
+(``--ct-auto-only`` in ``run_ls10_analysis.py`` keeps the diagonal). We measure the share of
+the correction carried by the off-diagonal terms,
+:math:`|\Delta w_{\rm full} - \Delta w_{\rm auto}| / |\Delta w_{\rm full}|`, in the table
+below.
 
-.. list-table::
+We take the OLS amplitudes of the nine samples at NSIDE 32 and 64, standardise the templates
+on each sample's footprint (reproducing the basis recorded in the products), compute
+:math:`\xi_{ij}` from pixel cross-spectra on that footprint with the estimator of
+``run_crossterm_bias.py`` in ten bins from 0.5 to 5 deg, and rotate the amplitudes with the
+templates, :math:`a_{\rm rot} = R\,a`, which leaves the full correction unchanged to
+:math:`10^{-13}`. Each sample's share is its median over :math:`\theta`.
+
+.. list-table:: Cross-term share of the correction, OLS amplitudes
    :header-rows: 1
-   :widths: 16 24 30 30
+   :widths: 14 22 22 22 20
 
    * - NSIDE
      - basis
-     - median share
-     - range over the nine samples
+     - median of samples
+     - range of samples
+     - largest bin
    * - 32
-     - original
-     - ~870 %
-     - 650–1040 %
+     - unrotated
+     - 606 %
+     - 340–1258 %
+     -
    * - 32
      - PCA-rotated
-     - **1.9 %**
-     - 0.1–3.4 %
+     - 23.9 %
+     - 18.5–25.9 %
+     - 31.9 %
    * - 64
-     - original
-     - ~193 %
-     - 63–533 %
+     - unrotated
+     - 121 %
+     - 4.4–648 %
+     -
    * - 64
      - PCA-rotated
-     - **14.7 %**
-     - 5.7–36.9 %
+     - 22.5 %
+     - 12.2–31.5 %
+     - 34.0 %
 
-**The auto-only form needs the rotated basis.**  In the original correlated basis the
-approximation is wrong by a factor of a few to ten.  The pipeline applies the
-correction in the rotated basis (``run_ls10_analysis.py`` passes
-``a_rot``/``b_rot``/``ct_rot``), which is what brings the share to the level tabulated
-above, beyond the rotation's effect on MCMC mixing.
-
-The residual is 1.9 % at NSIDE 32, where the auto-only form is defensible, and 14.7 %
-at NSIDE 64, where it is not.  The share depends on the method through the orientation
-of its amplitude vector: ``ISD-1`` gives 2.5 % on the same nine cells against 14.7 %
-for ``OLS`` and ``MCMC-add``.  ``compute_two_point_correction`` accepts the
-``(n_sys, n_sys, n_theta)`` matrix, which costs ``n_sys(n_sys+1)/2 = 66`` cross-spectra
-to build at ``n_sys = 11``, minutes per analysis.
-
-.. warning::
-   This quantity **cannot** be measured with stand-in amplitudes.  Random amplitudes of
-   the same typical size give 6.3 % and 4.9 % — three times too large at NSIDE 32, and
-   inverting the ordering between the two resolutions.  ``sum_ij a_i a_j xi_ij`` depends
-   on how the amplitude *vector* is oriented relative to the off-diagonal
-   ``xi_ij``, not on its length, and a fit in the rotated basis lands in an orientation
-   that suppresses the cross terms.  ``run_crossterm_bias.py`` therefore takes
-   ``--params-json`` and warns when it falls back to random draws.
+In the rotated basis MCMC-add matches OLS to 0.05 percentage points, MCMC-comb gives 18.4 %
+and 26.6 % and ElasticNet 25.2 % and 25.7 % at NSIDE 32 and 64. All six methods are in
+``crossterm_share_20260912p.csv``.

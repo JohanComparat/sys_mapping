@@ -1,129 +1,51 @@
 Simulation tests: GLASS and Uchuu mocks with LSDR10 systematics
 ================================================================
 
-This page reports the validation of the ``sys_mapping`` decontamination pipeline
-on two families of realistic full-sky galaxy mock catalogs:
+The figures and tables on this page come from cells ``simtests64`` (node dahu154, 2026-09-15 15:36–17:28, 1 h 52 min) and ``simtests32`` (node dahu155, 2026-09-15 15:36–16:32, 56 min) of campaign 20260915r on the GRICAD dahu cluster, each on 8 cores of an Intel Xeon Gold 5318Y, running ``sys_mapping`` 1.4.0 (commit 6f43dcc with the working-tree changes of 2026-09-15).
 
-* **GLASS mocks** — full-sky lognormal catalogs generated with the
-  `GLASS package <https://github.com/glass-dev/glass>`_ (Tessore et al. 2023,
-  OJAp 6, 11; arXiv:2302.01942), whose redshift distribution and surface
-  density are matched to the BGS sample.
+We inject contamination built from five LSDR10 imaging-systematic maps into two mock catalogues, correct it with six decontamination methods, and compare the recovered angular correlation function :math:`w(\theta)` with that of the uncontaminated mock.
+We run the test at NSIDE 64 and NSIDE 32 on one realisation (seed 0) per configuration; the metrics are in Tables 3 and 4 and the curves in the figures below.
 
-* **Uchuu mocks** — the Uchuu *N*-body lightcone catalog projected onto the
-  full sky, a stellar-mass–limited sample of 923 373 galaxies in
-  :math:`0.05 \le z \le 0.26`.
+Mock catalogues
+---------------
 
-Systematic contamination is injected using five real LSDR10 imaging-systematic
-maps at three amplitude levels and three scenarios.  Five decontamination
-methods are applied and compared:
+The GLASS mock (Tessore et al. 2023) is a lognormal field in one tophat shell over :math:`0 \le z \le 0.26`, drawn from the parametric spectrum :math:`C_\ell = 5\times10^{-4}\,(\ell+1)^{-1.5}` with a full-sky target of 500 000 galaxies.
+Galaxy positions are Poisson draws from the field, redshifts are drawn from the Uchuu :math:`n(z)` (20 bins over :math:`0.05 \le z \le 0.26`), and the randoms are uniform on the sphere at ten times the target.
+The Uchuu catalogue is the lightcone sample ``MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373``, with 923 373 galaxies and 6 249 378 randoms over :math:`0.05 \le z \le 0.26`; its randoms cover one octant, :math:`180° \le \mathrm{RA} \le 270°` and :math:`-90° \le \mathrm{Dec} \le 0°`.
 
-* **OLS** — ordinary least squares regression of overdensity on templates.
-* **ISD-1** — iterative self-calibration with one iteration (down-weights
-  over-dense pixels to reduce mode coupling).
-* **ElasticNet** — :math:`\ell_1 + \ell_2`-regularised regression (automatic
-  template selection).
-* **MCMC-add** — Bayesian MCMC inference of additive amplitudes :math:`a_i`
-  only (:math:`b_i \equiv 0`); returns full posteriors on each :math:`a_i`.
-* **MCMC-comb** — Bayesian MCMC inference of both additive (:math:`a_i`) and
-  multiplicative (:math:`b_i`) amplitudes jointly; the only method that
-  returns non-zero :math:`b_i` estimates.
+Both catalogues are cut to the pixels where all five templates are valid, see Table 1.
 
-The recovered angular two-point correlation function :math:`w(\theta)` is
-compared to the truth from the uncontaminated mock.
-
-Results are shown for two HEALPix resolutions:
-
-* **NSIDE = 64** — production quality; matches the resolution used for the
-  actual LS10 analysis.
-* **NSIDE = 32** — faster validation run; useful for algorithm development
-  and quick iteration.
-
-The figure-generating script is ``scripts/plot_simulation_tests.py`` and can be
-re-run after ``scripts/run_simulation_tests.py`` has produced results.
-Each NSIDE run writes to its own subdirectory so results do not overwrite each
-other::
-
-   # NSIDE = 64 (production)
-   python scripts/run_simulation_tests.py \
-       --nside 64 --n-glass 500000 \
-       --methods OLS ISD-1 ElasticNet MCMC-add MCMC-comb \
-       --output-dir data/simulations
-   python scripts/plot_simulation_tests.py --nside 64
-
-   # NSIDE = 32 (fast validation)
-   python scripts/run_simulation_tests.py \
-       --nside 32 --n-glass 100000 \
-       --methods OLS ISD-1 ElasticNet MCMC-add MCMC-comb \
-       --output-dir data/simulations
-   python scripts/plot_simulation_tests.py --nside 32
-
-----
-
-Mock catalogs
--------------
-
-GLASS full-sky mock
-^^^^^^^^^^^^^^^^^^^
-
-GLASS generates correlated lognormal HEALPix density fields using the
-algorithm of Tessore et al. 2023.  A single tophat redshift shell covering
-:math:`0 \le z \le 0.26` is used, with a power spectrum
-:math:`C_\ell \propto (\ell+1)^{-1.5}`.  Galaxy positions are drawn from the
-density field using ``glass.positions_from_delta``, and redshifts are assigned
-from the measured Uchuu :math:`n(z)`.
-
-Key advantage over the synthetic lognormal mocks in :mod:`sys_mapping.mocks`:
-the GLASS mock is *full-sky* (no galactic-cut artefacts at generation time)
-and uses the correct angular clustering power spectrum without additional
-approximations.
-
-Uchuu lightcone mock
-^^^^^^^^^^^^^^^^^^^^
-
-The Uchuu lightcone provides a mock galaxy catalog based on *N*-body
-subhalo abundance matching, free of imaging systematics by construction.
-The catalog used here is a volume-limited sample with
-
-.. list-table::
-   :widths: 40 60
+.. list-table:: Table 1. Footprint and catalogue sizes after the cut.
+   :widths: 30 35 35
    :header-rows: 1
 
-   * - Property
-     - Value
-   * - Number of galaxies
-     - 923 373
-   * - Redshift range
-     - :math:`0.05 \le z \le 0.26`
-   * - Stellar mass limit
-     - :math:`\log_{10}(M_\star/M_\odot) \ge 10.65`
-   * - Sky coverage
-     - Full sky (:math:`4\pi` sr)
-   * - Random catalog
-     - 6 249 378 randoms (uniform, same :math:`z` range)
-
-Redshift distributions
-^^^^^^^^^^^^^^^^^^^^^^
-
-.. rubric:: NSIDE = 64
+   * -
+     - NSIDE 64
+     - NSIDE 32
+   * - Footprint pixels
+     - 22 641 of 49 152 (46.1 %)
+     - 5 954 of 12 288 (48.5 %)
+   * - GLASS generated (full sky)
+     - 498 874
+     - 500 094
+   * - GLASS galaxies / randoms
+     - 229 382 / 2 303 760
+     - 242 124 / 2 422 610
+   * - Uchuu galaxies / randoms
+     - 330 748 / 2 256 239
+     - 358 597 / 2 450 717
 
 .. figure:: _static/results_simulation_tests/nside0064/nz_comparison.png
    :width: 70%
    :align: center
-   :alt: Redshift distribution: Uchuu measured n(z) vs GLASS output n(z)
+   :alt: Redshift distribution of the Uchuu catalogue and the GLASS mock
 
-   **Redshift distribution of the Uchuu input catalog (bars) and the
-   GLASS mock (step line), both normalised to unit area.**  The GLASS mock
-   is generated using the Uchuu :math:`n(z)` as input, so the two
-   distributions agree by construction.  The :math:`n(z)` is independent
-   of NSIDE; the NSIDE = 32 version is identical.
+   Redshift distribution of the Uchuu catalogue (bars) and of the GLASS mock (step line), normalised to unit area.
 
-----
+Systematic templates
+--------------------
 
-Systematic template maps
-------------------------
-
-Five LSDR10 imaging-systematic maps are used, all normalised to zero mean
-and unit standard deviation over valid pixels:
+The five templates are normalised to zero mean and unit standard deviation over valid pixels and read from ``~/data/legacysurvey/dr10/systematics/{NSIDE:04d}/``.
 
 .. list-table::
    :widths: 25 20 55
@@ -131,572 +53,445 @@ and unit standard deviation over valid pixels:
 
    * - Map
      - Column
-     - Physical meaning
+     - Quantity
    * - ``LS10_EBV``
      - ``EBV``
-     - Galactic dust reddening (Schlegel et al. 1998)
+     - Galactic reddening (Schlegel et al. 1998)
    * - ``LS10_GALDEPTH_Z``
      - ``GALDEPTH_Z``
-     - z-band galaxy depth (selection completeness proxy)
+     - z-band galaxy depth
    * - ``LS10_PSFSIZE_R``
      - ``PSFSIZE_R``
-     - Seeing PSF size in r band (affects star–galaxy separation)
+     - r-band PSF size
    * - ``LS10_NOBS_R``
      - ``NOBS_R``
-     - Number of r-band exposures (depth uniformity)
+     - number of r-band exposures
    * - ``GAIA_nstar_faint``
      - ``nstar_faint``
-     - Faint stellar surface density (stellar contamination proxy)
-
-All maps are loaded at NSIDE = 64 from
-``~/data/legacysurvey/dr10/systematics/0064/``.
-
-.. rubric:: NSIDE = 64
+     - faint Gaia stellar density
 
 .. figure:: _static/results_simulation_tests/nside0064/templates_overview.png
    :width: 100%
    :align: center
-   :alt: Mollweide projections of the 5 LSDR10 systematic template maps at NSIDE=64
+   :alt: Mollweide projections of the five LSDR10 templates at NSIDE 64
 
-   **LSDR10 systematic template maps (NSIDE = 64)** shown in Mollweide
-   projection.  Red–blue colour scale: ±2 standard deviations from the mean.
-   The EBV and stellar-density maps show strong Galactic structure; the
-   depth and PSF maps reflect the LS10 survey footprint geometry.
+   The five templates at NSIDE 64 in Mollweide projection; the colour scale spans ±2 standard deviations.
 
-.. rubric:: NSIDE = 32
+Contamination
+-------------
 
-.. figure:: _static/results_simulation_tests/nside0032/templates_overview.png
-   :width: 100%
-   :align: center
-   :alt: Mollweide projections of the 5 LSDR10 systematic template maps at NSIDE=32
-
-   **Same maps degraded to NSIDE = 32.**  Large-scale structure is
-   preserved; small-scale fluctuations are smoothed by the coarser
-   pixelisation.
-
-----
-
-Contamination injection
------------------------
-
-Contamination is injected as per-galaxy weights rather than physically
-removing galaxies.  For a galaxy in pixel :math:`p`:
+Contamination enters as a per-galaxy weight :math:`\texttt{WEIGHT\_CONT}(p) = (1 + \delta_{\rm cont}(p))/(1 + \delta_g(p))`, where :math:`\delta_g` is the overdensity of the mock in pixel :math:`p` and :math:`\delta_{\rm cont}` follows the forward model of Berlfein et al. (2024, Eqs. 11–13):
 
 .. math::
 
-   \texttt{WEIGHT\_CONT}(p) = \frac{1 + \delta_{\rm cont}(p)}{1 + \delta_g(p)}
+   \delta_{\rm cont}(p) = \delta_g(p)\,\Bigl(1 + \textstyle\sum_i b_i\,t_i(p)\Bigr) + \sum_i a_i\,t_i(p).
 
-where :math:`\delta_g(p)` is the measured overdensity of the catalog at that
-pixel and :math:`\delta_{\rm cont}(p)` is obtained by applying the forward
-contamination model (Eq. 11–13 of Berlfein et al. 2024):
+The grid has nine configurations: three levels, :math:`|a_i| = |b_i| = 0.02` (low), 0.05 (medium) and 0.10 (high), times three scenarios, additive (:math:`b_i = 0`), multiplicative (:math:`a_i = 0`) and combined.
+The signs of :math:`a_i` and :math:`b_i` are drawn once from the seed and shared by all levels, and all five templates are contaminated.
 
-.. math::
+Recovery and methods
+--------------------
 
-   \delta_{\rm cont}(p)
-   = \delta_g(p)\,\Bigl(1 + \textstyle\sum_i b_i\,t_i(p)\Bigr)
-   + \sum_i a_i\,t_i(p)
+For each configuration we compute :math:`\delta_g^{\rm obs}` from the catalogue weighted by :math:`\texttt{WEIGHT\_CONT}` and run each method; the per-galaxy weight is :math:`\texttt{WEIGHT\_CONT}` times the correction weight, and :math:`w(\theta)` is measured with the TreeCorr Landy–Szalay estimator in 10 logarithmic bins over :math:`0.1° \le \theta \le 10°`.
+The truth uses uniform weights.
+The six methods are:
 
-These per-galaxy weights are passed to TreeCorr when computing the
-contaminated :math:`w(\theta)`.  The uncontaminated (truth) :math:`w(\theta)`
-uses uniform weights.
+* OLS and ElasticNet (:math:`\ell_1 + \ell_2` regularised) regress :math:`\delta_g^{\rm obs}` on the templates, with weight :math:`w = 1/(1 + \hat{a}\cdot t)`.
+* ISD-1 and ISD-3 fit one template at a time in 10 equal-occupancy bins with a polynomial of degree 1 or 3, weight by the inverse of the most significant fit and repeat until :math:`\max S = \Delta\chi^2/\Delta\chi^2_{68} < 2`, with at most :math:`4 n_{\rm sys}` steps and three uses per template; the weight is the product of the per-step corrections.
+* MCMC-add is the analytic Normal-Inverse-Gamma posterior of :math:`a_i` with :math:`b_i = 0`; MCMC-comb samples :math:`(a_i, b_i)` with BlackJAX NUTS (dense mass matrix, 4 chains, 1000 warm-up steps and 1000 draws per chain).
+  Both use the inverse weight :math:`w = (1 + \hat{\delta}_{\rm clean})/(1 + \delta_g^{\rm obs})`.
 
-Contamination scenarios and levels
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+All weights are clipped to :math:`[1/20, 20]`.
 
-Nine contamination configurations are tested, spanning three amplitude levels
-and three scenarios:
+ISD threshold and steps
+^^^^^^^^^^^^^^^^^^^^^^^
 
-.. list-table::
-   :widths: 15 35 50
+We calibrate :math:`\Delta\chi^2_{68}` per template, per degree and per mock source as the 68th percentile over 30 uncontaminated GLASS realisations, see Table 2.
+The null spectrum is the parametric one at :math:`5\times10^{-4}` for the GLASS source and the matched spectrum of ``LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228`` at the same NSIDE for the Uchuu source (``isd_chi2_68_glass.json`` and ``isd_chi2_68_uchuu.json`` in each ``_static/results_simulation_tests/nside00NN/`` directory).
+
+.. list-table:: Table 2. ISD :math:`\Delta\chi^2_{68}` per template.
+   :widths: 10 12 10 13 13 13 13 13
    :header-rows: 1
 
-   * - Level
-     - Amplitudes
-     - Interpretation
-   * - Low
-     - :math:`|a_i| = |b_i| = 0.02`
-     - Sub-percent modulation — typical of well-calibrated surveys
-   * - Medium
-     - :math:`|a_i| = |b_i| = 0.05`
-     - Few-percent modulation — characteristic of BGS systematics
-   * - High
-     - :math:`|a_i| = |b_i| = 0.10`
-     - Ten-percent modulation — upper end of realistic contamination
+   * - NSIDE
+     - Source
+     - ISD
+     - EBV
+     - GALDEPTH_Z
+     - PSFSIZE_R
+     - NOBS_R
+     - nstar_faint
+   * - 64
+     - GLASS
+     - 1
+     - 1.7
+     - 2.4
+     - 1.2
+     - 1.6
+     - 1.1
+   * - 64
+     - GLASS
+     - 3
+     - 4.8
+     - 4.7
+     - 3.9
+     - 5.5
+     - 5.5
+   * - 64
+     - Uchuu
+     - 1
+     - 6.9
+     - 3.5
+     - 7.6
+     - 4.2
+     - 6.8
+   * - 64
+     - Uchuu
+     - 3
+     - 17.0
+     - 8.6
+     - 12.7
+     - 13.2
+     - 42.3
+   * - 32
+     - GLASS
+     - 1
+     - 1.6
+     - 3.5
+     - 1.5
+     - 2.6
+     - 1.6
+   * - 32
+     - GLASS
+     - 3
+     - 5.6
+     - 6.4
+     - 5.7
+     - 7.4
+     - 5.3
+   * - 32
+     - Uchuu
+     - 1
+     - 4.6
+     - 1.7
+     - 4.8
+     - 2.7
+     - 8.0
+   * - 32
+     - Uchuu
+     - 3
+     - 10.3
+     - 7.3
+     - 9.2
+     - 9.0
+     - 20.7
 
-.. list-table::
-   :widths: 20 80
-   :header-rows: 1
+Every ISD run stopped on the threshold, and no step floored the correction :math:`1 + F(t)` at :math:`1/20` in any pixel.
+The number of steps per configuration, in the order low, medium, high and within each level additive, multiplicative, combined, was:
 
-   * - Scenario
-     - Forward model applied
-   * - Additive
-     - :math:`\delta_{\rm cont} = \delta_g + \sum_i a_i\,t_i`
-   * - Multiplicative
-     - :math:`\delta_{\rm cont} = \delta_g\,(1 + \sum_i b_i\,t_i)`
-   * - Combined
-     - :math:`\delta_{\rm cont} = \delta_g\,(1 + \sum_i b_i\,t_i) + \sum_i a_i\,t_i`
+* NSIDE 64, GLASS: ISD-1 6, 1, 6, 9, 1, 9, 10, 1, 10; ISD-3 4, 0, 4, 9, 0, 9, 10, 0, 10.
+* NSIDE 64, Uchuu: ISD-1 3, 2, 3, 6, 2, 6, 8, 1, 8; ISD-3 4, 1, 4, 4, 1, 4, 7, 4, 7.
+* NSIDE 32, GLASS: ISD-1 4, 0, 4, 8, 0, 9, 12, 0, 12; ISD-3 2, 0, 2, 9, 0, 9, 10, 0, 10.
+* NSIDE 32, Uchuu: ISD-1 2, 0, 2, 4, 0, 6, 6, 0, 8; ISD-3 1, 0, 1, 3, 0, 3, 3, 0, 5.
 
-The *signs* of :math:`a_i` and :math:`b_i` are drawn from :math:`\{-1,+1\}`
-once (using a fixed seed) and shared across amplitude levels, so the pattern
-of which templates amplify vs suppress the density is consistent across the
-low/medium/high comparison.
+Recovery metric
+---------------
 
-----
-
-w(θ) recovery results
----------------------
-
-The pipeline for each configuration:
-
-1. Pixelise the contaminated catalog (galaxies weighted by
-   :math:`\texttt{WEIGHT\_CONT}`) at the configured NSIDE.
-2. Compute overdensity :math:`\delta_g^{\rm obs}` from weighted galaxy /
-   random counts.
-3. Run each decontamination method on :math:`\delta_g^{\rm obs}` to obtain
-   estimated amplitudes :math:`\hat{a}_i` (and :math:`\hat{b}_i` for
-   MCMC-comb), then build per-pixel correction weights
-   :math:`w_{\rm sys}(p) = 1/(1 + \hat{a} \cdot t(p))`.
-4. Assign per-galaxy weights as the *product*
-   :math:`\texttt{WEIGHT\_CONT} \times w_{\rm sys}` so that the correction
-   is applied on top of the contamination rather than to the original clean
-   catalog.
-5. Compute :math:`w(\theta)` with TreeCorr (Landy–Szalay, log-spaced bins,
-   :math:`\theta \in [0.1°, 10°]`).
-
-GLASS mock — all 9 configurations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. rubric:: NSIDE = 64
-
-.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_grid_glass.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — GLASS mock, NSIDE=64
-
-   **w(θ) recovery on the GLASS mock (NSIDE = 64).**  Rows: contamination
-   amplitude level (low / medium / high).  Columns: contamination scenario
-   (additive / multiplicative / combined).  In each panel: black solid =
-   truth; grey dashed = contaminated; coloured lines = recovered by OLS
-   (blue), ISD-1 (orange), ElasticNet (green), MCMC-add (red), MCMC-comb
-   (purple).  At NSIDE = 64 the angular pixel scale is ≈55 arcmin, giving
-   sharp template gradients and demanding decontamination.
-
-.. rubric:: NSIDE = 32
-
-.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_grid_glass.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — GLASS mock, NSIDE=32
-
-   **Same test at NSIDE = 32** (pixel scale ≈110 arcmin).  Coarser
-   pixelisation smooths template gradients, which generally makes
-   decontamination easier; the improvement factor is expected to be
-   somewhat larger than at NSIDE = 64 for the same galaxy catalog size.
-
-Uchuu mock — all 9 configurations
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. rubric:: NSIDE = 64
-
-.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_grid_uchuu.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — Uchuu mock, NSIDE=64
-
-   **w(θ) recovery on the Uchuu lightcone mock (NSIDE = 64)** (colour coding
-   as above).  The Uchuu mock has a physically realistic clustering signal
-   from *N*-body subhalo abundance matching.  Recovery quality is comparable
-   to the GLASS case, confirming that the pipeline is not sensitive to the
-   specific form of the input clustering signal.
-
-.. rubric:: NSIDE = 32
-
-.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_grid_uchuu.png
-   :width: 100%
-   :align: center
-   :alt: w(θ) recovery grid — Uchuu mock, NSIDE=32
-
-   **Same for the Uchuu mock at NSIDE = 32.**  Comparison with the NSIDE = 64
-   panel above shows the effect of pixelisation resolution on recovery
-   quality for an *N*-body–based catalog.
-
-GLASS vs Uchuu at medium contamination
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. rubric:: NSIDE = 64
-
-.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_by_source.png
-   :width: 100%
-   :align: center
-   :alt: GLASS vs Uchuu w(θ) recovery — medium combined, NSIDE=64
-
-   **GLASS (left) vs Uchuu (right) at medium combined contamination,
-   NSIDE = 64** (OLS blue, ISD-1 orange, ElasticNet green, MCMC-add red,
-   MCMC-comb purple).  Recovery quality is similar between mock types.
-   MCMC-comb reaches closer to the truth because the combined scenario
-   has a genuine multiplicative component.
-
-.. rubric:: NSIDE = 32
-
-.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_by_source.png
-   :width: 100%
-   :align: center
-   :alt: GLASS vs Uchuu w(θ) recovery — medium combined, NSIDE=32
-
-   **Same comparison at NSIDE = 32.**  The qualitative picture is
-   unchanged; any quantitative differences relative to NSIDE = 64 reflect
-   the coarser template resolution rather than differences in the mocks.
-
-----
-
-Recovery metric summary
------------------------
-
-The table below summarises the mean fractional bias in :math:`w(\theta)`:
+The mean fractional bias is
 
 .. math::
 
-   \mathcal{B}(w) = \left\langle
-     \frac{|w(\theta) - w_{\rm true}(\theta)|}{\max_\theta |w_{\rm true}(\theta)|}
-   \right\rangle_{\!\theta}
+   \mathcal{B}(w) = \left\langle \frac{|w(\theta) - w_{\rm true}(\theta)|}{\max\bigl(10^{-3},\,\max_\theta |w_{\rm true}(\theta)|\bigr)} \right\rangle_{\!\theta},
 
-computed over the 10 angular bins and all available mock realisations.
-The denominator :math:`\max_\theta|w_{\rm true}|` is a single scalar per
-configuration, so the metric is finite even when :math:`w_{\rm true}(\theta)`
-crosses zero.  Values :math:`< 1` mean the residual error is smaller than
-the peak true signal.
-The *improvement factor* is :math:`\mathcal{B}(w_{\rm contaminated}) /
-\mathcal{B}(w_{\rm recovered})`.
+averaged over the 10 angular bins, and the improvement factor is :math:`\mathcal{B}(w_{\rm contaminated})/\mathcal{B}(w_{\rm recovered})`.
+The :math:`10^{-3}` floor is not reached in any configuration.
 
-.. rubric:: NSIDE = 64
+Table 3 (NSIDE 64):
 
 .. csv-table::
    :file: _static/results_simulation_tests/nside0064/summary_table.csv
    :header-rows: 1
 
-.. rubric:: NSIDE = 32
+Table 4 (NSIDE 32):
 
 .. csv-table::
    :file: _static/results_simulation_tests/nside0032/summary_table.csv
    :header-rows: 1
 
-Heatmap of recovery bias
-^^^^^^^^^^^^^^^^^^^^^^^^
+The contaminated :math:`\mathcal{B}` spans 0.11–4.71 on GLASS and 0.006–0.040 on Uchuu at NSIDE 64, and 0.036–3.63 on GLASS and 0.004–0.061 on Uchuu at NSIDE 32.
+Table 5 counts, per method, the configurations in which the corrected :math:`\mathcal{B}` exceeds the contaminated one, with the median improvement factor over the nine configurations.
 
-.. rubric:: NSIDE = 64
+.. list-table:: Table 5. Configurations (of 9) with corrected bias above the contaminated bias, and median improvement factor in brackets.
+   :widths: 20 20 20 20 20
+   :header-rows: 1
+
+   * - Method
+     - GLASS, NSIDE 64
+     - Uchuu, NSIDE 64
+     - GLASS, NSIDE 32
+     - Uchuu, NSIDE 32
+   * - OLS
+     - 0 (2.09)
+     - 8 (0.72)
+     - 3 (3.25)
+     - 7 (0.78)
+   * - ISD-1
+     - 3 (3.17)
+     - 8 (0.66)
+     - 0 (2.74)
+     - 4 (1.00)
+   * - ISD-3
+     - 0 (2.99)
+     - 8 (0.55)
+     - 0 (4.25)
+     - 4 (1.00)
+   * - ElasticNet
+     - 0 (2.44)
+     - 5 (0.79)
+     - 0 (3.07)
+     - 4 (1.00)
+   * - MCMC-add
+     - 0 (2.91)
+     - 9 (0.70)
+     - 1 (3.95)
+     - 8 (0.71)
+   * - MCMC-comb
+     - 1 (1.72)
+     - 8 (0.33)
+     - 5 (0.87)
+     - 8 (0.21)
+   * - Total (of 54)
+     - 4
+     - 46
+     - 9
+     - 35
+
+The corrected :math:`\mathcal{B}` equals the contaminated one in the three multiplicative configurations for ISD-3 on GLASS and for ElasticNet on Uchuu at NSIDE 64, and for ISD-1, ISD-3 and ElasticNet on both sources at NSIDE 32.
+
+w(θ) residuals
+--------------
+
+Each grid has contamination level in rows and scenario in columns, and shows :math:`(w - w_{\rm true})/|w_{\rm true}|` per angular bin for the contaminated measurement (grey dashed) and each method.
+
+.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_grid_glass.png
+   :width: 100%
+   :align: center
+   :alt: w(θ) residual grid, GLASS mock, NSIDE 64
+
+   GLASS mock, NSIDE 64.
+
+.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_grid_glass.png
+   :width: 100%
+   :align: center
+   :alt: w(θ) residual grid, GLASS mock, NSIDE 32
+
+   GLASS mock, NSIDE 32.
+
+.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_grid_uchuu.png
+   :width: 100%
+   :align: center
+   :alt: w(θ) residual grid, Uchuu mock, NSIDE 64
+
+   Uchuu mock, NSIDE 64.
+
+.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_grid_uchuu.png
+   :width: 100%
+   :align: center
+   :alt: w(θ) residual grid, Uchuu mock, NSIDE 32
+
+   Uchuu mock, NSIDE 32.
+
+.. figure:: _static/results_simulation_tests/nside0064/wtheta_recovery_by_source.png
+   :width: 100%
+   :align: center
+   :alt: GLASS and Uchuu residuals at medium combined contamination, NSIDE 64
+
+   GLASS (left) and Uchuu (right) at medium combined contamination, NSIDE 64.
+
+.. figure:: _static/results_simulation_tests/nside0032/wtheta_recovery_by_source.png
+   :width: 100%
+   :align: center
+   :alt: GLASS and Uchuu residuals at medium combined contamination, NSIDE 32
+
+   The same at NSIDE 32.
+
+Bias by configuration
+---------------------
+
+The heatmaps and amplitude scans show :math:`\mathcal{B}` averaged over the GLASS and Uchuu rows of Tables 3 and 4.
 
 .. figure:: _static/results_simulation_tests/nside0064/recovery_bias_heatmap.png
    :width: 100%
    :align: center
-   :alt: Heatmap of mean fractional w(θ) bias — NSIDE=64
+   :alt: Heatmap of the mean fractional bias, NSIDE 64
 
-   **Mean fractional bias** :math:`\mathcal{B}` **per method (row) and
-   configuration (column), NSIDE = 64.**  Green = low bias; red = high
-   bias.  Rows: contaminated (baseline), OLS, ISD-1, ElasticNet,
-   MCMC-add, MCMC-comb.  Level groups (low / medium / high) separated by
-   white vertical lines; columns within each group: additive (add),
-   multiplicative (mul), combined (com).
-
-.. rubric:: NSIDE = 32
+   :math:`\mathcal{B}` per method (rows) and configuration (columns), NSIDE 64; the colour scale saturates at 0.5.
 
 .. figure:: _static/results_simulation_tests/nside0032/recovery_bias_heatmap.png
    :width: 100%
    :align: center
-   :alt: Heatmap of mean fractional w(θ) bias — NSIDE=32
+   :alt: Heatmap of the mean fractional bias, NSIDE 32
 
-   **Same heatmap at NSIDE = 32.**  Comparing the two resolutions shows
-   how much of the residual bias is driven by pixelisation versus
-   statistical noise or model limitations.
-
-Bias vs contamination amplitude
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-.. rubric:: NSIDE = 64
+   The same at NSIDE 32.
 
 .. figure:: _static/results_simulation_tests/nside0064/contamination_amplitude_scan.png
    :width: 100%
    :align: center
-   :alt: Bias vs amplitude per scenario — NSIDE=64
+   :alt: Bias against contamination amplitude per scenario, NSIDE 64
 
-   **Recovery bias vs contamination amplitude (NSIDE = 64)**, for each
-   scenario (three panels).  Dashed black = contaminated baseline.
-   Coloured lines: OLS (blue), ISD-1 (orange), ElasticNet (green),
-   MCMC-add (red), MCMC-comb (purple).  MCMC-comb maintains lower
-   residual bias at medium and high amplitudes in the multiplicative and
-   combined scenarios.
-
-.. rubric:: NSIDE = 32
+   :math:`\mathcal{B}` against contamination amplitude for each scenario, NSIDE 64; black dashed is the contaminated measurement.
 
 .. figure:: _static/results_simulation_tests/nside0032/contamination_amplitude_scan.png
    :width: 100%
    :align: center
-   :alt: Bias vs amplitude per scenario — NSIDE=32
+   :alt: Bias against contamination amplitude per scenario, NSIDE 32
 
-   **Same scan at NSIDE = 32.**  The overall trend is preserved; absolute
-   bias levels may differ due to the reduced template resolution and
-   smaller galaxy catalog size used at NSIDE = 32.
+   The same at NSIDE 32.
 
-----
+Amplitude recovery
+------------------
 
-Contamination parameter recovery
----------------------------------
+We compare the recovered amplitudes with the injected ones over both sources, all templates and all configurations with a non-zero injected value (60 values of :math:`a_i` and 60 of :math:`b_i` per NSIDE), see Table 6.
+For ISD-1 and ISD-3, :math:`\hat{a}_i` is the linear projection of the fitted curves and is zero for a template that is never selected; only MCMC-comb estimates :math:`b_i`.
 
-Beyond :math:`w(\theta)` recovery, we can directly check whether each
-decontamination method returns the injected template amplitudes
-:math:`a_i` (additive) and :math:`b_i` (multiplicative).  The scatter
-plots below show the injected value on the :math:`x`-axis and the
-recovered value on the :math:`y`-axis, across all templates, contamination
-levels (blue = low, orange = medium, red = high), and scenarios.
+.. list-table:: Table 6. Relative error :math:`|\hat{a}_i - a_i|/|a_i|` (and :math:`|\hat{b}_i - b_i|/|b_i|` for MCMC-comb), mean and median.
+   :widths: 28 18 18 18 18
+   :header-rows: 1
 
-Five methods are compared:
+   * - Method
+     - NSIDE 64 mean
+     - NSIDE 64 median
+     - NSIDE 32 mean
+     - NSIDE 32 median
+   * - OLS
+     - 0.453
+     - 0.101
+     - 0.466
+     - 0.092
+   * - ISD-1
+     - 0.605
+     - 0.397
+     - 0.521
+     - 0.440
+   * - ISD-3
+     - 0.538
+     - 0.495
+     - 0.628
+     - 0.650
+   * - ElasticNet
+     - 0.363
+     - 0.133
+     - 0.370
+     - 0.114
+   * - MCMC-add
+     - 0.453
+     - 0.101
+     - 0.466
+     - 0.092
+   * - MCMC-comb, :math:`a_i`
+     - 0.473
+     - 0.090
+     - 0.470
+     - 0.099
+   * - MCMC-comb, :math:`b_i`
+     - 0.585
+     - 0.241
+     - 1.294
+     - 0.383
 
-* **OLS, ISD-1, ElasticNet, MCMC-add** — estimate :math:`a_i` only;
-  :math:`b_i \equiv 0` by construction (bottom row shows the trivial
-  scatter around zero).
-* **MCMC-comb** — jointly samples :math:`(a_i, b_i)`, so its bottom-row
-  panel shows whether the injected multiplicative amplitudes are recovered.
-
-.. rubric:: NSIDE = 64
+The figures show the relative error against the injected value, coloured by level (blue low, orange medium, green high), with the mean and standard deviation in each panel; the rows are also written separately as ``parameter_recovery_a.png`` and ``parameter_recovery_b.png``.
 
 .. figure:: _static/results_simulation_tests/nside0064/parameter_recovery_ab.png
    :width: 100%
    :align: center
-   :alt: Parameter recovery scatter aᵢ and bᵢ — NSIDE=64
+   :alt: Relative error of recovered contamination amplitudes, NSIDE 64
 
-   **Contamination parameter recovery (NSIDE = 64).**  Top row: additive
-   amplitudes :math:`a_i` (injected vs recovered).  Bottom row:
-   multiplicative amplitudes :math:`b_i`.  Each column is one method.
-   Points coloured by level (blue = low, orange = medium, red = high).
-   Dashed diagonal = ideal recovery.  Bias and std of
-   :math:`\hat{a}_i - a_i^{\rm true}` annotated top-left.
-   OLS, ISD-1, ElasticNet, MCMC-add: :math:`b_i \equiv 0`.
-   MCMC-comb: free :math:`b_i` estimate.
-
-.. rubric:: NSIDE = 32
+   Relative error of the recovered :math:`a_i` (top) and :math:`b_i` (bottom), NSIDE 64.
 
 .. figure:: _static/results_simulation_tests/nside0032/parameter_recovery_ab.png
    :width: 100%
    :align: center
-   :alt: Parameter recovery scatter aᵢ and bᵢ — NSIDE=32
+   :alt: Relative error of recovered contamination amplitudes, NSIDE 32
 
-   **Same parameter recovery at NSIDE = 32.**  The coarser pixelisation
-   and smaller catalog may increase scatter in the recovered amplitudes;
-   comparing with NSIDE = 64 quantifies the resolution dependence of the
-   amplitude estimates.
+   The same at NSIDE 32.
 
-Individual parameter figures are also available in each resolution
-subdirectory: ``parameter_recovery_a.png`` (additive only) and
-``parameter_recovery_b.png`` (multiplicative only, MCMC-comb focused).
+Run time
+--------
 
-----
+Table 7 gives the wall time of each method per configuration on the dahu nodes, as recorded in ``results_summary.json``.
 
-Discussion
-----------
-
-**What the methods can and cannot do.**  OLS, ISD-1, ElasticNet, and
-MCMC-add all fit an *additive-only* model
-:math:`\delta_g^{\rm obs} \approx \sum_i \alpha_i t_i`.  This is exact only
-when the contamination is purely additive (:math:`b_i = 0`).  For
-multiplicative or combined contamination the additive fit absorbs only
-the projection of the mode-coupling term
-:math:`\delta_g \sum_i b_i t_i` onto the templates; the residual
-multiplicative bias is not removed.  MCMC-comb samples both :math:`a_i`
-and :math:`b_i` jointly using the correct forward likelihood, but its
-ability to constrain :math:`b_i` depends on the signal-to-noise of the
-cross-term :math:`\delta_g b_i t_i` in the data.
-
-.. warning::
-
-   **On the Uchuu mock the correction usually makes the** :math:`w(\theta)` **bias
-   worse.**  In ``nside0064/summary_table.csv``, **37 of the 45 Uchuu
-   method-cells have an improvement factor below 1** — i.e. the corrected
-   :math:`w(\theta)` is further from the truth than doing nothing at all — and
-   ``MCMC-comb`` is the worst method in almost every cell.  On the GLASS mocks,
-   where the injected contamination is far larger relative to the signal, only
-   14 of 45 cells degrade.  The prose below describes the *intended* behaviour of
-   each method; read it against the table, not instead of it.
-
-   The pattern is what the detectability law predicts: the Uchuu injections
-   produce a :math:`w(\theta)`-level contamination comparable to or below the
-   noise, and since the :math:`w(\theta)` signal grows as :math:`A^2` while the
-   fitted correction carries the full variance of :math:`\hat a`, "correcting"
-   adds more variance than it removes bias.  The competing explanation, that the
-   ``multiplicative`` *fit* model did not match the pure multiplicative form used
-   by the *injector*, is closed: the fit model now sets :math:`a = 0` and fits
-   :math:`b`, which is the form the injector uses.
-
-**Additive scenario.**  Where the injected amplitude is well above the detection
-threshold, OLS and ISD-1 achieve the lowest residual bias: they fit the model that
-exactly describes the injected contamination, and their correction weight
-:math:`w(p) = 1/(1 + \hat{a}\cdot t(p))` cancels the contamination field.
-MCMC-comb uses the exact pixel-level inverse
-:math:`w(p) = (1+\hat{\delta}_g^{\rm clean}(p))/(1+\delta_g^{\rm obs}(p))`
-which is also exact when the parameters are correct; any overhead relative to
-OLS reflects residual posterior uncertainty in the MCMC chain.  At *low* injected
-amplitude on the Uchuu mock this ordering does not hold and every method degrades
-the measurement (see the warning above).
-
-**Multiplicative scenario.**  The additive-only methods (OLS, ISD-1,
-ElasticNet, MCMC-add) fit :math:`\hat{\alpha}_i \approx 0` for uncorrelated
-:math:`\delta_g` and :math:`t_i`, so their correction weight is
-:math:`\approx 1` and the contaminated :math:`w(\theta)` is returned
-essentially unchanged.  MCMC-comb samples :math:`b_i` from the correct
-likelihood and applies the exact pixel-level inverse, which can partially
-reduce the multiplicative bias when :math:`b_i` is well constrained.  For
-shot-noise–dominated catalogs (GLASS), the cross-term
-:math:`\delta_g b_i t_i` is small and :math:`b_i` is poorly constrained,
-so MCMC-comb provides little improvement there.
-
-**Combined scenario.**  Additive-only methods partially correct the
-additive component but leave the multiplicative term uncorrected.  At
-amplitudes :math:`|b_i| = 0.10` the residual multiplicative bias can
-exceed the original contamination bias, causing the net residual to be
-larger than the contaminated baseline.  MCMC-comb jointly constrains
-:math:`a_i` and :math:`b_i` and applies the exact inverse, which is the only
-method here that *can* remove the multiplicative term.  In practice, on the Uchuu
-mock it is the **worst** performer in almost every configuration: with
-:math:`2n_s+1` free parameters against a weak cross-term signal, the additional
-posterior variance it injects exceeds the bias it removes.  It is preferred only
-where the multiplicative contamination is strong enough to be constrained — which,
-on these mocks, is the GLASS high-amplitude cells.
-
-**GLASS vs Uchuu.**  The GLASS mock is a full-sky Poisson realisation
-whose true :math:`w(\theta)` is near zero (shot-noise dominated).  Any
-contamination at medium or high amplitude substantially exceeds the baseline
-signal, making the fractional bias metric large even after correction.  The
-Uchuu mock has a genuine *N*-body clustering signal and is the more
-representative test for real survey analysis.  All quantitative conclusions
-below refer primarily to the Uchuu mock.
-
-**NSIDE = 32 vs NSIDE = 64.**  Coarser pixelisation smooths the systematic
-templates, generally making regression easier.  The improvement factors are
-somewhat larger at NSIDE = 32, but the relative ranking of methods is
-preserved.  The NSIDE = 64 results are the authoritative reference for the
-LS10 analysis.
-
-**Parameter recovery.**  The :math:`a_i` scatter panels show that all five
-methods recover the injected additive amplitudes with scatter that grows
-with amplitude.  The :math:`b_i` panels for OLS, ISD-1, ElasticNet, and
-MCMC-add are "not applicable" (those methods return :math:`b_i \equiv 0`
-by design).  MCMC-comb's :math:`b_i` panel quantifies how well the
-multiplicative amplitudes are recovered; recovery quality degrades for
-shot-noise–dominated data where the mode-coupling signal is weak.
-
-**Quantitative summary (NSIDE = 64, Uchuu mock).**
-Selected bias values :math:`\mathcal{B}` from the CSV table:
-
-.. list-table::
-   :widths: 30 15 15 15 15
+.. list-table:: Table 7. Method wall time per configuration in seconds, median and [min, max] over the nine configurations.
+   :widths: 20 20 20 20 20
    :header-rows: 1
 
-   * - Scenario
-     - Contaminated
-     - OLS
-     - ISD-1
-     - MCMC-comb
-   * - Medium additive
-     - 0.047
-     - 0.018
-     - 0.016
-     - **0.001**
-   * - High additive
-     - 0.185
-     - 0.071
-     - 0.052
-     - **0.011**
-   * - Medium multiplicative
-     - 0.010
-     - 0.008
-     - 0.009
-     - **0.005**
-   * - High multiplicative
-     - 0.024
-     - 0.022
-     - 0.022
-     - **0.005**
-   * - Medium combined
-     - 0.055
-     - 0.038
-     - 0.035
-     - **0.002**
-   * - High combined
-     - 0.196
-     - 0.235 ❌
-     - 0.220 ❌
-     - **0.026**
+   * - Method
+     - GLASS, NSIDE 64
+     - Uchuu, NSIDE 64
+     - GLASS, NSIDE 32
+     - Uchuu, NSIDE 32
+   * - OLS
+     - 0.002 [0.002, 0.002]
+     - < 0.001 [< 0.001, 0.012]
+     - < 0.001 [< 0.001, 0.006]
+     - < 0.001 [< 0.001, < 0.001]
+   * - ISD-1
+     - 0.49 [0.08, 4.1]
+     - 0.03 [0.01, 3.1]
+     - 0.10 [0.01, 3.1]
+     - 0.009 [0.002, 2.5]
+   * - ISD-3
+     - 0.30 [0.03, 0.55]
+     - 0.025 [0.009, 0.040]
+     - 0.05 [0.009, 0.13]
+     - 0.004 [0.002, 0.009]
+   * - ElasticNet
+     - 6.9 [2.5, 7.1]
+     - 7.4 [4.6, 7.6]
+     - 5.6 [2.0, 5.6]
+     - 5.9 [4.2, 6.1]
+   * - MCMC-add
+     - 0.12 [0.09, 1.8]
+     - 0.13 [0.11, 5.3]
+     - 0.12 [0.08, 1.6]
+     - 0.11 [0.07, 4.5]
+   * - MCMC-comb
+     - 432 [274, 1296]
+     - 22 [5.9, 108]
+     - 195 [22, 526]
+     - 7.9 [2.4, 128]
 
-❌ = worse than contaminated (genuine method limitation, not a code issue).
+Reproduce
+---------
 
-**Practical recommendations.**
-
-* For *additive* contamination at any amplitude, OLS or ISD-1 are the
-  fastest methods with excellent recovery.  MCMC-comb also performs well
-  at the cost of longer runtime.
-* For *multiplicative* or *combined* contamination, use MCMC-comb.  It is
-  the only method that jointly constrains :math:`a_i` and :math:`b_i` and
-  applies the exact pixel-level inverse correction.
-* At *high combined* amplitude (:math:`|a_i| = |b_i| = 0.10`), additive-only
-  methods (OLS, ISD-1, ElasticNet) can be *worse* than the contaminated
-  baseline because they partially overcorrect the additive term while leaving
-  the multiplicative term untouched.  MCMC-comb reduces the residual bias by
-  ~8× relative to the contaminated baseline.
-* For *shot-noise dominated* data (GLASS full-sky mock), the cross-term
-  :math:`\delta_g b_i t_i` is suppressed and :math:`b_i` is poorly
-  constrained; all methods behave similarly in that regime.
-
-----
-
-How to reproduce
-----------------
-
-Each NSIDE run goes to its own subdirectory; runs do not overwrite each other.
-
-**Step 1 — Run the simulation pipeline (both resolutions):**
+Each NSIDE writes to its own subdirectory of ``--output-dir``; a missing Uchuu file is an error unless ``--glass-only`` is given.
 
 .. code-block:: bash
 
-   # NSIDE = 64 — production run (outputs → data/simulations/nside0064/)
-   python scripts/run_simulation_tests.py \
-       --nside 64 \
-       --n-glass 500000 \
-       --methods OLS ISD-1 ElasticNet MCMC-add MCMC-comb \
-       --output-dir data/simulations \
-       --syst-dir ~/data/legacysurvey/dr10/systematics/ \
-       --uchuu-data ~/data/Uchuu/FullSky/mock_catalogues/\
-   MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/\
-   MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373_DATA.fits
+   UCHUU=~/data/Uchuu/FullSky/mock_catalogues/MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373_DATA.fits.gz
+   CL=<sys_mapping_benchmark>/matched_spectra/LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228
 
-   # NSIDE = 32 — fast validation (outputs → data/simulations/nside0032/)
-   python scripts/run_simulation_tests.py \
-       --nside 32 \
-       --n-glass 100000 \
-       --methods OLS ISD-1 ElasticNet MCMC-add MCMC-comb \
-       --output-dir data/simulations \
-       --syst-dir ~/data/legacysurvey/dr10/systematics/
+   for NS in 64 32; do
+     python scripts/run_simulation_tests.py --nside ${NS} --n-glass 500000 \
+         --methods OLS ISD-1 ISD-3 ElasticNet MCMC-add MCMC-comb \
+         --cl-amplitude 5e-4 --uchuu-data "$UCHUU" \
+         --uchuu-null-cl-file "${CL}_NSIDE$(printf '%04d' ${NS})_match.json" \
+         --syst-dir ~/data/legacysurvey/dr10/systematics/ \
+         --output-dir data/simulations
+   done
 
-**Step 2 — Generate figures and tables (both resolutions):**
+The figures and ``summary_table.csv`` go to ``docs/_static/results_simulation_tests/nside{NSIDE:04d}/`` (both plot commands also accept ``--results-json``, ``--output-dir`` and ``--cl-amplitude``); the two ``isd_chi2_68.json`` files are in ``data/simulations/nside{NSIDE:04d}/{glass,uchuu}/``.
 
 .. code-block:: bash
 
-   # Figures → docs/_static/results_simulation_tests/nside0064/
    python scripts/plot_simulation_tests.py --nside 64
-
-   # Figures → docs/_static/results_simulation_tests/nside0032/
    python scripts/plot_simulation_tests.py --nside 32 --no-templates
-
-**Step 3 — Build documentation:**
-
-.. code-block:: bash
-
-   cd docs && make html
-
-----
 
 References
 ----------
 
-* Berlfein et al. 2024, MNRAS 531, 4954.  `arXiv:2401.12293 <https://arxiv.org/abs/2401.12293>`_
-* Tessore et al. 2023, OJAp 6, 11 (GLASS).  `arXiv:2302.01942 <https://arxiv.org/abs/2302.01942>`_
+* Berlfein et al. 2024, MNRAS 531, 4954. `arXiv:2401.12293 <https://arxiv.org/abs/2401.12293>`_
+* Tessore et al. 2023, OJAp 6, 11 (GLASS). `arXiv:2302.01942 <https://arxiv.org/abs/2302.01942>`_
 * GLASS code: https://github.com/glass-dev/glass
+* Schlegel, Finkbeiner & Davis 1998, ApJ 500, 525.
 * Weaverdyck & Huterer 2021, MNRAS 503, 5061.
 * Rodríguez-Monroy et al. 2025, arXiv:2509.07943.

@@ -1,10 +1,8 @@
 Roadmap
 =======
 
-Open work, ordered by impact on scientific output rather than by implementation
-effort.  Every entry corresponds to an open finding in the ``sys_mapping_paper``
-document, whose resolution table gives the same list ordered by cost; this page adds
-the implementation detail.
+Open work, ordered by its effect on the scientific products.
+:doc:`bibliography` gives the per-paper implementation status.
 
 .. contents:: On this page
    :local:
@@ -12,175 +10,195 @@ the implementation detail.
 
 ----
 
-P0 — correctness of the published products
-------------------------------------------
+Statistics
+----------
 
-**Include the cross-template terms at** :math:`\nside=64`.
-The two-point correction and the amplitude-bias estimator retain only the auto terms.
-The PCA rotation diagonalises the template covariance at zero lag, which does not make
-:math:`\xi_{ij}(\theta)` vanish at :math:`\theta > 0`.  Measured with the fitted
-amplitudes over the nine samples, the neglected terms are 1.9 % of the correction at
-NSIDE 32 and 14.7 % at NSIDE 64, reaching 36.9 % on one sample.  The correction itself
-reaches 18 % of :math:`\hat w` in the widest bins, so at NSIDE 64 the neglected term
-is about 3 % of the corrected :math:`w(\theta)`.
+Full-rank GLS likelihood
+~~~~~~~~~~~~~~~~~~~~~~~~
 
-The share is a property of the rotated basis rather than of the amplitudes' size:
-``ISD-1`` gives 2.5 % on the same cells with amplitudes differing by a factor 2.5 in
-norm.  :func:`~sys_mapping.contamination.compute_two_point_correction` accepts the full
-:math:`(\nsys, \nsys, n_\theta)` matrix; building it costs
-:math:`\nsys(\nsys{+}1)/2 = 66` cross-spectra at :math:`\nsys = 11`, minutes per
-analysis.  *Action:* re-issue the products through that path.
+The pixel likelihood assumes independent pixels, so on a clustered field its posterior widths
+and :math:`\chi^2` p-values are too small.
+Calibrated errors and p-values come from mock nulls
+(:func:`~sys_mapping.diagnostics.calibrated_template_significance`,
+:func:`~sys_mapping.covariance.mock_sandwich_covariance`, ``null_lambda`` in
+:func:`~sys_mapping.model_selection.likelihood_ratio_test`).
+A full-rank precision built from the theory :math:`C_\ell` plus shot noise would calibrate the
+likelihood itself.
+On the full sky :math:`R^{-1}` is diagonal in harmonic space; on the cut sky
+:math:`R^{-1}v` is a conjugate-gradient solve around a spherical-harmonic operator,
+differentiable in JAX.
+:func:`~sys_mapping.covariance.build_harmonic_precision` is the entry point and raises
+``NotImplementedError``.
+The low-rank :class:`~sys_mapping.covariance.LowRankPrecision` does not calibrate the
+likelihood when the templates lie outside the span of the mock ensemble.
 
-**Complete the product grid at NSIDE 256.**
-``MCMC-comb`` takes 6.1 h at NSIDE 128 and NSIDE 256 has four times the pixels, so the
-cell needs roughly 24 h against the 12 h the campaign allows.  No calibrated result
-depends on that resolution.  *Action:* submit with a 36 h walltime, or state that the
-supported resolutions are 32, 64 and 128.
+Fisher-matrix bias propagation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-----
-
-P1 — statistical rigour
-------------------------
-
-**Give the per-template significances a covariance that holds on a correlated field.**
-The iid likelihood has a 3-sigma false-positive rate of 76--96 % on clean simulations,
-so a significance quoted from it is not a detection.  A full-rank GLS precision is the
-fix rather than a repair: :math:`R^{-1}v` on the cut sky is a conjugate-gradient solve
-wrapping a spherical-harmonic operator, differentiable under ``jax``.  Until it exists,
-:func:`~sys_mapping.diagnostics.snr_template_ranking` warns and the calibrated errors
-come from :func:`~sys_mapping.covariance.mock_sandwich_covariance`.
-
-**Give the rejections a magnitude.**
-The Monte-Carlo :math:`p` floor is :math:`1/(N+1)`, so :math:`N = 50` reports
-:math:`p \ge 0.020` and every rejection sits exactly on it: the test cannot
-distinguish a :math:`3\sigma` result from a :math:`10\sigma` one.  *Action:* raise
-:math:`N` for the cells that reject at the floor.  ``--resume-null`` adds mocks without
-re-fitting the data.
-
-**Require a matched spectrum for any calibrated statistic.**
-The scalar parametric null under-clusters LS10 by a factor of about 25 in variance at
-the ``5e-4`` default, and no single value corrects it: the fitted amplitude spans two
-orders of magnitude across samples and resolutions.  *Action:* require ``cl_input``
-rather than falling back to a scalar.
+Given the residual :math:`\Delta C_\ell` or :math:`\Delta w(\theta)` left by a correction,
+the induced parameter bias is
+:math:`\delta\theta = F^{-1}\,\partial\mu^{\rm T} C^{-1} \Delta\mu`
+(DeRose et al. 2026).
+The likelihood is differentiable in JAX (``likelihood.make_log_likelihood``,
+``nuts.build_logdensity``), so ``jax.jacfwd`` supplies the derivatives; the missing piece is
+a theory data vector for :math:`\Omega_m` and :math:`b\sigma_8`.
+This states the break-even rule of :doc:`detectability_law` in cosmological parameters.
 
 ----
 
-P2 — method completeness
--------------------------
+Contamination model
+-------------------
 
-**Confirm the ISD bin count at high resolution.**
-The sweep shows ``n_bins = 20`` dominating the shipped ``10`` at ``poly_order = 3`` on
-residual (0.028 against 0.032), precision (0.925 against 0.870) and recall (0.835
-against 0.808).  It is untested on the sparse LS10 samples at NSIDE >= 128, where the
-:math:`N_\beta \ge 2` bin-admission rule could start rejecting bins.  *Action:* run
-the sweep at NSIDE 128, then change the default.
+The composition term
+~~~~~~~~~~~~~~~~~~~~
+
+Galaxy types respond differently to the same observing conditions, so the sample composition,
+:math:`n(z)` and :math:`b(z)` vary across the footprint even after a perfect first-order
+correction (Kong et al. 2026).
+The residual is second order in the templates,
+:math:`\sum_{kk'} h_k h_{k'} \langle f_k, f_{k'}\rangle \langle \delta_k, \delta_{k'}\rangle`,
+does not correlate with them, and is invisible to the residual and null tests.
+The package has no sub-sample model: the work is to fit :math:`f_k` per sub-sample (split by
+magnitude or colour) and bound the term.
+
+The monopole
+~~~~~~~~~~~~
+
+:func:`~sys_mapping.maps.compute_overdensity` normalises the randoms to the galaxy total, so
+:math:`\langle\hat\delta_g\rangle = 0` by construction and the additive contribution
+:math:`\boldsymbol\alpha\cdot\bar{\mathbf M}` to :math:`\bar n_g` is absorbed.
+That contribution rescales every :math:`C_\ell` by a constant (Hernández-Monteagudo et al. 2025).
+Recovering it needs an external :math:`\bar n_g`, for example from a purity measurement; the
+deliverable is to accept one and report the induced amplitude offset.
 
 ----
 
-P3 — infrastructure
+Two-point correction
 --------------------
 
-* **API coverage check in CI** — assert that every module reachable from
-  ``sys_mapping.__all__`` has a page under ``docs/api/``.  ``nuts`` and ``plotting``
-  were both missing until this pass.
-* **Guard the GLS + skew-normal combination**, which is not a normalised density,
-  either by raising or by documenting it as a heuristic.
-* **Harmonise estimator defaults** — the auto- and cross-2PCF use different default
-  metrics (``Euclidean`` vs ``Arc``), and :math:`w(\theta)` and the
-  :math:`\kappa\kappa` correlators use different default binning, so mixing them
-  silently yields incomparable :math:`\theta` grids.
+Weighted cross-term matrices
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+:func:`~sys_mapping.utils.template_correlation_matrix` accepts per-object weights.
+The correction subtracts :math:`\sum_{ij}\tilde A_{ij}\,\xi_{ij}(\theta)` from
+:math:`\hat w(\theta)`, which is consistent when both are measured with the same pair weights.
+``scripts/run_ls10_analysis.py`` measures both unweighted.
+A survey that weights its pairs by coverage (``fracdet``) or by systematic weights needs the
+matrix measured with those weights and a test that the weighted correction recovers the
+clean :math:`w(\theta)`.
 
 ----
 
-P2 — from the 2025/2026 literature
------------------------------------
+Products and validation
+-----------------------
 
-Four papers in the technical paper's bibliography name capabilities this package does
-not have.  :doc:`bibliography` carries the per-paper status; what follows is what is
-absent, each attributed to where it comes from and to what it would change here.
+Euclid matched spectra
+~~~~~~~~~~~~~~~~~~~~~~
 
-**Hernández-Monteagudo et al. 2025** (J-PLUS, OJAp 8, 93)
+Matched spectra exist for the nine LS10 samples, in ``matched_spectra/`` of the
+``sys_mapping_benchmark`` repository.
+The Euclid samples have none, so no calibrated statistic (null, significance, mock LRT) can be
+issued for them.
+The work is to run ``characterisation/match_glass_to_data.py`` from that repository per Euclid
+sample and resolution, and pass the large-scale validation that
+:func:`~sys_mapping.glass_mocks.load_matched_cl` requires.
 
-*Power-law template linearisation.*  Before standardising a template, fit
-:math:`n_g^{\rm obs}/\langle n_g^{\rm obs}\rangle \propto (M_j/\langle M_j\rangle)^{\alpha_j}`
-and replace :math:`M_j \rightarrow M_j^{1/|\alpha_j|}` when :math:`|\alpha_j| > 1`.
-This makes the *linear* forward model of Eq. 3 a better approximation before any
-fitting happens, which is cheaper than adding freedom to the fit and does not cost
-degrees of freedom.  Lands in ``maps``, alongside the existing standardisation.
+Re-run the older result grids
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*Variance-minimisation estimator for* :math:`b`.  Subtract the OLS linear part, then
-find the :math:`\beta_i` that minimise the variance of
-:math:`\delta_g^{[1]} / \prod_i (1 + \beta_i t_i)`.  This is a genuinely independent
-estimator of the multiplicative amplitude — additive contamination shifts the mean,
-multiplicative contamination modulates the variance — so it is a cross-check on the
-likelihood-ratio test rather than another way of running one.  Would be a seventh
-method in ``run_decontamination``.
+The following pages come from runs of code older than 1.4.0 and are to be regenerated with it:
+:doc:`results_validation`, :doc:`results_simulation_tests`,
+:doc:`results_systematic_tests`, :doc:`results_mock_analysis`,
+:doc:`results_real_template_validation`, :doc:`results_progressive_contamination`,
+:doc:`results_snr_preselection` and :doc:`results_benchmark`.
 
-*The monopole.*  ``maps.compute_overdensity`` enforces
-:math:`\langle\hat\delta_g\rangle = 0` through the single global normalisation
-:math:`f_r`, so the package cannot see the additive contribution
-:math:`\boldsymbol\alpha\cdot\bar{\mathbf M}` to :math:`\bar n_g` — the one part of
-an additive contamination that rescales every :math:`C_\ell` by a constant.  Recovering
-it requires an external :math:`\bar n_g`, e.g. from a purity measurement, and the
-useful deliverable is to accept one and report the induced amplitude offset rather
-than to pretend the bias is absent.
+NUTS divergences on the LS10 combined fit
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*Residual forecast per angular scale.*  They predict the residual on :math:`C_\ell`
-as a function of :math:`\ell` for a given contamination configuration, finding a
-:math:`\propto \ell^{-1}` decline.  ``docs/detectability_law`` gives the scalar
-version of this; extending it to a per-:math:`\ell` curve is a small step from what is
-already measured.
+At NSIDE 32 the LS10 ``MCMC-comb`` fit has about 7% divergent transitions, 277 to 279 of 4000,
+with either the dense or the diagonal mass matrix.
+The divergent region is not located.
+The work is to locate it from the divergent positions, then reparametrise or raise
+``target_acceptance_rate`` (default 0.8) in :func:`~sys_mapping.nuts.run_nuts`.
 
-**Kong et al. 2026** (PRD 113, 043538)
+ISD bin count at high resolution
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*Sub-sample systematics diagnostic.*  Split the sample by an observable (magnitude,
-colour), fit :math:`f_k` per sub-sample against the same templates, and evaluate
-:math:`\sum_{kk'} h_k h_{k'} \langle f_k, f_{k'}\rangle \langle \delta_k, \delta_{k'}\rangle`.
-This term survives a *perfect* first-order correction, is multiplicative in
-:math:`w(\theta)`, and does not correlate with the templates — so
-``diagnostics.null_test_cross_correlations`` cannot see it by construction, however
-well it is calibrated.
+``isd_n_bins`` defaults to 10.
+A sweep at ``poly_order = 3`` favours 20 bins on residual (0.028 against 0.032), precision
+(0.925 against 0.870) and recall (0.835 against 0.808).
+It has not been run on the sparse LS10 samples at NSIDE 128 and above, where a bin needs at
+least two pixels to enter the fit.
+The work is to run it there, then set the default.
 
-*Window-decomposed estimator.*
-:math:`w_{\rm obs}(\theta) = \sum_{AB} {\rm Win}_{AB}(\theta)\, w_{AB}(\theta)` with
-:math:`{\rm Win}_{AB} = R_A R_B / R_{\rm tot} R_{\rm tot}`, the randoms binned by
-systematics-map value.  ``utils.measure_cross_two_point_function`` already reuses
-``dr``/``rr`` pair counts, which is most of the machinery.
+----
 
-*Spatially varying* :math:`n(z, {\rm sys})`, :math:`b(z, {\rm sys})`.  With the
-four-parameter :math:`n(z)` model of DeRose et al. (shift, stretch, outlier fraction
-and location), and the propagation of Baleato Lizancos & White 2023 and Hang et al.
-2024.  The package models galaxy density with no redshift dependence at all today, so
-this is the largest of the items here.
+Infrastructure
+--------------
 
-**Weaverdyck et al. 2026** (DES Y6 MagLim++, arXiv:2601.14484)
+JAX transformability backlog
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-*Residual null test with a mock covariance.*  :math:`\chi^2` of the weighted density
-in deciles of each template against a covariance from ~1000 contamination-free mocks,
-the precision matrix built with Ledoit–Wolf optimal shrinkage (100 elements estimated
-from 1000 mocks is noisy even when unbiased), then a KS test of those :math:`\chi^2`
-against :math:`\chi^2_{10}`.  This is the direct fix for the null test the technical
-paper reports failing with iid errors: the problem there is the error model, and a
-mock covariance is the error model.
+Eight public functions fail ``jax.jit`` or ``jax.vmap`` and are listed in
+``_NUMPY_ON_TRACER`` in ``tests/test_jax_transformability.py``:
 
-*Leverage mask.*  Cut pixels with high leverage — the diagonal of the hat matrix of
-the template design matrix — so that the pixels with the most influence over the fit
-are not also the ones where a perturbative contamination model is least likely to
-hold.  Complements ``diagnostics.footprint_mask_diagnostics``, which looks at one
-template at a time; leverage is the high-dimensional version.
+.. list-table::
+   :header-rows: 1
+   :widths: 40 60
 
-*Data-split consistency test.*  Split the footprint in two, measure
-:math:`w(\theta)` in each half, and test
-:math:`\chi^2 = \Delta^{\rm T} (C/4)^{-1} \Delta`.
+   * - Function
+     - Blocked by
+   * - ``correct_two_point_function``
+     - ``np.asarray`` on ``w_obs`` (``correction.py``)
+   * - ``rotate_templates``
+     - ``np.linalg.eigh`` on the second moment (``correction.py``)
+   * - ``sample_covariance``
+     - ``np.cov`` (``covariance.py``)
+   * - ``mock_sandwich_covariance``
+     - ``np.linalg`` on the mock fields (``covariance.py``)
+   * - ``calibrated_template_significance``
+     - ``np.linalg.pinv`` and input validation (``diagnostics.py``)
+   * - ``residual_template_correlation_test``
+     - ``np.asarray`` and input validation (``diagnostics.py``)
+   * - ``snr_template_ranking``
+     - ``np.asarray`` before the JAX kernel (``diagnostics.py``)
+   * - ``posterior_median_params``
+     - ``np.median`` (``inference.py``)
 
-**DeRose et al. 2026** (arXiv:2603.10113)
+Their cases are strict ``xfail``, so each port removes an entry; see :doc:`testing` and
+:doc:`coverage`.
 
-*Fisher-bias propagation.*  Given the residual :math:`\Delta C_\ell` left by an
-imperfect correction, compute the induced parameter bias
-:math:`\delta\theta = F^{-1} \partial\mu^{\rm T} C^{-1} \Delta\mu`.  The likelihood
-here is already differentiable under ``jax`` (``likelihood.make_log_likelihood``,
-``nuts.build_logdensity``), so ``jax.jacfwd`` supplies the derivatives; what is missing
-is a theory data vector to differentiate.  This is what turns the break-even rule from
-a statement about :math:`w(\theta)` into a statement about :math:`\Omega_m` and
-:math:`b\sigma_8` — which is the form in which a survey can act on it.
+API page check
+~~~~~~~~~~~~~~
+
+No test asserts that every module reachable from ``sys_mapping.__all__`` has a page under
+``docs/api/``.
+
+----
+
+From the literature
+-------------------
+
+Capabilities named in recent papers that the package does not have.
+
+- Power-law template linearisation: fit
+  :math:`n_g/\langle n_g\rangle \propto (M_j/\langle M_j\rangle)^{\alpha_j}` and use
+  :math:`M_j^{1/|\alpha_j|}` in place of :math:`M_j` when :math:`|\alpha_j| > 1`, before
+  standardisation (Hernández-Monteagudo et al. 2025).
+- Variance-minimisation estimator of :math:`b`: subtract the OLS linear part, then minimise
+  the variance of :math:`\delta_g / \prod_i (1 + \beta_i t_i)`; an estimator of the
+  multiplicative amplitude independent of the likelihood-ratio test
+  (Hernández-Monteagudo et al. 2025).
+- Residual forecast per multipole: the residual on :math:`C_\ell` as a function of
+  :math:`\ell` for a contamination configuration, where :doc:`detectability_law` gives a
+  scalar (Hernández-Monteagudo et al. 2025).
+- Window-decomposed estimator
+  :math:`w_{\rm obs} = \sum_{AB} {\rm Win}_{AB}\, w_{AB}` with randoms binned by
+  systematics-map value; ``utils.measure_cross_two_point_function`` already reuses ``dr`` and
+  ``rr`` pair counts (Kong et al. 2026).
+- Spatially varying :math:`n(z, {\rm sys})` and :math:`b(z, {\rm sys})`, with the
+  four-parameter :math:`n(z)` model of DeRose et al. 2026 (Kong et al. 2026).
+- Leverage mask: cut pixels with a large diagonal of the hat matrix of the template design
+  matrix (Weaverdyck et al. 2026).
+- Data-split consistency test: :math:`\chi^2 = \Delta^{\rm T} (C/4)^{-1} \Delta` between
+  :math:`w(\theta)` in two halves of the footprint (Weaverdyck et al. 2026).

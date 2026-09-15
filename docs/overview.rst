@@ -1,86 +1,45 @@
 Overview
 ========
 
-Galaxy clustering and the role of systematics
-----------------------------------------------
+Observing conditions (seeing, Galactic extinction, sky background, stellar density,
+depth) modulate the probability of detecting a galaxy, and so imprint coherent
+large-scale fluctuations on the observed galaxy counts.  These fluctuations are
+correlated with *template maps*, HEALPix maps of the observing conditions built
+independently of the galaxy catalogue.  ``sys_mapping`` fits the amplitude of each
+template in a galaxy overdensity map and corrects the map, the per-galaxy weights and
+the angular correlation function :math:`w(\theta)`.
 
-The angular two-point correlation function :math:`w(\theta)` and the angular
-power spectrum :math:`C_\ell` of galaxy number counts are among the most
-powerful probes of the large-scale structure (LSS) of the Universe.
-Comparing these statistics with theoretical predictions constrains
-cosmological parameters such as the matter density :math:`\Omega_m`, the
-dark energy equation of state :math:`w`, and the growth rate of structure
-:math:`f\sigma_8`.
+:func:`~sys_mapping.regression.run_decontamination` runs six methods behind one
+interface:
 
-Modern photometric galaxy surveys — including the *Euclid* mission,
-the Dark Energy Spectroscopic Instrument (DESI), and the Vera Rubin
-Observatory LSST — image billions of galaxies across thousands of square
-degrees of sky.  The sheer statistical power of these datasets makes
-*observational systematics* the dominant source of systematic uncertainty
-in galaxy clustering analyses.
+* ``OLS``: least-squares regression of the overdensity on the templates
+  (`Ross et al. 2011 <https://ui.adsabs.harvard.edu/abs/2011MNRAS.417.1350R/abstract>`_;
+  `Ho et al. 2012 <https://ui.adsabs.harvard.edu/abs/2012ApJ...761...14H/abstract>`_).
+* ``ElasticNet``: :math:`\ell_1+\ell_2`-regularised regression with the penalty chosen
+  by cross-validation
+  (`Weaverdyck & Huterer 2021 <https://ui.adsabs.harvard.edu/abs/2021MNRAS.503.5061W/abstract>`_).
+* ``ISD-1`` and ``ISD-3``: Iterative Systematics Decontamination, a greedy sequence of
+  marginal fits of the binned density against one template at a time, linear or cubic
+  in the template value, stopped by a mock-calibrated threshold
+  (`Elvin-Poole et al. 2018 <https://arxiv.org/abs/1708.01536>`_;
+  `Rodríguez-Monroy et al. 2022 <https://ui.adsabs.harvard.edu/abs/2022MNRAS.511.2665R/abstract>`_;
+  `Weaverdyck et al. 2026 <https://arxiv.org/abs/2601.14484>`_).  ``ISD-<d>`` selects
+  any other degree.
+* ``MCMC-add``: the exact Normal-Inverse-Gamma posterior of the additive model
+  (`Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_).
+* ``MCMC-comb``: the posterior of the combined additive and multiplicative model,
+  sampled with BlackJAX NUTS (Berlfein et al. 2024).
 
-Observational systematics arise because the probability of detecting a
-galaxy in a given pointing of the telescope depends not only on the true
-galaxy density, but also on survey conditions:
-
-* **Seeing** (atmospheric point-spread function width) — poor seeing smears
-  sources and reduces completeness for faint objects.
-* **Galactic extinction** — dust in the Milky Way absorbs and reddens
-  background light, suppressing galaxy counts close to the Galactic plane.
-* **Sky background** — scattered moonlight or airglow raises the
-  photon-noise floor, limiting depth.
-* **Star density** — bright stars mask patches of sky and their diffraction
-  spikes affect neighbouring sources.
-* **Survey depth variation** — integration time, airmass, and camera
-  throughput vary across the focal plane and across epochs.
-
-Each of these effects can introduce *coherent, large-scale fluctuations* in the
-observed galaxy number counts that mimic or mask the genuine clustering signal.
-The key insight is that these systematic effects are spatially correlated with
-observable *template maps* — HEALPix maps of seeing, extinction, etc. — that
-can be constructed independently of the galaxy catalog.
-
-``sys_mapping`` provides a unified framework for inferring and correcting
-observational systematic contamination in galaxy overdensity maps.  Six
-decontamination methods are implemented :
-
-* **OLS** — ordinary least-squares linear regression of the overdensity on the
-  template maps, following
-  `Ross et al. 2011 <https://ui.adsabs.harvard.edu/abs/2011MNRAS.417.1350R/abstract>`_
-  (MNRAS 417, 1350) and
-  `Ho et al. 2012 <https://ui.adsabs.harvard.edu/abs/2012ApJ...761...14H/abstract>`_
-  (ApJ 761, 14).
-* **ElasticNet** — :math:`\ell_1+\ell_2`-regularised regression with
-  cross-validated template selection, following
-  `Weaverdyck & Huterer 2021 <https://ui.adsabs.harvard.edu/abs/2021MNRAS.503.5061W/abstract>`_
-  (MNRAS 503, 5061).
-* **ISD-1 / ISD-3** — iterative systematic decontamination using first- or
-  third-order polynomial template deprojection, following
-  `Rodríguez-Monroy et al. 2025 <https://ui.adsabs.harvard.edu/abs/2025arXiv250907943R/abstract>`_.
-* **MCMC-add** — full Bayesian posterior sampling for a purely additive
-  contamination model, following
-  `Elsner, Leistedt & Peiris 2016 <https://ui.adsabs.harvard.edu/abs/2016MNRAS.456.2095E/abstract>`_
-  (MNRAS 456, 2095) and
-  `Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_ (MNRAS 531, 4954).
-* **MCMC-comb** — full Bayesian posterior sampling for the combined
-  additive-plus-multiplicative model, following
-  `Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_ (MNRAS 531, 4954).
-
-All methods share the same contamination model, template normalisation, noise
-debiasing, and two-point function correction infrastructure described below.
-A full bibliographic review with method comparisons is on the
-:doc:`bibliography` page; the method-to-paper map is on the
-:doc:`methods` page.
+The mathematics of each step is on :doc:`methods`, the references on
+:doc:`bibliography`, and the application to Legacy Survey DR10 on
+:doc:`pipeline_ls10`.
 
 ----
 
-Notation and conventions
-------------------------
+Notation
+--------
 
-The table below defines every symbol used throughout the documentation and
-the source code.  All maps use the
-`HEALPix <https://healpix.sourceforge.io>`_ pixelisation with equal-area
-pixels; the pixel index is denoted :math:`p`.
+All maps use the `HEALPix <https://healpix.sourceforge.io>`_ pixelisation.
 
 .. list-table::
    :header-rows: 1
@@ -89,993 +48,458 @@ pixels; the pixel index is denoted :math:`p`.
    * - Symbol
      - Definition
    * - :math:`p`
-     - HEALPix pixel index, :math:`p = 0, \ldots, N_{\rm pix}-1`.
+     - HEALPix pixel index.
    * - :math:`N_{\rm pix}`
-     - Total number of HEALPix pixels, :math:`N_{\rm pix} = 12\,{\rm NSIDE}^2`.
+     - Number of pixels on the sphere, :math:`12\,{\rm NSIDE}^2`.
    * - :math:`N`
-     - Number of *unmasked* pixels used in the fit.
-   * - :math:`n_g(p)`
-     - Observed galaxy count in pixel :math:`p`.
-   * - :math:`n_r(p)`
-     - Random catalog count in pixel :math:`p` (uniform, no systematics).
-   * - :math:`\bar{n}_g`
-     - Mean galaxy count per pixel, :math:`\bar{n}_g = \sum_p n_g(p)/N`.
+     - Number of footprint pixels used in the fit.
+   * - :math:`n_g(p)`, :math:`n_r(p)`
+     - Galaxy and random counts in pixel :math:`p`.
    * - :math:`\delta_g(p)`
-     - True galaxy overdensity, :math:`\delta_g = n_g/\bar{n}_g - 1`.
+     - Clean galaxy overdensity.
    * - :math:`\hat{\delta}_g(p)`
-     - **Observed** (contaminated) galaxy overdensity (what we measure).
+     - Observed (contaminated) galaxy overdensity.
    * - :math:`t_i(p)`
-     - Systematic template map :math:`i`, normalised to zero mean and unit
-       variance over the unmasked footprint.  Indexed :math:`i = 1, \ldots, n_s`.
-   * - :math:`n_s`
-     - Number of systematic templates.
-   * - :math:`a_i`
-     - **Additive** contamination amplitude for template :math:`i`.
-       Dimensionless; typical values :math:`|a_i| \lesssim 0.2`.
-   * - :math:`b_i`
-     - **Multiplicative** contamination amplitude for template :math:`i`.
-       Dimensionless; typical values :math:`|b_i| \lesssim 0.3`.
+     - Template :math:`i`, standardised to zero mean and unit rms over the footprint,
+       :math:`i = 1, \ldots, n_s`.
+   * - :math:`a_i`, :math:`b_i`
+     - Additive and multiplicative contamination amplitudes.
    * - :math:`\sigma`
-     - Pixel-to-pixel standard deviation of the clean overdensity field
-       (a nuisance parameter in the likelihood).
+     - Pixel scale of the clean overdensity (a nuisance parameter).
    * - :math:`\gamma`
-     - Skewness parameter of the skew-normal likelihood (used with lognormal
-       galaxy fields; :math:`\gamma=0` recovers Gaussian).
-   * - :math:`w(\theta)`
-     - Angular two-point correlation function, a function of separation
-       angle :math:`\theta`.
-   * - :math:`C_\ell`
-     - Angular power spectrum at multipole :math:`\ell`
-       (Fourier dual of :math:`w(\theta)` on the sphere).
-   * - :math:`\hat{\Theta}`
-     - Maximum likelihood estimate (MLE) / posterior median of the parameter
-       vector :math:`\boldsymbol\Theta = (a_1,\ldots,a_{n_s}, b_1,\ldots,b_{n_s}, \sigma)`.
+     - Shape parameter of the skew-normal likelihood; :math:`\gamma=0` is Gaussian.
    * - :math:`V`
-     - PCA rotation matrix (eigenvectors of the template covariance matrix).
-   * - :math:`\tilde{a}_i^2`
-     - Noise-debiased squared additive amplitude (used for two-point correction).
-   * - :math:`w_{\rm add/comb}(p)`
-     - Per-pixel systematic weight applied to galaxies in pixel :math:`p`.
+     - Eigenvectors of the template covariance (PCA rotation).
+   * - :math:`\xi_{ij}(\theta)`
+     - Angular correlation of templates :math:`i` and :math:`j`.
+   * - :math:`w(p)`
+     - Per-pixel systematic weight.
 
-.. note::
-
-   Throughout the code, arrays indexed over *all* pixels have shape
-   ``(n_pix,)`` where ``n_pix = 12 * nside**2``.  Arrays indexed over
-   *unmasked* pixels have shape ``(n_good_pix,)`` and are obtained by
-   boolean-indexing with a ``good_pix`` mask.  Template arrays have shape
-   ``(n_sys, n_pix)`` or ``(n_sys, n_good_pix)``.
+Arrays over the whole sphere have shape ``(n_pix,)`` with ``n_pix = 12 * nside**2``;
+arrays over the footprint have shape ``(n_good,)`` and follow the order of
+``np.where(good_pixels)[0]``.  Templates have shape ``(n_sys, n_good)``.
 
 ----
 
-The observed galaxy overdensity
----------------------------------
+Observed overdensity
+--------------------
 
-The galaxy overdensity at pixel :math:`p` is estimated from the galaxy and
-random catalogs as (Landy-Szalay estimator at the pixel level):
+:func:`~sys_mapping.maps.compute_overdensity` keeps the pixels whose random count
+reaches a tenth of the maximum, :math:`n_r(p) \ge 0.1\,\max_p n_r` (the
+``min_random_fraction`` argument), and on them computes
 
 .. math::
 
-   \hat{\delta}_g(p) = \frac{n_g(p)}{f_r\,n_r(p)} - 1
+   \hat{\delta}_g(p) = \frac{n_g(p)}{f_r\,n_r(p)} - 1,
+   \qquad f_r = \frac{\sum_p n_g(p)}{\sum_p n_r(p)},
 
-where :math:`f_r = \bar{n}_g / \bar{n}_r` is the ratio of the mean galaxy
-count to the mean random count, chosen so that :math:`\langle\hat\delta_g\rangle = 0`
-over the unmasked footprint.  Pixels where :math:`n_r(p) = 0` or the
-mask equals zero are excluded.
-
-In ``sys_mapping`` this is computed by
-:func:`~sys_mapping.maps.compute_overdensity`.
+which has zero mean when weighted by the random counts.  It returns the overdensity at
+the kept pixels and the boolean footprint mask.
 
 ----
 
-Systematic template maps
-------------------------
+Template maps
+-------------
 
-A systematic template map :math:`t_i(p)` is an external HEALPix map that
-traces an observational condition expected to correlate with galaxy
-detection efficiency.  Examples include:
-
-* dust extinction :math:`E(B-V)` from `Schlegel, Finkbeiner & Davis 1998
-  <https://ui.adsabs.harvard.edu/abs/1998ApJ...500..525S/abstract>`_;
-* stellar number density from *Gaia* or 2MASS;
-* seeing FWHM, sky background, airmass from survey logs;
-* HI column density from 21 cm surveys.
-
-Before fitting, each template is **normalised** to zero mean and unit
-standard deviation over the unmasked footprint:
+A template is a HEALPix map of an observing condition: dust extinction
+:math:`E(B-V)`, stellar density or flux from *Gaia*, depth, exposure count or PSF size
+from the imaging.  Maps loaded from disk are normalised over their own valid region,
+which is larger than any one sample's footprint, so
+:func:`~sys_mapping.maps.standardise_on_footprint` standardises the basis again over
+the fitted pixels:
 
 .. math::
 
-   t_i(p) \;\leftarrow\; \frac{t_i(p) - \mu_{t_i}}{\sigma_{t_i}},
+   t_i(p) \;\leftarrow\; \frac{t_i(p) - \mu_i}{s_i},
    \qquad
-   \mu_{t_i} = \frac{1}{N}\sum_{p \in \text{mask}} t_i(p),
+   \mu_i = \frac{1}{N}\sum_p t_i(p),
    \quad
-   \sigma_{t_i}^2 = \frac{1}{N}\sum_{p \in \text{mask}} t_i(p)^2 - \mu_{t_i}^2.
+   s_i^2 = \frac{1}{N}\sum_p \bigl(t_i(p) - \mu_i\bigr)^2.
 
-This normalisation ensures that the amplitudes :math:`a_i` and :math:`b_i`
-are on the same scale and that their priors can be specified uniformly.
-
-Template maps can be generated synthetically with
-:func:`~sys_mapping.maps.generate_systematic_map` or loaded from external
-files (HEALPix FITS format).
+The amplitudes, the condition number of the template covariance and the template
+correlations of the two-point correction are then in units of one template standard
+deviation on the footprint.
 
 ----
 
 Contamination model
 -------------------
 
-**Physical interpretation.** An additive systematic biases the galaxy
-overdensity by an amount proportional to the template value — for example,
-dust extinction adds a spurious decrement to galaxy counts in regions of
-high extinction.  A multiplicative systematic modulates the overall
-amplitude of the galaxy overdensity — for example, variable seeing changes
-the survey depth and therefore scales galaxy counts up or down by a
-position-dependent factor.
-
-The combined forward model is defined as in Berlfein+2024 (Eq. 13):
+The forward model is Eq. 13 of Berlfein et al. 2024:
 
 .. math::
 
-   \hat{\delta}_{g}(p) = \underbrace{\delta_{g}(p)\!\left(1 + \sum_{i=1}^{n_s} b_i\,t_i(p)\right)}_{\text{multiplicative term}}
-                        + \underbrace{\sum_{i=1}^{n_s} a_i\,t_i(p)}_{\text{additive term}}
+   \hat{\delta}_{g}(p) = \delta_{g}(p)\left(1 + \sum_{i=1}^{n_s} b_i\,t_i(p)\right)
+                        + \sum_{i=1}^{n_s} a_i\,t_i(p).
 
-**Three nested models** are available, obtained by constraining the parameters:
-
-**Additive** (:math:`b_i = 0` for all :math:`i`):
-
-.. math::
-
-   \hat{\delta}_{g}(p) = \delta_{g}(p) + \sum_{i=1}^{n_s} a_i\,t_i(p)
-
-The observed overdensity is the true overdensity *plus* a linear
-combination of templates.  This is the correct model for e.g. stellar
-contamination that adds spurious overdensity rather than modulating the
-galaxy selection.  Free parameters: :math:`\{a_i\}_{i=1}^{n_s}` plus :math:`\sigma`.
-Total: :math:`n_s + 1`.
-
-**Multiplicative** (:math:`b_i = a_i` for all :math:`i`, Eq. 12):
-
-.. math::
-
-   \hat{\delta}_{g}(p) = \delta_{g}(p)\!\left(1 + \sum_{i=1}^{n_s} a_i\,t_i(p)\right)
-
-The template modulates the *amplitude* of the true overdensity.  This
-is the correct model for depth variations: a seeing map that scales galaxy
-completeness uniformly across the true density field.  Free parameters:
-:math:`\{a_i\}_{i=1}^{n_s}` plus :math:`\sigma`.  Total: :math:`n_s + 1`.
-
-**Combined** (free :math:`a_i, b_i`):
-
-.. math::
-
-   \hat{\delta}_{g}(p) = \delta_{g}(p)\!\left(1 + \sum_{i=1}^{n_s} b_i\,t_i(p)\right)
-                        + \sum_{i=1}^{n_s} a_i\,t_i(p)
-
-The most general first-order model.  For small amplitudes
-:math:`|a_i|, |b_i| \ll 1` the full product
-:math:`(\delta_g + a{\cdot}t)(1+b{\cdot}t)` agrees with this expression
-to second order in the amplitudes (the cross-term
-:math:`(a{\cdot}t)(b{\cdot}t)` is negligible for typical survey systematics
-where :math:`|a|, |b| \lesssim 0.2`).  Free parameters:
-:math:`\{a_i, b_i\}_{i=1}^{n_s}` plus :math:`\sigma`.  Total: :math:`2n_s + 1`.
-
-The model can be inverted to recover the clean overdensity from the observed one:
-
-.. math::
-
-   \delta_g(p) = \frac{\hat{\delta}_g(p) - \sum_i a_i\,t_i(p)}{1 + \sum_i b_i\,t_i(p)}
-
-This inversion requires :math:`1 + \sum_i b_i\,t_i(p) > 0` in every pixel
-(the denominator must be positive for the model to be physically consistent).
-
-**Method-to-model mapping.**  All six decontamination methods share the same
-forward model and inversion formula above, but differ in which model variant
-they target and how they estimate the parameters:
+An additive term adds spurious objects or removes real ones along a template; a
+multiplicative term scales the density contrast by a position-dependent efficiency.
+Three nested models follow (:func:`~sys_mapping.contamination.n_free_params`):
 
 .. list-table::
    :header-rows: 1
-   :widths: 15 22 63
+   :widths: 20 30 50
 
-   * - Method
-     - Model variant
-     - Parameter estimation
-   * - OLS
-     - Additive (:math:`b_i = 0`)
-     - Ordinary least-squares regression of :math:`\hat{\delta}_g` on
-       :math:`\{t_i\}`: solve :math:`\mathbf{X}\,\mathbf{a} = \hat{\boldsymbol\delta}_g`
-       where :math:`X_{pi} = t_i(p)`.
-       (:func:`~sys_mapping.regression.run_decontamination`)
-   * - ElasticNet
-     - Additive (:math:`b_i = 0`)
-     - :math:`\ell_1+\ell_2`-regularised regression; regularisation strength
-       :math:`\alpha` and mixing ratio are chosen by :math:`k`-fold
-       cross-validation.
-       (:func:`~sys_mapping.regression.elasticnet_contamination_fit`)
-   * - ISD-1
-     - Multiplicative weight, additive amplitude
-     - Iterative Systematics Decontamination.  Fits the binned mean density
-       against **one template at a time** with a linear polynomial, corrects the
-       most significant one, and repeats until every template falls below a
-       mock-calibrated :math:`\Delta\chi^2` threshold.
-       (:func:`~sys_mapping.regression.iterative_systematics_decontamination`)
-   * - ISD-3
-     - Multiplicative weight, additive amplitude
-     - Same algorithm with a **cubic** marginal fit, which recovers curvature in
-       the density–template relation that a linear fit absorbs into its slope.
-       The order is the degree in one template's value, not a multivariate
-       polynomial order.
-       (:func:`~sys_mapping.regression.iterative_systematics_decontamination`)
-   * - MCMC-add
-     - Additive (:math:`b_i = 0`)
-     - Bayesian posterior sampling (emcee ensemble sampler) of the
-       Gaussian or skew-normal likelihood with :math:`b_i = 0` fixed.
-       Provides full posterior over :math:`\{a_i, \sigma\}`.
-       (:func:`~sys_mapping.inference.run_mcmc`)
-   * - MCMC-comb
-     - Combined (free :math:`a_i, b_i`)
-     - Bayesian posterior sampling of the full combined-model likelihood.
-       The template basis is first PCA-rotated to decouple the parameters.
-       Provides full posterior over :math:`\{a_i, b_i, \sigma\}`.
-       (:func:`~sys_mapping.inference.run_mcmc`,
-       :func:`~sys_mapping.correction.rotate_templates`)
+   * - Model
+     - Constraint
+     - Free parameters
+   * - ``additive``
+     - :math:`b_i = 0`
+     - :math:`a_i`, :math:`\sigma`: :math:`n_s + 1`
+   * - ``multiplicative``
+     - :math:`a_i = 0`
+     - :math:`b_i`, :math:`\sigma`: :math:`n_s + 1`
+   * - ``combined``
+     - none
+     - :math:`a_i`, :math:`b_i`, :math:`\sigma`: :math:`2n_s + 1`
 
-.. note::
-
-   Regression methods (OLS, ElasticNet, ISD) return **point estimates** only.
-   Parameter uncertainty is available analytically for OLS (from the
-   least-squares covariance matrix) but is not estimated for ElasticNet or ISD.
-   MCMC methods return **full posteriors**, from which variances and credible
-   intervals can be extracted.
-
-----
-
-Gaussian log-likelihood (Eq. 17)
----------------------------------
-
-Assuming the true galaxy overdensity :math:`\delta_g(p)` is drawn
-independently from a Gaussian distribution
-:math:`\delta_g(p) \sim \mathcal{N}(0, \sigma^2)` in each pixel,
-the likelihood of the parameter vector
-:math:`\boldsymbol\Theta = (a_1, \ldots, a_{n_s}, b_1, \ldots, b_{n_s}, \sigma)`
-given the observed overdensity :math:`\hat{\delta}_g` and templates
-:math:`t_i` is:
+The skew-normal likelihood adds :math:`\gamma` to each.  The model inverts to
 
 .. math::
 
-   p(\hat{\boldsymbol\delta}_g \mid \boldsymbol\Theta) =
-   \prod_p \frac{1}{\sqrt{2\pi\sigma^2}\,|1 + \sum_i b_i t_i(p)|}
-   \exp\!\left[-\frac{\delta_g(p)^2}{2\sigma^2}\right]
+   \delta_g(p) = \frac{\hat{\delta}_g(p) - \sum_i a_i\,t_i(p)}{1 + \sum_i b_i\,t_i(p)},
 
-where :math:`\delta_g(p) = (\hat\delta_g(p) - \sum_i a_i t_i(p))/(1+\sum_i b_i t_i(p))`
-is the clean overdensity (see above). It is the residual *after* subtracting the contamination.
+which requires :math:`1 + \sum_i b_i\,t_i(p) \neq 0`
+(:func:`~sys_mapping.contamination.invert_contamination`).
 
-The factor :math:`|1 + \sum_i b_i t_i(p)|` in the denominator is the
-**Jacobian** of the change of variables from :math:`\hat{\delta}_g` to
-:math:`\delta_g`: differentiating the forward model gives
-:math:`\partial\hat{\delta}_g / \partial\delta_g = 1 + \sum_i b_i t_i(p)`,
-and this factor must be included so that the total probability integrates
-to 1.  For a purely additive model (:math:`b_i=0`) the Jacobian is 1 and
-vanishes from the likelihood.
+Each method estimates its amplitudes differently and returns a per-pixel weight
+``weights``, clipped to :math:`[1/20, 20]`:
 
-Taking the logarithm yields (Eq. 17):
+.. list-table::
+   :header-rows: 1
+   :widths: 13 22 65
+
+   * - Method
+     - Model
+     - Estimate and weight
+   * - OLS
+     - additive
+     - Least squares, :math:`\hat{\mathbf a} = \arg\min \|\hat{\boldsymbol\delta}_g - \mathbf{T}^\top\mathbf a\|^2`;
+       :math:`w = 1/(1 + \hat{\mathbf a}\cdot\mathbf t)`.
+   * - ElasticNet
+     - additive
+     - :func:`~sys_mapping.regression.elasticnet_contamination_fit`: penalty strength
+       by 5-fold cross-validation at ``l1_ratio=0.5``;
+       :math:`w = 1/(1 + \hat{\mathbf a}\cdot\mathbf t)`.
+   * - ISD-1, ISD-3
+     - per-template efficiency :math:`1 + \hat F_j(t_j)`
+     - :func:`~sys_mapping.regression.iterative_systematics_decontamination`:
+       :math:`w = \prod_j 1/(1 + \hat F_j(t_j))` over the accepted steps.  ``a_hat``
+       is the projection of the removed curve on each template and ``b_hat`` is zero.
+   * - MCMC-add
+     - additive
+     - :func:`~sys_mapping.inference.run_additive_analytic` on the PCA-rotated
+       templates; posterior median;
+       :math:`w = (1 + \delta_g^{\rm clean})/(1 + \hat\delta_g)` with :math:`b = 0`.
+   * - MCMC-comb
+     - combined
+     - :func:`~sys_mapping.nuts.run_nuts` on the PCA-rotated templates; posterior
+       median; :math:`w = (1 + \delta_g^{\rm clean})/(1 + \hat\delta_g)`.
+
+The regression methods return point estimates.  The MCMC methods also return the
+posterior draws and the amplitude covariances ``cov_a`` and ``cov_b`` in the original
+template basis.  These pixel-likelihood widths assume independent pixels; calibrated
+errors come from :func:`~sys_mapping.covariance.mock_sandwich_covariance` and
+calibrated significances from
+:func:`~sys_mapping.diagnostics.calibrated_template_significance`.
+
+----
+
+Likelihood
+----------
+
+With :math:`\delta_g(p) \sim \mathcal{N}(0, \sigma^2)` independently in each pixel, the
+log-likelihood is Eq. 17 of Berlfein et al. 2024:
 
 .. math::
 
    \ln\mathcal{L} = -\frac{N}{2}\ln(2\pi\sigma^2)
-                    - \underbrace{\sum_p \ln\!\left|1 + \sum_i b_i\,t_i(p)\right|}_{\text{Jacobian term}}
-                    - \underbrace{\frac{1}{2\sigma^2}\sum_p \delta_g(p)^2}_{\text{residual term}}
+                    - \sum_p \ln\left|1 + \sum_i b_i\,t_i(p)\right|
+                    - \frac{1}{2\sigma^2}\sum_p \delta_g(p)^2,
 
-The Jacobian term penalises parameter combinations that make the
-multiplicative factor very different from 1 (i.e. very large
-:math:`|b_i|` values), preventing the model from arbitrarily rescaling
-the variance.
-
-The likelihood is **JIT-compiled via JAX** (:func:`~sys_mapping.likelihood.make_log_likelihood`)
-and traced once per ``(n_sys, model, use_skewed)`` combination;
-subsequent evaluations run at near-native speed on CPU
-(:math:`\approx 300\;\mu{\rm s}` per call at :math:`N = 10\,000`).
-
-----
-
-Skew-normal log-likelihood (Eq. 18)
---------------------------------------
-
-For a lognormal galaxy field the true overdensity
-:math:`\delta_g = e^{G-\sigma_G^2/2}-1` (where :math:`G` is Gaussian)
-has a *positively skewed* distribution.  When systematics are weak,
-the skewness of the recovered :math:`\delta_g` is approximately preserved,
-and fitting a Gaussian likelihood introduces a small but systematic bias.
-
-The skew-normal extension adds a log-CDF correction term to the
-Gaussian log-likelihood:
+where :math:`\delta_g(p)` is the inverted clean field and the middle term is the
+Jacobian of the change of variables from :math:`\hat\delta_g` to :math:`\delta_g`.  The
+skew-normal form (Eq. 18) evaluates both terms at the shifted residual
+:math:`r_p = \delta_g(p) - \xi`:
 
 .. math::
 
-   \ln\mathcal{L}_{\rm skew} = \ln\mathcal{L}_{\rm Gauss}
+   \ln\mathcal{L}_{\rm skew} = \ln\mathcal{L}_{\rm Gauss}(r)
        + N\ln 2
-       + \sum_p \ln\Phi\!\left(\gamma\,\frac{\delta_g(p)}{\sigma}\right)
+       + \sum_p \ln\Phi\left(\gamma\,\frac{r_p}{\sigma}\right),
+   \qquad
+   \xi = -\sigma\,\frac{\gamma}{\sqrt{1+\gamma^2}}\sqrt{2/\pi}.
 
-where:
-
-* :math:`\gamma > 0` is the **skewness shape parameter** (a fitted nuisance
-  parameter; typical values :math:`0 < \gamma \lesssim 3` for lognormal
-  fields with :math:`\sigma_G \approx 0.5`).
-* :math:`\Phi(z) = \frac{1}{2}\bigl[1 + \mathrm{erf}(z/\sqrt{2})\bigr]`
-  is the standard-normal CDF.
-* The mean of the skew-normal is
-  :math:`\xi = -\sigma\,\delta\,\sqrt{2/\pi}` with
-  :math:`\delta = \gamma/\sqrt{1+\gamma^2}`,
-  which is subtracted internally so that
-  :math:`\mathbb{E}[\delta_g] = 0` is maintained.
-* :math:`\ln\Phi(z)` is evaluated as ``jax.scipy.special.log_ndtr(z)``
-  for numerical stability (avoids large-magnitude cancellation at
-  negative :math:`z`).
-
-Setting :math:`\gamma = 0` recovers the Gaussian likelihood exactly.
+:func:`~sys_mapping.likelihood.make_log_likelihood` returns a JIT-compiled function,
+cached per ``(n_sys, model, use_skewed)``, with the data as arguments.  Its optional
+``precision`` operator uses the covariance :math:`\sigma^2 R` in place of :math:`\sigma^2 I`; the
+skew-normal form with a precision operator is refused, because the product form is a
+density only for independent pixels.
 
 ----
 
-Template PCA rotation (Appendix A)
-------------------------------------
+Posterior sampling
+------------------
 
-When the systematic template maps :math:`t_i(p)` are correlated with each
-other (e.g. seeing and depth are correlated because both depend on
-observing conditions), the likelihood parameters :math:`(a_i, b_i)` are
-partially *degenerate* — many combinations of amplitudes produce the same
-observed contaminated field.  This makes the posterior multimodal or
-poorly conditioned, leading to slow MCMC convergence.
-
-The solution is a **Principal Component Analysis (PCA)** rotation of the
-template basis before fitting.  The template covariance matrix is:
-
-.. math::
-
-   C_{ij} = \frac{1}{N}\sum_p t_i(p)\,t_j(p) \equiv \frac{1}{N}\,\mathbf{T}\mathbf{T}^\top
-
-where :math:`\mathbf{T}` is the :math:`n_s \times N` matrix of template
-values.  The eigendecomposition :math:`C = V D V^\top` (with
-:math:`V` orthogonal and :math:`D` diagonal) gives a rotation matrix that
-diagonalises the template covariance.  Rotated templates are defined by:
-
-.. math::
-
-   t'_j(p) = \sum_i V_{ij}\,t_i(p), \qquad
-   \text{i.e.} \quad
-   \mathbf{T}' = V^\top \mathbf{T}
-
-In the rotated basis, :math:`C' = V^\top C V = D` is diagonal by
-construction, so the rotated templates are **orthogonal** (their cross-pixel
-inner products vanish).  Each rotated amplitude :math:`a'_j` (or :math:`b'_j`)
-is then independently constrained.
-
-After MCMC inference in the rotated basis, parameters are transformed
-back to the original template basis via:
-
-.. math::
-
-   a_i = \sum_j V_{ij}\,a'_j \equiv (V\,\mathbf{a}')_i, \qquad
-   b_i = \sum_j V_{ij}\,b'_j \equiv (V\,\mathbf{b}')_i
-
-The rotation and back-transformation are implemented in
-:func:`~sys_mapping.correction.rotate_templates` and
-:func:`~sys_mapping.correction.transform_params_from_rotated`.
+``run_decontamination(..., sampler="auto")`` draws the additive Gaussian posterior
+exactly from its Normal-Inverse-Gamma form and samples the combined and skew-normal
+posteriors with BlackJAX NUTS, adapting a dense mass matrix by default.
+``sampler="emcee"`` selects the ensemble sampler of
+:func:`~sys_mapping.inference.run_mcmc`, and a ``pixel_precision`` operator forces NUTS.
+Both MCMC methods fit the PCA-rotated templates and transform the amplitudes and their
+covariance back to the original basis.  Details are on :doc:`methods`.
 
 ----
 
-Noise debiasing (Eq. 21)
---------------------------
+Template PCA rotation
+---------------------
 
-After MCMC, the posterior median :math:`\hat{a}_i` is an estimate of the
-true amplitude :math:`a_i`.  The squared MLE however satisfies:
-
-.. math::
-
-   \mathbb{E}[\hat{a}_i^2] = a_i^2 + \mathrm{Var}[\hat{a}_i]
-
-because the expectation of a squared random variable always exceeds
-the square of its expectation by the variance.  This means the raw
-squared estimate *over-estimates* the true squared amplitude by the
-sampling variance.
-
-The **debiased** squared amplitude is (Eq. 21):
-
-.. math::
-
-   \tilde{a}_i^2 = \max\!\bigl(\hat{a}_i^2 - \mathrm{Var}[\hat{a}_i],\; 0\bigr)
-
-and analogously for :math:`\tilde{b}_i^2`.  The :math:`\max(\cdot, 0)` clip
-is necessary because sampling noise can produce
-:math:`\hat{a}_i^2 < \mathrm{Var}[\hat{a}_i]` (this happens when the true
-amplitude is small and the posterior variance is large).  Clipping to zero
-enforces the physical constraint :math:`a_i^2 \geq 0`.
-
-The variance :math:`\mathrm{Var}[\hat{a}_i]` is estimated from the MCMC
-chain via :func:`~sys_mapping.inference.get_param_variance_from_chain` as
-the posterior variance (the diagonal of the posterior covariance matrix).
+Correlated templates make the amplitudes degenerate.  With
+:math:`C = \mathbf{T}\mathbf{T}^\top/N = V D V^\top`,
+:func:`~sys_mapping.correction.rotate_templates` returns
+:math:`\mathbf{T}' = V^\top \mathbf{T}`, whose covariance :math:`D` is diagonal, and
+:func:`~sys_mapping.correction.transform_params_from_rotated` maps the fitted
+amplitudes back as :math:`\mathbf a = V\mathbf a'`, :math:`\mathbf b = V\mathbf b'`.
+The rotation diagonalises the covariance at zero separation only.
 
 ----
 
-Two-point function correction (Eq. 15–16)
-------------------------------------------
+Noise debiasing
+---------------
 
-The observed angular two-point correlation function :math:`\hat{w}(\theta)`
-is related to the true galaxy two-point function :math:`w_g(\theta)` by the
-contamination model.  To first order in the amplitudes (assuming
-:math:`|a_i|, |b_i| \ll 1`):
+Because :math:`\mathbb{E}[\hat a_i \hat a_j] = a_i a_j + {\rm Cov}_{ij}[\hat a]`, the
+squared amplitudes that enter the two-point correction are debiased (Eq. 21 of
+Berlfein et al. 2024).  :func:`~sys_mapping.correction.debias_params_matrix` returns
 
 .. math::
 
-   \hat{w}(\theta) \approx
-     w_g(\theta)\!\left[1 + \sum_i b_i^2\,w_{t_i}(\theta)\right]
-     + \sum_i a_i^2\,w_{t_i}(\theta)
+   \tilde A = \mathcal{P}_{\ge 0}\left(\hat{\mathbf a}\hat{\mathbf a}^\top - {\rm Cov}[\hat{\mathbf a}]\right),
 
-where :math:`w_{t_i}(\theta) = \langle t_i(\hat{n})\,t_i(\hat{n}')\rangle_\theta`
-is the angular auto-correlation of template :math:`i` at separation :math:`\theta`.
-This expression is derived by inserting the contamination model into the
-definition of the two-point function and expanding to first order in
-:math:`a_i b_i` (the cross-term is :math:`\mathcal{O}(a_i b_i)` and is
-neglected).
+and :math:`\tilde B` analogously, where :math:`\mathcal{P}_{\ge 0}` clips the
+eigenvalues at zero.  :func:`~sys_mapping.correction.debias_params` is the diagonal
+form, :math:`\tilde a_i^2 = \max(\hat a_i^2 - {\rm Var}[\hat a_i], 0)`, to which the
+matrix form reduces for one template.
 
-Inverting for the true clustering:
+----
+
+Two-point function correction
+-----------------------------
+
+Inserting the contamination model into :math:`w(\theta)` and keeping second order in
+the amplitudes gives (Eqs. 15–16 of Berlfein et al. 2024, with the cross-template
+terms kept):
 
 .. math::
 
    \hat{w}_{\rm corr}(\theta) =
-   \frac{\hat{w}(\theta) - \sum_i \tilde{a}_i^2\,w_{t_i}(\theta)}
-        {1 + \sum_i \tilde{b}_i^2\,w_{t_i}(\theta)}
+   \frac{\hat{w}(\theta) - \sum_{ij} \tilde A_{ij}\,\xi_{ij}(\theta)}
+        {1 + \sum_{ij} \tilde B_{ij}\,\xi_{ij}(\theta)}.
 
-where the **debiased** amplitudes :math:`\tilde{a}_i^2, \tilde{b}_i^2`
-(from :func:`~sys_mapping.correction.debias_params`) are used
-to avoid noise amplification.
+:func:`~sys_mapping.correction.correct_two_point_function` debiases with the full
+covariances when given the ``(n_sys, n_sys, n_bins)`` correlation matrix, and with the
+diagonal when given ``(n_sys, n_bins)`` auto-correlations.  It warns where the
+correction drives :math:`w_{\rm corr}` negative while :math:`\hat w > 0`, and with
+``return_cov=True`` propagates the amplitude and measurement covariances by
+parametric bootstrap.
 
-The template two-point functions :math:`w_{t_i}(\theta)` are estimated
-from the template maps directly using the same estimator as for the galaxy
-field.  The corrected :math:`\hat{w}_{\rm corr}(\theta)` should be free
-of systematic bias to first order in the contamination amplitudes.
+:func:`~sys_mapping.utils.template_correlation_matrix` measures :math:`\xi_{ij}` with
+TreeCorr from the template values each galaxy carries.  The cross terms come from
+auto-correlations of summed fields,
 
-The correction is implemented in
-:func:`~sys_mapping.correction.correct_two_point_function`.
+.. math::
+
+   \xi_{ij} = \tfrac12\left[\xi(t_i + t_j) - \xi_{ii} - \xi_{jj}\right],
+
+with optional per-object weights ``w=``.  With the OLS amplitudes of the nine LS10 samples
+the cross terms carry a median 22.5 % of the correction at NSIDE 64 in the rotated basis.
 
 ----
 
-Model selection (Eq. 19)
---------------------------
+Model selection
+---------------
 
-To decide whether the data require the full combined model (both additive
-and multiplicative terms) or whether the simpler additive model is
-sufficient, we use the **likelihood ratio test (LRT)**.
-
-Given two nested models — a **null** model :math:`\mathcal{M}_0` with
-parameter count :math:`k_0` (e.g. additive with :math:`n_s + 1` parameters)
-and an **alternative** model :math:`\mathcal{M}_1` with
-:math:`k_1 > k_0` parameters (e.g. combined with :math:`2n_s + 1`) — the
-LRT statistic is:
+The likelihood ratio between the additive and combined models (Eq. 19 of Berlfein
+et al. 2024) is
 
 .. math::
 
-   \lambda_{\rm LR} = 2\!\left[\ln\mathcal{L}(\hat{\Theta}_1) -
-                               \ln\mathcal{L}(\hat{\Theta}_0)\right]
+   \lambda_{\rm LR} = 2\left[\ln\mathcal{L}_{\rm comb}(\hat{\Theta}_1) -
+                             \ln\mathcal{L}_{\rm add}(\hat{\Theta}_0)\right],
 
-where :math:`\hat{\Theta}_0` and :math:`\hat{\Theta}_1` are the MLEs
-under each model.  Under the null hypothesis (that :math:`\mathcal{M}_0`
-is correct), **Wilks' theorem** guarantees that:
-
-.. math::
-
-   \lambda_{\rm LR} \xrightarrow{N\to\infty} \chi^2(r), \qquad r = k_1 - k_0
-
-For the additive vs combined comparison, :math:`r = n_s` (the number of
-additional multiplicative parameters :math:`b_i`).
-
-The p-value is :math:`P(\chi^2(r) > \lambda_{\rm LR})` from the
-chi-squared CDF.  Typical decision threshold: reject
-:math:`\mathcal{M}_0` at the 5 % significance level when
-:math:`\lambda_{\rm LR} > \chi^2_{r,\,0.95}`.
-
-The LRT is implemented in
-:func:`~sys_mapping.model_selection.likelihood_ratio_test`.
-
-.. note::
-
-   The asymptotic :math:`\chi^2` approximation holds for large :math:`N`
-   (many unmasked pixels).  At NSIDE = 64 with a Galactic cut there are
-   :math:`\approx 32\,000` unmasked pixels, which is more than sufficient
-   for the approximation to be excellent.
+evaluated at the likelihood maxima of both models, where it is non-negative.  Wilks'
+theorem gives :math:`\chi^2(n_s)`, but the pixel likelihood treats a spatially
+correlated field as independent pixels and inflates the statistic, so
+:func:`~sys_mapping.model_selection.likelihood_ratio_test` accepts an empirical null
+``null_lambda`` from uncontaminated realisations and returns
+:math:`p = (1 + \#\{\lambda_{\rm null} \ge \lambda_{\rm LR}\})/(1 + N_{\rm null})`.
+:func:`~sys_mapping.model_selection.lrt_from_maxima` computes that null for many
+fields at once.
 
 ----
 
-Per-galaxy systematic weights
--------------------------------
+Calibrated detection
+--------------------
 
-For catalog-level analyses (e.g. passing corrected galaxy positions to a
-two-point function estimator such as ``TreeCorr`` or ``Corrfunc``),
-the contamination correction is encoded as a *per-galaxy weight*.
-Rather than modifying the galaxy catalog, each galaxy in pixel :math:`p`
-receives a weight that effectively rescales its contribution to the
-clustering statistics.
+:func:`~sys_mapping.diagnostics.calibrated_template_significance` scores each
+least-squares amplitude against its scatter over uncontaminated realisations with the
+sample's clustering, and returns a family-wise p-value for the most significant
+template.  :func:`~sys_mapping.diagnostics.residual_template_correlation_test` tests a
+corrected field for residual correlation with templates the correction did not fit.
 
-The weight is derived from the MAP (Maximum A Posteriori) parameter estimates.
-The MAP estimate :math:`\hat{\Theta}` is the mode of the posterior distribution
-:math:`p(\Theta \mid \text{data}) \propto \mathcal{L}(\text{data} \mid \Theta)\,p(\Theta)`;
-in practice it is approximated by the **posterior median** of the MCMC chain.
-For the non-Bayesian methods (OLS, ElasticNet, ISD) there is no explicit prior,
-so the MAP reduces to the maximum-likelihood estimate (MLE).
-
-The corrected overdensity is:
-
-.. math::
-
-   \delta_g(p) = \frac{\hat{\delta}_g(p) - \sum_i \hat{a}_i\,t_i(p)}{1 + \sum_i \hat{b}_i\,t_i(p)}
-
-Dividing by the number density, the natural weight for the *additive*
-correction is:
-
-.. math::
-
-   w_{\rm add}(p) = \frac{1}{\max\!\left(1 + \sum_i \hat{a}_i^{\rm add}\,t_i(p),\;\epsilon\right)}
-
-where :math:`\hat{a}_i^{\rm add}` are the MAP additive-model parameters.
-For the *combined* model, the multiplicative term modulates the
-selection function, so the appropriate weight uses the MAP multiplicative
-parameters:
-
-.. math::
-
-   w_{\rm comb}(p) = \frac{1}{\max\!\left(1 + \sum_i \hat{b}_i^{\rm comb}\,t_i(p),\;\epsilon\right)}
-
-The clip :math:`\epsilon = 0.01` prevents division by near-zero or
-negative denominators (which would correspond to unphysical negative
-weights).  Galaxies in pixels with no valid template coverage receive
-:math:`w = 1` (no correction).
-
-In practice, ``scripts/compute_sys_weights.py`` writes three columns to
-the output FITS file:
-
-* ``WEIGHT_ADD`` — additive-model weight (using :math:`\hat{a}_i^{\rm add}`)
-* ``WEIGHT_COMB`` — combined-model weight (using :math:`\hat{b}_i^{\rm comb}`)
-* **``WEIGHT_SYS``** — recommended default; identical to ``WEIGHT_COMB``
-
-The combined model is **always superior** to the additive-only model across
-all contamination regimes (see :doc:`results_systematic_tests`), so
-``WEIGHT_SYS`` / ``WEIGHT_COMB`` should be used unless there is a specific
-reason to prefer the additive model (e.g. debugging or speed).
+By default each null realisation is drawn by
+:func:`~sys_mapping.glass_mocks.draw_null_overdensity` from a GLASS lognormal field
+with the sample's matched spectrum (:func:`~sys_mapping.glass_mocks.load_matched_cl`),
+and galaxy and random counts drawn per footprint pixel.  The LS10 script refuses to
+build a null without a matched spectrum unless ``--allow-parametric-null`` is given.
 
 ----
 
-Summary of the workflow
-------------------------
+Per-galaxy weights
+------------------
 
-The standard analysis pipeline proceeds as follows.  Steps 1–2 and 4–7 are
-shared by all six methods; step 3 branches by method.
-
-1. **Load catalog and templates** — pixelise galaxy and random catalogs
-   into HEALPix maps; load and normalise template maps.
-   (:func:`~sys_mapping.maps.pixelize_catalog`,
-   :func:`~sys_mapping.maps.compute_overdensity`,
-   :func:`~sys_mapping.maps.assign_template_values`)
-
-2. **Template selection and deduplication** — rank templates by
-   signal-to-noise of their cross-correlation with the overdensity; remove
-   near-duplicates within each systematic family.
-   (:func:`~sys_mapping.diagnostics.snr_template_ranking`)
-
-3. **Parameter estimation** — run one or more decontamination methods via the
-   unified interface (:func:`~sys_mapping.regression.run_decontamination`):
-
-   * **OLS** — ordinary least-squares fit of the additive model (seconds).
-   * **ElasticNet** — cross-validated regularised regression, additive model
-     (seconds to minutes).
-   * **ISD-1 / ISD-3** — iterative reweighted regression, additive–multiplicative
-     hybrid (minutes).
-   * **MCMC-add** — Bayesian posterior sampling, additive model.  The template
-     basis is first PCA-rotated (:func:`~sys_mapping.correction.rotate_templates`)
-     to decouple parameters before sampling (hours).
-   * **MCMC-comb** — Bayesian posterior sampling, combined model; same
-     PCA-rotation pre-processing (hours).
-
-4. **Model selection** — compare model fits to choose between the additive and
-   combined models.  For MCMC methods: likelihood ratio test
-   (:func:`~sys_mapping.model_selection.likelihood_ratio_test`).
-   For ElasticNet: cross-validation scores guide template and regularisation
-   selection.  For OLS / ISD: SNR-based template ranking suffices.
-
-5. **Noise debiasing** — subtract the parameter variance from the squared MAP
-   estimates to correct for the noise bias in the two-point correction.
-   (:func:`~sys_mapping.correction.debias_params`)
-
-6. **Two-point correction** — apply the debiased amplitudes to the
-   measured :math:`\hat{w}(\theta)` to recover the uncontaminated
-   :math:`w(\theta)`.
-   (:func:`~sys_mapping.correction.correct_two_point_function`)
-
-7. **Diagnostics** — null tests, SNR ranking, footprint masking sensitivity.
-   (:mod:`~sys_mapping.diagnostics`)
-
-For a hands-on implementation of this pipeline see the :doc:`quickstart`.
-For theoretical background on each step with full paper references see
-:doc:`methods`.  For mock-catalog validation results see
-:doc:`results_validation`.
-
-----
-
-Analysis execution pipeline
------------------------------
-
-The mathematical pipeline above describes what happens *inside a single bin* for
-a single method.  The *orchestration* layer decides the order in which datasets
-and methods are processed.  This section describes that outer layer, which was
-designed to give researchers a fast preview of preliminary results without
-waiting for the slowest (MCMC) methods to complete.
-
-Motivation — method-first execution
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-``sys_mapping`` implements six decontamination methods that span several orders of
-magnitude in runtime.  The table below gives measured wall-clock times per sample
-for the LS10 BGS analysis (11 templates, NSIDE 32–256):
+Each galaxy receives the weight of its pixel; galaxies outside the fitted footprint
+receive 1.  ``scripts/run_ls10_analysis.py`` writes seven columns to
+``<sample>_NSIDE<nside>_WEIGHTS.fits``:
 
 .. list-table::
    :header-rows: 1
-   :widths: 18 18 18 18 46
+   :widths: 20 80
 
-   * - Method
-     - NSIDE 32 (≈ 5 600 pix)
-     - NSIDE 64 (≈ 21 600 pix)
-     - NSIDE 128 (≈ 84 600 pix)
-     - When to use
-   * - OLS
-     - < 0.01 s
-     - < 0.01 s
-     - < 0.12 s
-     - Quick first-pass; linear regression closed-form solution
-   * - ISD-1
-     - < 0.01 s
-     - 0.05–0.30 s
-     - 0.23–1.42 s
-     - Iterative additive model; see `Rodríguez-Monroy et al. 2025`_
-   * - ElasticNet
-     - 0.1–0.9 s
-     - 1–30 s
-     - 4–73 s
-     - Automatic template selection via cross-validated regularisation
-   * - ISD-3
-     - 22–43 s
-     - 100–190 s
-     - n/a
-     - Degree-3 polynomial expansion; **ill-conditioned** with correlated templates
-   * - MCMC-add
-     - ~23 s
-     - 75–101 s
-     - ~5 min (est.)
-     - Full Bayesian posterior for additive model
-   * - MCMC-comb
-     - ~31 s
-     - ~116 s
-     - ~7 min (est.)
-     - Full Bayesian posterior for combined additive+multiplicative model
+   * - Column
+     - Weight
+   * - ``WEIGHT_OLS``
+     - OLS
+   * - ``WEIGHT_ENET``
+     - ElasticNet
+   * - ``WEIGHT_ISD1``
+     - ISD, degree 1
+   * - ``WEIGHT_ISD3``
+     - ISD, degree 3
+   * - ``WEIGHT_ADD``
+     - MCMC-add
+   * - ``WEIGHT_COMB``
+     - MCMC-comb
+   * - ``WEIGHT_SYS``
+     - copy of ``WEIGHT_COMB``
 
-.. _Rodríguez-Monroy et al. 2025: https://ui.adsabs.harvard.edu/abs/2025arXiv250907943R/abstract
+Every column is the ``weights`` array of ``run_decontamination``, so every weight lies
+in :math:`[1/20, 20]`; the header records ``WMAXCLIP = 20``.
+:doc:`results_ls10_recommendations` gives the column to use per sample.
 
-The figure below shows how each method's runtime scales with the number of
-unmasked pixels, using all available LS10 BGS measurements (9 samples × 4
-resolutions).  OLS and ISD-1 scale as :math:`O(n)`, ElasticNet cross-validation
-is super-linear due to repeated fits, ISD-3 polynomial feature expansion is
-:math:`O(n^2)` in practice, and MCMC scales linearly (each step evaluates the
-likelihood over all pixels).
+----
 
-.. raw:: html
+LS10 analysis script
+--------------------
 
-   <figure style="text-align:center;margin:1.5em 0;">
-     <a href="_static/runtime_scaling.png" target="_blank">
-       <img src="_static/runtime_scaling.png"
-            style="width:90%;max-width:800px;"
-            alt="Runtime vs n_pix for each decontamination method">
-     </a>
-     <figcaption style="font-size:0.88em;color:#555;margin-top:0.4em;">
-       Wall-clock time per sample vs number of unmasked HEALPix pixels for each
-       decontamination method (LS10 BGS, 11 templates).  Individual points (faint)
-       show the 9 BGS VLIM samples; connected markers show the mean ± std per NSIDE.
-       MCMC-add and MCMC-comb timings at NSIDE 32 are estimated by n\ :sub:`pix`
-       scaling from NSIDE 64 measurements.
-       Generated by ``scripts/plot_runtime_scaling.py``.
-     </figcaption>
-   </figure>
+``scripts/run_ls10_analysis.py`` processes each ``*_DATA.fits`` / ``*_RAND.fits`` pair
+in ``--catalog-dir`` (or the one named by ``--sample``) in the following phases.
 
-Rather than running all six methods inside a single ``run_bin()`` call (which
-forces the analyst to wait for the slowest MCMC method before seeing *any* results),
-the pipeline inverts the loop: **method is the outer dimension, dataset/bin is the
-inner dimension**.  After the OLS phase finishes for *all* datasets, results are
-immediately written to the Sphinx documentation — the analyst can browse them in
-seconds.  The MCMC phases then run in the background and progressively fill in
-the more precise estimates.
+1. Resolution.  With ``--min-per-pixel``,
+   :func:`~sys_mapping.maps.choose_nside_by_occupancy` picks the finest NSIDE, starting
+   from ``--nside`` and halving, at which the footprint holds that many galaxies per
+   pixel on average.  The templates in ``--template-dir`` are downgraded to it.
+2. Matched spectrum.  When the run builds any GLASS null (ISD pre-selection, the ISD
+   threshold, the calibrated significance or the LRT null), the sample's spectrum is
+   loaded from ``--null-cl-file``.
+3. Maps.  Galaxies (weighted by ``WEIGHT_COMP`` when present) and randoms are
+   pixelised, the overdensity is computed, and the templates are standardised on the
+   footprint (``--no-footprint-standardise`` keeps the load-time normalisation).
+4. Optional pre-selection (``--preselect``).
+5. ISD threshold.  :math:`\Delta\chi^2_{68}` is measured on ``--isd-n-mocks``
+   uncontaminated realisations with a cubic, equal-occupancy fit, unless pre-selection
+   already produced it.
+6. Fits.  ``run_decontamination`` runs OLS, ElasticNet, ISD-1, ISD-3, MCMC-add and
+   MCMC-comb in that order, or the subset given by ``--only-methods``.  Without
+   MCMC-comb the script writes the partial JSON and stops; with it, amplitudes from
+   earlier partial files fill the methods not run.
+7. Calibrated significance on ``--significance-n-mocks`` realisations.
+8. Likelihood ratio.  Both models are refined to their maxima with
+   :func:`~sys_mapping.inference.refine_to_mle` and compared with the maxima of
+   :func:`~sys_mapping.model_selection.lrt_from_maxima`, keeping the higher likelihood
+   per model; ``--lrt-null-mocks`` realisations calibrate the p-value.
+9. Two-point correction.  :math:`w(\theta)` is measured with TreeCorr over 30 bins
+   from 0.5 to 300 arcmin, the template correlation matrix of the rotated basis from at
+   most ``--ct-max-galaxies`` galaxies, and every method's :math:`w_{\rm corr}` is
+   computed.
+10. Outputs: the weights FITS file, ``params.json``, ``wtheta_data.json`` and the
+    figures, then ``summary_NSIDE<nside>.yaml`` once all samples are done.
 
-Execution phases
-~~~~~~~~~~~~~~~~~
+Output JSON
+~~~~~~~~~~~
 
-.. code-block:: text
-
-   Phase 1 — OLS (< 1 s/dataset)
-       LS10 BGS
-       ↓ update docs/results_ls10.rst
-       ↓ rebuild Sphinx HTML
-
-   Phase 2 — ElasticNet (seconds–minutes/dataset)
-       ↓ update RST + rebuild HTML
-
-   Phase 3 — MCMC-add (1–2 min/dataset at NSIDE 64)
-       ↓ update RST + rebuild HTML
-
-   Phase 4 — MCMC-comb (~2 min/dataset at NSIDE 64)
-       ↓ full RST regeneration
-       ↓ final Sphinx HTML rebuild
-
-Dataset covered by the orchestrated run:
-
-* **LS10 BGS** — Legacy Survey DR10 Bright Galaxy Sample, NSIDE = 64, 11
-  observational templates (EBV, GALDEPTH_R, NOBS_R, PSFSIZE_R, and 7 Gaia
-  photometry/star-density maps)
-
-The orchestration script
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The entry point is the bash script
-``scripts/run_all_methods_sequential.sh``.  All behaviour is controlled through
-environment variables so the script itself never needs to be edited:
-
-.. code-block:: bash
-
-   # Typical usage — nohup so the terminal can be closed
-   nohup bash scripts/run_all_methods_sequential.sh > logs/run_all.log 2>&1 &
-
-   # OLS-only quick preview (seconds)
-   METHODS="OLS" bash scripts/run_all_methods_sequential.sh
-
-   # Resume from MCMC-add (OLS and ElasticNet already done)
-   METHODS="MCMC-add MCMC-comb" bash scripts/run_all_methods_sequential.sh
-
-   # Skip LS10, run on GPU, single bin
-   BINS="5" SKIP_LS10=1 DEVICE=gpu bash scripts/run_all_methods_sequential.sh
-
-   # Force re-run all bins even if output already exists
-   FORCE=1 METHODS="OLS" bash scripts/run_all_methods_sequential.sh
-
-Environment variables accepted by the script:
+``<sample>_NSIDE<nside>_params.json`` (full run) holds:
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 12 66
-
-   * - Variable
-     - Default
-     - Description
-   * - ``BINS``
-     - ``1 2 3 4 5 6``
-     - Space-separated list of tomographic bins to process.
-   * - ``DEVICE``
-     - ``cpu``
-     - JAX device: ``cpu``, ``gpu``, or ``auto``.  GPU accelerates the
-       MCMC likelihood evaluation significantly when an NVIDIA card is
-       available.
-   * - ``METHODS``
-     - ``OLS ElasticNet MCMC-add MCMC-comb``
-     - Which method phases to execute, in order.  Omit phases that have
-       already completed to resume a partial run.
-   * - ``FORCE``
-     - ``0``
-     - Set to ``1`` to recompute all bins/samples even if output files
-       already exist (see skip-if-done below).
-   * - ``SKIP_LS10``
-     - ``0``
-     - Set to ``1`` to skip the LS10 BGS dataset.
-   * - ``CATALOG_DIR``
-     - ``~/data/legacysurvey/dr10/sweep/BGS_VLIM_Mstar``
-     - Directory containing LS10 ``*_DATA.fits`` and ``*_RAND.fits`` pairs.
-   * - ``TEMPLATE_DIR``
-     - (empty)
-     - Optional directory of HEALPix systematic FITS files for LS10.
-       If empty, five synthetic template families are used instead.
-   * - ``LS10_OUTPUT_DIR``
-     - ``data/sys_weights/``
-     - Where LS10 weights, partial JSON, and diagnostic plots are written.
-   * - ``LS10_NSIDE``
-     - ``64``
-     - HEALPix NSIDE for LS10 pixelisation (64 or 128).
-
-Skip-if-done mechanism
-~~~~~~~~~~~~~~~~~~~~~~~
-
-Each bin/sample is checked at the start of ``run_bin()`` (sim) or
-``run_sample()`` (LS10) before any computation begins.  Two cases are handled:
-
-* **Partial run** (``--only-methods OLS`` or ``--only-methods ElasticNet``):
-  the function checks for ``BIN_N/results_partial_OLS.json``.  If found, that
-  bin's result dict is loaded from disk and returned immediately — no
-  computation, no re-loading of maps.
-
-* **Full run** (MCMC-comb included): checks for ``BIN_N/results.json``.
-  If found, the bin is skipped.
-
-This means that interrupting and restarting the orchestration script is safe —
-only the bins that did *not* finish are recomputed.  To force a full rerun,
-either delete the relevant JSON files or set ``FORCE=1`` / ``--force``.
-
-Partial results JSON
-~~~~~~~~~~~~~~~~~~~~~
-
-When a fast-method phase finishes but MCMC-comb has not yet run, a lightweight
-JSON file is written.  The table below describes every top-level key; the
-per-method sub-dict keys depend on the method (see after the table).
-
-**Top-level keys** (all present in every partial and full results file):
-
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
+   :widths: 26 74
 
    * - Key
-     - Description
-   * - ``schema_version``
-     - Integer schema version (currently ``1``).
-   * - ``bin``
-     - Tomographic bin number.
-   * - ``methods_run``
-     - Sorted list of completed method names, e.g. ``["ElasticNet", "OLS"]``.
-   * - ``timestamp_utc``
-     - ISO-8601 UTC timestamp of the run.
-   * - ``n_sys_initial``
-     - Number of templates before any deduplication.
-   * - ``n_sys_post_dedup``
-     - Number of templates after within-family deduplication.
-   * - ``n_sys_final``
-     - Number of templates actually used in the fit (after optional
-       correlation-threshold cut).
-   * - ``n_good``
-     - Number of unmasked HEALPix pixels.
-   * - ``n_galaxies``
-     - Total galaxy count in the bin.
-   * - ``od_method``
-     - Overdensity estimator used (e.g. ``"Landy-Szalay"``).
-   * - ``syst_src``
-     - Template provenance label (e.g. ``"ls10"``).
-   * - ``syst_names``
-     - Ordered list of template names as strings.
-   * - ``delta_g_std``
-     - Standard deviation of the galaxy overdensity field :math:`\hat{\delta}_g`.
-   * - ``delta_g_skew``
-     - Skewness of :math:`\hat{\delta}_g`.
-   * - ``eigenvalues``
-     - PCA eigenvalue spectrum of the template covariance matrix (list of
-       floats, length ``n_sys_final``).
-   * - ``family_report``
-     - List of per-template-family deduplication records (one dict per
-       family with keys ``family``, ``best_idx``, ``drop_list``, ``max_r``).
+     - Content
+   * - ``sample_id``, ``nside``, ``n_sys``, ``template_names``
+     - Run identity.
+   * - ``template_basis``
+     - ``standardised_on`` (``footprint`` or ``load-time``), ``rms_before``,
+       ``mean_before``.
+   * - ``significance``
+     - ``method``, ``n_null``, ``p_value_floor``, ``significance``, ``p_values``,
+       ``family_wise_p``, ``inflation`` (calibrated over independent-pixel error), or
+       ``null``.
+   * - ``a_hat_add``, ``b_hat_comb``, ``var_a_add``, ``var_b_comb``
+     - MCMC amplitudes and their variances.
+   * - ``lrt``
+     - ``lambda_lr``, ``p_value``, ``n_dof``, ``reject_null``, ``calibration``
+       (``chi2``, ``mock`` or ``failed``), ``p_chi2``, ``n_null``, ``null_cl_source``,
+       ``null_cl_amplitude``, ``null_lambda_mean``, ``null_lambda_max``,
+       ``null_lambda``.
+   * - ``acceptance_fraction_add``, ``acceptance_fraction_comb``,
+       ``sigma_hat_add``, ``sigma_hat_comb``
+     - Sampler summaries.
+   * - ``n_galaxies``, ``n_good_pix``
+     - Sample size and footprint pixels.
+   * - ``methods``
+     - Per method: ``a_hat``, ``b_hat``, ``sigma_hat``, ``elapsed_s``, ``rms_a_hat``;
+       for ISD also ``isd_poly_order``, ``n_steps``, ``stopped_on``, ``calibrated``,
+       ``n_floored``, ``significance`` and ``steps`` (template, significance and
+       coefficients of each accepted step).
 
-**Per-method sub-dicts** — one entry per completed method, keyed by method
-name.  Keys present in *all* method sub-dicts:
+A run whose ``--only-methods`` omits MCMC-comb writes
+``<sample>_NSIDE<nside>_partial_<methods>.json``, with the sorted method names joined
+by underscores.  It holds ``schema_version`` (1), ``sample_id``, ``methods_run``,
+``timestamp_utc``, ``n_sys``, ``n_good``, ``n_galaxies``, ``template_names``,
+``template_basis``, and one entry per method with ``elapsed_s``, ``a_hat``,
+``sigma_hat``, and for the MCMC methods ``var_a`` and ``acceptance_fraction``.
 
-.. list-table::
-   :header-rows: 1
-   :widths: 28 72
+A run with ``--only-methods`` skips a sample whose output already exists: the partial
+file when MCMC-comb is not listed, ``params.json`` when it is.  ``--force`` re-runs.
 
-   * - Key
-     - Description
-   * - ``a_hat``
-     - Additive contamination amplitudes :math:`\hat{a}_i`, list of
-       ``n_sys_final`` floats.
-   * - ``elapsed_s``
-     - Wall-clock runtime in seconds.
+Results page sentinels
+~~~~~~~~~~~~~~~~~~~~~~
 
-Additional keys by method:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 20 20 60
-
-   * - Method
-     - Extra key
-     - Description
-   * - OLS
-     - ``var_a``
-     - Analytical variance of each :math:`\hat{a}_i` (from the OLS
-       covariance matrix diagonal).
-   * - OLS
-     - ``sigma``
-     - Residual rms of the overdensity after OLS fit.
-   * - ElasticNet
-     - ``cv_alpha``
-     - Optimal regularisation strength selected by cross-validation.
-   * - ElasticNet
-     - ``cv_l1_ratio``
-     - Optimal :math:`\ell_1/(\ell_1+\ell_2)` mixing ratio selected by
-       cross-validation.
-   * - MCMC-add / MCMC-comb
-     - ``var_a``
-     - Posterior variance of :math:`\hat{a}_i` (diagonal of ``cov_a``).
-   * - MCMC-add / MCMC-comb
-     - ``sigma_hat``
-     - Posterior median of the intrinsic scatter :math:`\sigma`.
-   * - MCMC-add / MCMC-comb
-     - ``acceptance_fraction``
-     - Mean emcee walker acceptance fraction.
-   * - MCMC-comb only
-     - ``b_hat``
-     - Multiplicative amplitudes :math:`\hat{b}_i` (omitted for all other
-       methods where :math:`b_i = 0`).
-
-Example partial file (OLS phase only):
-
-.. code-block:: json
-
-   {
-     "schema_version": 1,
-     "bin": 3,
-     "methods_run": ["OLS"],
-     "timestamp_utc": "2026-05-06T14:23:11Z",
-     "n_sys_initial": 39,
-     "n_sys_post_dedup": 13,
-     "n_sys_final": 13,
-     "n_good": 93958,
-     "n_galaxies": 1125000,
-     "od_method": "Landy-Szalay",
-     "syst_src": "ls10",
-     "syst_names": ["Noise_VIS", "Depth_VIS", "..."],
-     "delta_g_std": 0.4986,
-     "delta_g_skew": 1.443,
-     "eigenvalues": [3.21, 1.87, "..."],
-     "family_report": [{"family": "Noise", "best_idx": 0, "drop_list": [2], "max_r": 0.94}],
-     "OLS": {
-       "a_hat": [0.395, -0.252, "..."],
-       "var_a": [0.0077, 0.0137, "..."],
-       "sigma": 0.4709,
-       "elapsed_s": 0.03
-     }
-   }
-
-File location: ``OUT_ROOT/BIN_N/results_partial_{slug}.json`` where
-``{slug}`` is the sorted method names joined by underscores (e.g.
-``results_partial_OLS.json``, ``results_partial_ElasticNet_OLS.json``).
-
-When the MCMC-comb phase runs it loads all existing partial files and merges
-their per-method sub-dicts into the final ``results.json``, so the complete
-results file contains contributions from all phases.
-
-Incremental RST updates (sentinel protocol)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-After each method phase, the function ``update_ls10_rst()`` appends or replaces a section in the corresponding RST result page.  Each section is bounded by unique comment-style sentinels:
+Unless ``--no-rst`` or ``--figures-only`` is given, and when every sample ran at one
+resolution, the script rewrites a section of ``docs/results_ls10.rst`` bounded by
 
 .. code-block:: rst
 
-   .. _auto-method-OLS-start:
-
-   OLS Results (auto-generated 2026-05-06T14:23Z)
-   ------------------------------------------------
+   .. _auto-ls10-{TAG}-start:
    ...
+   .. _auto-ls10-{TAG}-end:
 
-   .. _auto-method-OLS-end:
+where ``{TAG}`` is the method list with ``-`` and ``+`` replaced by ``_`` (for example
+``MCMC_comb``).  An existing block is replaced and a missing one appended.  A run
+tagged ``MCMC_comb`` also rewrites the per-sample figure block between ``.. _auto-ls10-figures-start:`` and
+``.. _auto-ls10-figures-end:``.
 
-The update function uses a regex to find the sentinel pair and replace the
-entire block in-place.  If no sentinels are found, the section is appended at
-the end of the file.  This means that re-running the same method phase is
-**idempotent** — the existing section is overwritten, not duplicated.
+Figure colours
+~~~~~~~~~~~~~~
 
-The sentinel pattern is ``.. _auto-method-{TAG}-start:`` and
-``.. _auto-method-{TAG}-end:`` where ``{TAG}`` is the method name (e.g.
-``OLS``, ``ElasticNet``, ``MCMC-add``, ``MCMC-comb``).
-
-Figure color scheme
-~~~~~~~~~~~~~~~~~~~~
-
-All per-method figures use a shared, colorblind-safe palette defined in
-``sys_mapping/plotting.py``.  The same six colors appear in every plot that
-compares methods, making it easy to match a curve in the 2PCF panel to a bar in
-the weight histogram panel at a glance:
+``sys_mapping.plotting`` fixes one colour and line style per method:
 
 .. list-table::
    :header-rows: 1
-   :widths: 20 14 14 52
+   :widths: 20 20 20 40
 
    * - Method
-     - Color
+     - Colour
      - Hex
      - Line style
    * - OLS
@@ -1102,8 +526,3 @@ the weight histogram panel at a glance:
      - teal
      - ``#76B7B2``
      - solid (``-``)
-
-To regenerate all figures from existing ``results.json`` files (without
-re-running MCMC) after a color-scheme update::
-
-   make -C docs html

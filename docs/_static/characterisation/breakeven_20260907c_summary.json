@@ -1,0 +1,128 @@
+{
+ "source": "sys_mapping_benchmark results/campaign/20260907c/simulations/20260907c (family F, dahu, 2026-09-07/08); 134 simulation cells x 9 configurations x 6 methods",
+ "definitions": {
+  "A": "rms over template-valid pixels of sum_i a_true_i t_i (additive amplitudes)",
+  "dA": "rms of sum_i (a_hat_i - a_true_i) t_i",
+  "improvement": "B_cont / B_corr, B = ||w - w_true||_2 / ||w_true||_2 over the theta bins",
+  "helped": "improvement > 1",
+  "rank_correlation": "Spearman between log10(A/dA) and log10(improvement)"
+ },
+ "n_rows": 7236,
+ "cells_per_nside": {
+  "32": 50,
+  "64": 50,
+  "128": 34
+ },
+ "additive_and_combined": {
+  "n": 4824,
+  "contingency": {
+   "above_helped": 3971,
+   "above_hurt": 351,
+   "below_helped": 236,
+   "below_hurt": 266
+  },
+  "rule_accuracy": 0.8783167495854063,
+  "frac_helped": 0.8720978441127695,
+  "spearman": 0.4207060401973315,
+  "median_A_over_dA": 2.043201401234083
+ },
+ "multiplicative": {
+  "n": 2412,
+  "n_no_additive_correction": 562,
+  "no_correction_by_method": {
+   "ISD-1": 296,
+   "ISD-3": 178,
+   "ElasticNet": 88
+  },
+  "n_corrected": 1850,
+  "helped_of_corrected": 749
+ },
+ "by_method": {
+  "OLS": {
+   "n": 804,
+   "median_A_over_dA": 2.263868742056108,
+   "frac_helped": 0.8893034825870647,
+   "rule_accuracy": 0.7798507462686567
+  },
+  "ISD-1": {
+   "n": 804,
+   "median_A_over_dA": 1.887159701931839,
+   "frac_helped": 0.9552238805970149,
+   "rule_accuracy": 0.9552238805970149
+  },
+  "ISD-3": {
+   "n": 804,
+   "median_A_over_dA": 1.8786313416952498,
+   "frac_helped": 0.9427860696517413,
+   "rule_accuracy": 0.9427860696517413
+  },
+  "ElasticNet": {
+   "n": 804,
+   "median_A_over_dA": 2.230980176032744,
+   "frac_helped": 0.8905472636815921,
+   "rule_accuracy": 0.7898009950248757
+  },
+  "MCMC-add": {
+   "n": 804,
+   "median_A_over_dA": 2.2633756096633633,
+   "frac_helped": 0.8196517412935324,
+   "rule_accuracy": 0.9415422885572139
+  },
+  "MCMC-comb": {
+   "n": 804,
+   "median_A_over_dA": 2.284218840686929,
+   "frac_helped": 0.7350746268656716,
+   "rule_accuracy": 0.8606965174129353
+  }
+ },
+ "by_nside": {
+  "32": {
+   "n": 1800,
+   "median_A_over_dA": 2.264992049096077,
+   "frac_helped": 0.9666666666666667,
+   "rule_accuracy": 0.9666666666666667
+  },
+  "64": {
+   "n": 1800,
+   "median_A_over_dA": 2.18917467215156,
+   "frac_helped": 0.8872222222222222,
+   "rule_accuracy": 0.8805555555555555
+  },
+  "128": {
+   "n": 1224,
+   "median_A_over_dA": 1.4777226216066528,
+   "frac_helped": 0.7107843137254902,
+   "rule_accuracy": 0.7450980392156863
+  }
+ },
+ "by_level": {
+  "low": {
+   "n": 1608,
+   "median_A_over_dA": 1.712970736453479,
+   "frac_helped": 0.7444029850746269,
+   "rule_accuracy": 0.7705223880597015
+  },
+  "medium": {
+   "n": 1608,
+   "median_A_over_dA": 2.0193124656224084,
+   "frac_helped": 0.9135572139303483,
+   "rule_accuracy": 0.914179104477612
+  },
+  "high": {
+   "n": 1608,
+   "median_A_over_dA": 2.2468736226453734,
+   "frac_helped": 0.9583333333333334,
+   "rule_accuracy": 0.9502487562189055
+  }
+ },
+ "total_A_definition_all_rows": {
+  "note": "A and dA as the root sum square of the additive and multiplicative fields",
+  "n": 7236,
+  "spearman": 0.637505987023291
+ },
+ "v0.9.5_grid_180": {
+  "note": "sys_mapping_benchmark results/analysis_existing/existing_data_joined.csv (sys_mapping 0.9.5 simulation outputs, GLASS and Uchuu, NSIDE 32 and 64, five methods, one realisation); A and dA as the root sum square of the additive and multiplicative fields, all 180 rows",
+  "n": 180,
+  "spearman_total_A": 0.732623392450778
+ }
+}

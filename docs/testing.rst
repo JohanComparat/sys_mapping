@@ -1,253 +1,221 @@
 Testing
 =======
 
-``sys_mapping`` has a comprehensive test suite in the ``tests/`` directory.
-Tests are organised by module and cover correctness, numerical accuracy,
-and performance.
+The suite collects 798 items: 725 test functions in the 25 files of ``tests/`` and 73
+docstring examples from ``sys_mapping/``.
+Eight tests carry the ``slow`` marker.
+Timing benchmarks live in the separate
+`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
+repository, with the measurements in :doc:`results_benchmark`.
+
+----
 
 Running the tests
 -----------------
 
-Install the package with the development extras first::
+Install the package with the extras CI uses, then run pytest from the repository root::
 
-   pip install -e ".[dev]"
+   pip install -e ".[dev,regression,glass]"
 
-Then run the full suite::
+   pytest                               # everything, docstring examples included
+   pytest -m "not slow"                 # the fast suite
+   pytest tests/test_contamination.py   # one module
+   pytest --cov=sys_mapping --cov-branch --cov-report=term-missing
 
-   pytest tests/ -v
+``pyproject.toml`` sets ``testpaths = ["tests", "sys_mapping"]`` and
+``addopts = "-v --doctest-modules"``, so a bare ``pytest`` collects the docstring examples
+alongside ``tests/``.
 
-Run a single module::
+We ran the full suite with
+``python -m pytest -q -p no:cacheprovider --cov=sys_mapping --cov-branch`` in the ``sys_map``
+environment, with the LS10 and Gaia maps present and the Uchuu mocks absent:
+772 passed, 7 skipped, 19 xfailed in 4 min 12 s, at 98.8 % branch coverage.
+Six of the skips are the ``test_glass_mocks.py`` tests that need the Uchuu mocks and one is a
+docstring example marked ``+SKIP``; the 19 expected failures are the transformability
+entries described below.
 
-   pytest tests/test_contamination.py -v
-
-Run tests that require scikit-learn (skipped otherwise)::
-
-   pip install scikit-learn
-   pytest tests/test_regression.py -v
-
-Timing benchmarks live in the separate
-`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-repository; see :doc:`results_benchmark` for the measurements.
+Tests that need data outside the repository skip when it is absent:
+28 of the 39 tests in ``test_real_templates.py`` and parts of ``test_maps.py`` and
+``test_simulation.py`` need the LS10 and Gaia maps under
+``~/data/legacysurvey/dr10/systematics/0032/``, six tests in ``test_glass_mocks.py`` need
+the Uchuu mocks, and the Corrfunc tests in ``test_utils.py`` need Corrfunc.
 
 ----
 
 Test modules
 ------------
 
+Counts are from ``python -m pytest --collect-only -qqq``.
+
 .. list-table::
    :header-rows: 1
-   :widths: 35 10 55
+   :widths: 34 8 58
 
    * - File
      - Tests
-     - Coverage
-   * - ``test_contamination.py``
-     - 15
-     - :mod:`~sys_mapping.contamination` — parameter layout, pack/unpack
-       round-trip, forward model, two-point correction formula
-   * - ``test_likelihood.py``
-     - 7
-     - :mod:`~sys_mapping.likelihood` — Gaussian and skew-normal log-likelihoods,
-       JAX gradient correctness via finite differences
-   * - ``test_maps.py``
-     - 32
-     - :mod:`~sys_mapping.maps` — power spectrum generation, synthetic map
-       generation, catalog pixelisation, overdensity computation; plus
-       ``load_real_template`` / ``load_real_templates`` (5 synthetic FITS
-       fixture tests + 7 real-data tests guarded by ``@real_data``)
-   * - ``test_correction.py``
-     - 12
-     - :mod:`~sys_mapping.correction` — noise debiasing, PCA rotation,
-       round-trip param transform, two-point correction
-   * - ``test_model_selection.py``
-     - 7
-     - :mod:`~sys_mapping.model_selection` — LRT statistic, chi-squared
-       distribution under the null, p-value monotonicity
+     - Scope
    * - ``test_accuracy.py``
      - 34
-     - End-to-end accuracy: contamination round-trip errors < 1e-10;
-       overdensity mean near zero; likelihood gradient norm; correction
-       bias below tolerance; amplitude bias estimator
-   * - ``test_power_spectrum.py``
+     - Numerical thresholds stated in the docstrings: contamination round trip, maps,
+       likelihood, correction, utilities, model selection, bootstrap
+   * - ``test_bootstrap.py``
+     - 7
+     - :mod:`~sys_mapping.bootstrap`: spatial patches, block bootstrap, jackknife
+   * - ``test_contamination.py``
      - 19
-     - :mod:`~sys_mapping.power_spectrum` — harmonic bias formula
-       :math:`b_\ell = -n/(2\ell+1)`, pseudo-Cℓ white noise validation,
-       template subtraction identity (alpha=0), BMP/EMP mode projection
-   * - ``test_regression.py``
-     - 26
-     - :mod:`~sys_mapping.regression` — weight bounds, ElasticNet recovery
-       (skipped without scikit-learn), ISD convergence and polynomial
-       order reduction, method comparison output keys;
-       ``combined_mcmc`` keys and default-method assertion.
+     - :mod:`~sys_mapping.contamination`: parameter layout, pack/unpack, forward and inverse
+       model, two-point correction
+   * - ``test_correction.py``
+     - 30
+     - :mod:`~sys_mapping.correction`: debiasing, PCA rotation, two-point correction and its
+       covariance, cross-template terms, harmonic correction, over-correction warning
+   * - ``test_covariance.py``
+     - 19
+     - :mod:`~sys_mapping.covariance`: low-rank precision against a dense reference, mock
+       sandwich, sample covariance, Hartlap factor
+   * - ``test_des_y6_features.py``
+     - 19
+     - Spatial cross-validation folds, inverse-variance pixel weights, template vetting,
+       over-correction debias, method-marginalised covariance
    * - ``test_diagnostics.py``
-     - 19
-     - :mod:`~sys_mapping.diagnostics` — null test on uncorrelated fields,
-       SNR ranking shape and ordering, footprint masking output consistency
+     - 50
+     - :mod:`~sys_mapping.diagnostics`: null test, SNR ranking, footprint masking, ISD
+       significance, residual correlation test, calibrated significance
+   * - ``test_edge_cases.py``
+     - 53
+     - Input checks, fallbacks, optional arguments and missing-dependency errors of the
+       public API
+   * - ``test_glass_mocks.py``
+     - 35
+     - :mod:`~sys_mapping.glass_mocks`: :math:`n(z)`, full-sky mocks, Uchuu loading, matched
+       spectra, spectrum choice, per-pixel null draws
+   * - ``test_inference.py``
+     - 15
+     - :mod:`~sys_mapping.inference`: log-probability, emcee sampler, chain summaries,
+       ``refine_to_mle``
+   * - ``test_jax_acceleration.py``
+     - 15
+     - JAX kernels against NumPy references: ISD :math:`\Delta\chi^2`,
+       ``isd_marginal_fit``, null test, polynomial-OLS backend, parallel GLASS mocks
+   * - ``test_jax_transformability.py``
+     - 46
+     - ``jax.jit``, ``jax.vmap`` and ``jax.grad`` on 17 public numeric cases
+   * - ``test_likelihood.py``
+     - 11
+     - :mod:`~sys_mapping.likelihood`: Gaussian and skew-normal likelihoods, gradients, GLS
+       precision
+   * - ``test_ls10_script.py``
+     - 23
+     - Helpers of ``scripts/run_ls10_analysis.py``: parameter expansion, weight convention,
+       skew flag, mandatory null spectrum, null fields
+   * - ``test_maps.py``
+     - 34
+     - :mod:`~sys_mapping.maps`: power spectra, synthetic maps, pixelisation, overdensity,
+       template assignment, real-template loading
    * - ``test_mocks.py``
      - 40
-     - :mod:`~sys_mapping.mocks` — lognormal field properties (skewness,
-       positivity, reproducibility), galactic mask geometry, mock catalog
-       shapes and physics, suite scenarios, pipeline integration
+     - :mod:`~sys_mapping.mocks`: lognormal field, Galactic mask, mock catalogues and
+       suites, pipeline integration
+   * - ``test_model_selection.py``
+     - 39
+     - :mod:`~sys_mapping.model_selection`: likelihood ratio test, forward selection, SNR
+       pre-selection, ``lrt_from_maxima``
+   * - ``test_nonlinear_response.py``
+     - 39
+     - Non-linear template responses: normalisation, injection, ISD-1 against ISD-3
+   * - ``test_power_spectrum.py``
+     - 21
+     - :mod:`~sys_mapping.power_spectrum`: harmonic bias, pseudo-:math:`C_\ell`, template
+       subtraction, mode projection
    * - ``test_real_templates.py``
-     - 28
-     - Integration tests using real GAIA and LS DR10 HEALPix maps as
-       systematic templates (synth_5, synth_6); all six methods exercised
-       on a synthetic mock built within the LS10 survey footprint (NSIDE = 32,
-       ~5 954 valid pixels).  Tests skipped automatically if FITS files are
-       absent.  See :ref:`real-template-tests` below.
+     - 39
+     - Every method on a mock built with the LS10 and Gaia templates (below); footprint
+       standardisation; resolution from occupancy
+   * - ``test_regression.py``
+     - 39
+     - :mod:`~sys_mapping.regression`: weights, ElasticNet, polynomial OLS, ISD, method
+       comparison, ``run_decontamination``
+   * - ``test_samplers.py``
+     - 19
+     - Analytic additive posterior, NUTS, chain execution, sampler dispatch
+   * - ``test_simulation.py``
+     - 21
+     - :mod:`~sys_mapping.simulation`: contamination grid, injection, FITS round trip,
+       systematic maps, footprint mask, :math:`w(\theta)` recovery
+   * - ``test_snr_preselection.py``
+     - 35
+     - Two-stage SNR pre-selection on a GLASS mock with two injected templates
+   * - ``test_utils.py``
+     - 23
+     - :mod:`~sys_mapping.utils`: TreeCorr and Corrfunc two-point functions, KK correlations
+       and covariance, template correlation matrix
+   * - ``sys_mapping/*.py`` (docstring examples)
+     - 73
+     - Every ``Examples`` section, 1 to 11 per module
+
+The slow tests are three calibration checks on clustered fields in ``test_diagnostics.py``
+(residual test size and power, calibrated-significance false-positive rate), two comparisons
+of the analytic posterior and NUTS with emcee in ``test_samplers.py``, and three checks of
+template-correlation support at the pixel scale in ``test_utils.py``.
 
 ----
 
-Test design philosophy
------------------------
+Coverage and CI
+---------------
 
-**Unit tests** check individual functions in isolation:
+``[tool.coverage.run]`` in ``pyproject.toml`` measures ``sys_mapping`` with
+``branch = true``; ``[tool.coverage.report]`` sets ``fail_under = 97`` on the combined line
+and branch figure, which pytest-cov enforces whenever ``--cov`` is given.
+The measured coverage, per module, is in :doc:`coverage`: 98.8% combined, 99.4% of lines and
+96.3% of branches.
 
-* Input/output shapes are always verified.
-* Round-trip identities are tested (e.g. ``apply_contamination`` ∘
-  ``invert_contamination`` = identity).
-* Known closed-form results are tested to machine precision where applicable
-  (e.g. the harmonic bias formula, pack/unpack).
-
-**Accuracy tests** (``test_accuracy.py``) verify that numerical errors
-remain below physically meaningful thresholds across a range of NSIDE
-values, template counts, and noise levels.
-
-**Integration tests** (``TestMockPipelineIntegration`` in ``test_mocks.py``)
-run the full pipeline from raw catalogs to overdensity estimates and confirm
-that OLS recovers injected additive amplitudes to within 50 % at low
-signal-to-noise (NSIDE = 16, 100 galaxies / pixel).
-
-**Skipped tests** — ``test_real_templates.py`` tests are skipped when the
-GAIA and LS10 FITS files are absent from
-``~/data/legacysurvey/dr10/systematics/``.  ElasticNet tests in
-``test_regression.py`` are skipped when ``scikit-learn`` is not installed.
+``.github/workflows/tests.yml`` runs on Python 3.11 and 3.12 with ``JAX_PLATFORMS=cpu`` and
+``XLA_PYTHON_CLIENT_PREALLOCATE=false``, after installing ``.[dev,regression,glass]``.
+Pull requests run the fast suite (``-m "not slow"``); pushes to ``main``, the nightly schedule
+and manual runs run the full suite.
+Both measure branch coverage and upload ``coverage.xml`` to Codecov with a flag per Python
+version (``py3.11``, ``py3.12``).
+The LS10, Gaia and Uchuu data are absent there, so the tests that need them skip.
 
 ----
 
-Continuous integration
------------------------
+Docstring examples
+------------------
 
-The test suite is designed to run in the ``sys_map`` conda environment::
-
-   conda activate sys_map
-   pytest tests/ -v --tb=short
-
-Expected output with scikit-learn and real data files present::
-
-   430 passed, 2 failed, 16 skipped in ~100 s
-
-The two failures are long-standing and live in
-``test_snr_preselection.py::TestMethodComparison`` — a numerical edge case in the
-``poly_order=1`` ISD path.  They are tracked in :doc:`roadmap`; a green run today
-means *those two and no others*.
-
-Without the real data files (no GAIA/LS10 FITS) a further ~10 tests skip.
+Docstring examples run under ``--doctest-modules`` with the ``ELLIPSIS`` and
+``NORMALIZE_WHITESPACE`` flags.
+NumPy 2 prints scalars as ``np.float64(0.5)`` and ``np.True_``; the root ``conftest.py``
+selects ``np.set_printoptions(legacy="1.25")`` whenever doctests are collected, so the
+examples print the plain form.
 
 ----
 
-Systematic test matrix
------------------------
+JAX tests
+---------
 
-Beyond the unit and integration test suite, a separate **systematic test
-matrix** is available in ``scripts/run_systematic_tests.py``.  This script
-is not run as part of ``pytest``; it is a standalone benchmark that exhaustively
-evaluates all six methods across 32 contamination configurations (Tier 1:
-additive-only and multiplicative-only with 1–7 templates; Tier 2: mixed
-additive+multiplicative with varying numbers of multiplicative templates).
+``tests/test_jax_transformability.py`` wraps 17 public numeric cases as functions of one
+array and applies ``jax.jit``, ``jax.vmap`` and, where a gradient is meaningful,
+``jax.grad``, 46 cases in all.
+A case passes when the transform runs on traced inputs and reproduces the eager result.
+The functions written against NumPy are listed in ``_NUMPY_ON_TRACER`` and their cases
+marked strict ``xfail``: 8 functions and 19 cases.
+Porting one of them turns its cases into unexpected passes, which fail the suite until the
+entry is removed.
 
-The key metric is :math:`\sigma[(1+\delta_g^{\rm corr})/(1+\delta_g^{\rm true})]`,
-the standard deviation of the pixel-level correction ratio.  Results and figures
-are documented in :doc:`results_systematic_tests`.
-
-To run::
-
-   conda activate sys_map
-   python scripts/run_systematic_tests.py \\
-       --nside 32 --n-walkers 64 --n-steps 200 --n-burn 50 \\
-       --output-dir results/systematic_tests/
-
-Expected runtime: ~8 minutes (NSIDE = 32, all 6 methods, 32 configurations).
-
-After re-running with the updated script, the CSV will contain a ``time_s`` column
-per method-configuration row, and two timing figures are written to
-``results/systematic_tests/``:
-
-* ``timing_vs_ntemplates.png`` — wall-clock time vs. n_templates per method (log scale)
-* ``timing_mean_per_method.png`` — mean compute time per method across all 32 configs
-
-----
-
-Timing scaling tests
----------------------
-
-Timing and micro-benchmark modules live in
-`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_,
-outside this package's CI.  Their results are documented in
-:doc:`results_benchmark`.
-
-
-Adding new tests
------------------
-
-Follow the existing pattern:
-
-1. Create a test class per public function group (e.g. ``class TestMyFunction``).
-2. Use ``@pytest.fixture(scope="class")`` for expensive shared objects.
-3. Test shapes, dtype, value ranges, and known analytic limits.
-4. For stochastic tests, fix the seed via ``seed=`` or ``np.random.default_rng(N)``.
-5. Add the new file to this page.
+``tests/test_jax_acceleration.py`` checks the JAX kernels that run the ISD, ranking and
+null-test statistics against NumPy reference implementations kept in the test file.
 
 ----
 
 .. _real-template-tests:
 
 Real-template integration tests
----------------------------------
+-------------------------------
 
-``tests/test_real_templates.py`` tests every implemented method end-to-end on
-a synthetic galaxy mock built using **real observational systematic maps**
-from GAIA DR3 and the Legacy Survey DR10.  These tests exercise the entire
-pipeline — loading, normalisation, injection, inference, and model selection
-— with physically realistic templates rather than toy random fields.
-
-Template set
-^^^^^^^^^^^^
-
-.. list-table::
-   :header-rows: 1
-   :widths: 12 20 18 50
-
-   * - Label
-     - Source
-     - NSIDE (tests)
-     - Physical interpretation
-   * - ``synth_0``
-     - Synthetic, family 0 (:math:`C_\ell \propto e^{-\ell/500}`)
-     - 32
-     - Large-scale coherent artefact (e.g. zodiacal light)
-   * - ``synth_1``
-     - Synthetic, family 1 (:math:`C_\ell \propto e^{-(\ell/250)^2}`)
-     - 32
-     - Intermediate-scale artefact (e.g. airglow)
-   * - **synth_5**
-     - **GAIA DR3** — ``GAIA_nstar_faint_NSIDE_00032.fits`` (``nstar_faint`` column)
-     - **32**
-     - **Faint-star surface density** — proxy for stellar contamination
-       (misclassified stars inflate galaxy counts)
-   * - **synth_6**
-     - **LS DR10** — ``LS10_GALDEPTH_Z_NSIDE_0032.fits`` (``GALDEPTH_Z`` column)
-     - **32**
-     - **Galaxy depth in the z band** — proxy for selection-depth variations
-       (depth modulates survey completeness multiplicatively)
-
-Survey footprint: the LS10 depth valid mask (pixels where GALDEPTH_Z > 0)
-restricts the mock to **5 954 pixels** (48.4 % of the NSIDE = 32 sphere).
-GAIA is a full-sky map (12 288 / 12 288 valid pixels); its values inside the
-LS10 footprint are used.
-
-Mock configuration and injected parameters
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+``tests/test_real_templates.py`` builds one mock at NSIDE 32 with four templates, synthetic
+families 0 and 1, ``GAIA_nstar_faint`` and ``LS10_GALDEPTH_Z``, on the pixels where both
+real maps are finite and positive (the mask of
+:func:`~sys_mapping.maps.load_real_templates`).
 
 .. list-table::
    :widths: 40 60
@@ -255,126 +223,40 @@ Mock configuration and injected parameters
 
    * - Parameter
      - Value
-   * - NSIDE
-     - 32 (pixel area ≈ 3.4 deg², 12 288 pixels total)
-   * - Survey footprint pixels
-     - 5 954 (LS10 depth mask)
-   * - Templates :math:`n_s`
-     - 4 (synth_0, synth_1, GAIA_nstar_faint, LS10_GALDEPTH_Z)
-   * - :math:`a_i^{\rm true}` (additive)
-     - :math:`(0.08,\ {-0.05},\ 0.06,\ {-0.04})`
-   * - :math:`b_i^{\rm true}` (multiplicative)
-     - :math:`(0.04,\ 0.00,\ {-0.03},\ 0.05)`
-   * - Mean galaxies per pixel :math:`\bar n`
-     - 50
-   * - Random / galaxy ratio
-     - 8×
+   * - :math:`a_i^{\rm true}`
+     - :math:`(0.08, -0.05, 0.06, -0.04)`
+   * - :math:`b_i^{\rm true}`
+     - :math:`(0.04, 0, -0.03, 0.05)`
+   * - Clean field
+     - lognormal, :math:`C_\ell^G \propto (\ell+1)^{-2}`, :math:`\sigma_G = 0.5`
+   * - Galaxies per pixel
+     - 50 (Poisson)
+   * - Randoms
+     - 8 times the galaxy density, no noise
    * - Seed
      - 7
 
-The galaxy overdensity follows a lognormal field
-:math:`\delta_g^{\rm true} = e^{G - \sigma_G^2/2} - 1` with
-:math:`C_\ell^G \propto (\ell+1)^{-2}`, :math:`\sigma_G = 0.5`.
-Note that template 1 (``synth_1``) has :math:`b_1^{\rm true} = 0` (purely
-additive) while templates 0, 2, 3 have non-zero multiplicative amplitudes —
-a realistic mixed-contamination scenario.
-
-Method results
-^^^^^^^^^^^^^^
-
-Each of the six implemented methods is run once on this fixed mock:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 22 20 16 42
-
-   * - Method
-     - Mean :math:`|\hat a_i - a_i^{\rm true}|`
-     - Tolerance
-     - Notes
-   * - **OLS**
-     - < 0.20
-     - 0.20
-     - Ordinary least-squares pixel regression; fastest method
-   * - **ElasticNet**
-     - < 0.25
-     - 0.25
-     - Cross-validated (3 folds); requires ``scikit-learn ≥ 1.3``
-   * - **ISD-1** (poly_order = 1)
-     - < 0.25
-     - 0.25
-     - Converges in < 50 iterations
-   * - **ISD-3** (poly_order = 3)
-     - n/a (numerically unstable)
-     - finite values only
-     - Polynomial expansion produces 34 features for :math:`n_s = 4`,
-       :math:`n_{\rm pix}/n_{\rm feat} \approx 175`; ill-conditioned
-       with real correlated templates.  Check finiteness only.
-   * - **MCMC-additive**
-     - < 0.25
-     - 0.25
-     - Chain shape :math:`(n_w \times 160,\; n_s + 1)` with
-       :math:`n_w \geq 2(n_s+1)+2 = 12`; :math:`n_{\rm dim} = 5`
-   * - **MCMC-combined** (Berlfein+2024)
-     - < 0.30 for :math:`\hat a_i`; < 0.30 for :math:`\hat b_i`
-     - 0.30
-     - Chain shape :math:`(n_w \times 160,\; 2n_s + 1)`;
-       :math:`n_{\rm dim} = 9`.  Positive posterior variances confirmed.
-
-Model selection and diagnostics
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-* **LRT** (:math:`H_0`: additive, :math:`H_1`: combined) — the additive null
-  is rejected at the 5 % level because :math:`b_0, b_2, b_3 \neq 0`.
-  The test statistic :math:`\lambda_{\rm LR} = 2[\ln\mathcal{L}_1 - \ln\mathcal{L}_0]`
-  is positive and :math:`p < 0.05`.
-
-* **Null test** — the maximum Pearson correlation :math:`\max_i |r_i|` between
-  the OLS-corrected weights and the template maps satisfies
-  :math:`\max|r_i| < 0.50`, confirming partial residual removal.
-
-* **SNR ranking** — the SNR array has shape :math:`(4,)`, all entries are
-  :math:`\geq 0`, and at least one entry is :math:`> 0.01`, demonstrating
-  that the real GAIA and LS10 maps carry detectable systematic signal.
-
-Running the real-template tests
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-Ensure the FITS files are present at their default paths (see
-:func:`~sys_mapping.maps.load_real_templates`), then::
-
-   conda activate sys_map
-   pytest tests/test_real_templates.py -v
-
-Expected output::
-
-   28 passed in ~62 s
-
-To skip when files are absent, they degrade gracefully::
-
-   28 skipped (reason: GAIA/LS10 FITS files not found)
+The tests check shapes, finiteness and a mean absolute amplitude error below a loose
+tolerance: 0.20 for OLS, 0.25 for ElasticNet (3 folds), ISD-1 and ``run_mcmc`` additive
+chains, and 0.30 for :math:`a_i` and :math:`b_i` of combined chains.
+ISD runs with a fixed ``chi2_68 = 50`` in place of a mock calibration, and ISD-3 is checked for
+finite, positive weights and termination.
+The likelihood-ratio test must reject the additive null at 5%.
+The residual test must detect contamination on a template held out of the correction,
+against 30 null realisations put through the same correction.
+The SNR ranking must be non-negative with at least one entry above 0.01.
 
 ----
 
-.. rubric:: Test outcome
+Adding tests
+------------
 
-The full test suite was executed in the ``sys_map`` conda environment
-(Python 3.11, JAX 64-bit, scikit-learn ≥ 1.3, real GAIA and LS10 FITS files
-present) against the current codebase.
+1. One test class per public function or function group.
+2. ``@pytest.fixture(scope="class")`` or ``"module"`` for expensive shared inputs.
+3. Test shapes, value ranges and known analytic limits.
+4. Seed every random draw.
+5. Mark long-running tests with ``@pytest.mark.slow``; pull requests run without them.
+6. Add the file to the table above.
 
-**Results:**
-
-* **430 passed, 2 failed, 16 skipped** — the two failures are long-standing,
-  in ``test_snr_preselection.py::TestMethodComparison`` (see :doc:`roadmap`)
-* ``test_real_templates.py`` — **28 passed** using real GAIA DR3 and LS10 DR10
-  systematic maps; all six methods completed without error on the 5 954-pixel
-  LS10 footprint.
-* ``test_regression.py`` — **39 passed**, including the ElasticNet weight-bound
-  edge case (``TestElasticNet::test_weights_bounded_positive``).
-* The systematic test matrix (``scripts/run_systematic_tests.py``, 32
-  configurations) ran to completion; results are documented in
-  :doc:`results_systematic_tests`.
-
-**Status: PASSED** — 568 tests are collected across 24 files.  ``pytest`` passes 552
-and skips 16 without the real data files; ``pytest -m "not slow"`` deselects a
-further 5 and passes 547.
+Standalone scripts such as ``scripts/run_systematic_tests.py`` produce the result pages and
+are not collected by pytest.
