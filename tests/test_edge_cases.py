@@ -433,3 +433,22 @@ def test_pixel_precision_forces_nuts(small_field):
                                          pixel_precision=prec, n_chains=1,
                                          nuts_n_warmup=30, nuts_n_samples=30)
     assert res["sampler_backend"] == "nuts"
+
+
+# ── compiled functions are shared, not rebuilt per call ─────────────────────────
+
+def test_likelihood_and_refinement_are_compiled_once():
+    from sys_mapping.inference import _neg_log_lik_value_and_grad
+    assert sm.make_log_likelihood(4, "additive") is sm.make_log_likelihood(4, "additive")
+    assert sm.make_log_likelihood(4, "additive") is not sm.make_log_likelihood(4, "combined")
+    assert _neg_log_lik_value_and_grad(4, "combined", False) is \
+        _neg_log_lik_value_and_grad(4, "combined", False)
+
+
+def test_nuts_fits_of_same_shape_share_one_runner(small_field):
+    g, t = small_field
+    before = len(nuts._RUNNER_CACHE)
+    for seed in (0, 1):
+        nuts.run_nuts(3, model="additive", delta_g_obs=g + 0.01 * seed, delta_t=t,
+                      n_chains=1, n_warmup=17, n_samples=13, seed=seed)
+    assert len(nuts._RUNNER_CACHE) == before + 1

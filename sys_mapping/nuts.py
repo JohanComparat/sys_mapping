@@ -81,19 +81,29 @@ def build_logdensity(
     Gaussian likelihood to the correlated-noise (GLS) form :math:`C = \\sigma^2 R`;
     ``None`` keeps the white :math:`\\sigma^2 I` likelihood.
     """
-    log_likelihood = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
+    base, n_dim, idx_sigma = _logdensity_with_data(
+        n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision)
     _delta_g = jnp.asarray(delta_g_obs, dtype=jnp.float64)
     _delta_t = jnp.asarray(delta_t, dtype=jnp.float64)
+
+    def logdensity_fn(u: jnp.ndarray) -> jnp.ndarray:
+        return base(jnp.asarray(u), _delta_g, _delta_t)
+
+    return logdensity_fn, n_dim, idx_sigma
+
+
+def _logdensity_with_data(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision):
+    """``(logdensity(u, delta_g, delta_t), n_dim, idx_sigma)`` with the data as arguments."""
+    log_likelihood = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
     n_cont = n_free_params(n_sys, model)
     idx_sigma = n_cont
     n_dim = n_cont + 1 + (1 if use_skewed else 0)
 
-    def logdensity_fn(u: jnp.ndarray) -> jnp.ndarray:
-        u = jnp.asarray(u)
+    def logdensity(u, delta_g, delta_t):
         u_sigma = u[idx_sigma]
         # map unconstrained -> constrained: sigma = exp(u_sigma), rest identity
         theta = u.at[idx_sigma].set(jnp.exp(u_sigma))
-        lp = log_likelihood(theta, _delta_g, _delta_t)
+        lp = log_likelihood(theta, delta_g, delta_t)
         lp = lp + u_sigma  # log|d sigma / d u_sigma| = u_sigma
         if prior_scale_a is not None:
             a = u[:n_sys]
@@ -103,7 +113,68 @@ def build_logdensity(
             lp = lp - 0.5 * jnp.sum((b / prior_scale_b) ** 2)
         return lp
 
-    return logdensity_fn, n_dim, idx_sigma
+    return logdensity, n_dim, idx_sigma
+
+
+_RUNNER_CACHE: dict = {}
+
+
+def _chain_runner(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
+                  n_warmup, n_samples, target_acceptance_rate, chain_method):
+    """Compiled ``(chain_keys, u0, delta_g, delta_t) -> (positions, divergent, accept)``.
+
+    Everything that fixes the computation is static and forms the cache key; the data
+    and the initial positions are arguments, so fits of same-shaped fields with one
+    configuration (the fits of a mock null) compile once.  Not cached when a precision
+    operator is given.
+    """
+    if chain_method not in ("vmap", "sequential"):
+        raise ValueError("chain_method must be 'vmap' or 'sequential', "
+                         f"got {chain_method!r}")
+    key = (int(n_sys), str(model), bool(use_skewed), prior_scale_a, prior_scale_b,
+           int(n_warmup), int(n_samples), float(target_acceptance_rate), chain_method)
+    if precision is None and key in _RUNNER_CACHE:
+        return _RUNNER_CACHE[key]
+    base, _, _ = _logdensity_with_data(n_sys, model, use_skewed,
+                                       prior_scale_a, prior_scale_b, precision)
+
+    def run(chain_keys, u0, delta_g, delta_t):
+        def logdensity_fn(u):
+            return base(u, delta_g, delta_t)
+
+        def run_one_chain(key, init_position):
+            warmup = blackjax.window_adaptation(
+                blackjax.nuts, logdensity_fn,
+                target_acceptance_rate=target_acceptance_rate,
+                progress_bar=False,
+            )
+            warmup_key, sample_key = jax.random.split(key)
+            (last_state, parameters), _ = warmup.run(warmup_key, init_position,
+                                                     num_steps=n_warmup)
+            kernel = blackjax.nuts(logdensity_fn, **parameters).step
+
+            def one_step(state, k):
+                state, info = kernel(k, state)
+                return state, (state.position, info.is_divergent, info.acceptance_rate)
+
+            keys = jax.random.split(sample_key, n_samples)
+            _, (positions, divergent, accept) = jax.lax.scan(one_step, last_state, keys)
+            return positions, divergent, accept
+
+        # chain_method: "vmap" runs every chain at once — fastest, but it holds all
+        # chains' NUTS trajectories live simultaneously, which OOMs on large-n_pix
+        # footprints (the ~94k-pixel Euclid TR1 combined fit) and forced callers down
+        # to n_chains=1, where R-hat is undefined.  "sequential" (lax.map) runs one
+        # chain at a time for ~1/n_chains of the peak memory at similar total work, so
+        # multi-chain R-hat becomes affordable on the full footprint.
+        if chain_method == "sequential":
+            return jax.lax.map(lambda xs: run_one_chain(*xs), (chain_keys, u0))
+        return jax.vmap(run_one_chain)(chain_keys, u0)
+
+    fn = jax.jit(run)
+    if precision is None:
+        _RUNNER_CACHE[key] = fn
+    return fn
 
 
 def run_nuts(
@@ -163,12 +234,11 @@ def run_nuts(
     if n_chains is None:
         n_chains = default_n_chains()
 
-    logdensity_fn, n_dim, idx_sigma = build_logdensity(
-        n_sys, model, delta_g_obs, delta_t, use_skewed,
-        prior_scale_a=prior_scale_a, prior_scale_b=prior_scale_b,
-        precision=precision,
-    )
     n_cont = n_free_params(n_sys, model)
+    idx_sigma = n_cont
+    n_dim = n_cont + 1 + (1 if use_skewed else 0)
+    runner = _chain_runner(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
+                           n_warmup, n_samples, target_acceptance_rate, chain_method)
 
     # Initial positions (unconstrained): mirror the emcee init scheme, but with
     # u_sigma = log(sigma0) since sigma = exp(u_sigma).
@@ -181,42 +251,11 @@ def run_nuts(
         u0[:, idx_sigma + 1] = rng.normal(0.0, 0.1, n_chains)
     u0 = jnp.asarray(u0, dtype=jnp.float64)
 
-    def run_one_chain(key, init_position):
-        warmup = blackjax.window_adaptation(
-            blackjax.nuts, logdensity_fn,
-            target_acceptance_rate=target_acceptance_rate,
-            progress_bar=False,
-        )
-        warmup_key, sample_key = jax.random.split(key)
-        (last_state, parameters), _ = warmup.run(warmup_key, init_position, num_steps=n_warmup)
-        kernel = blackjax.nuts(logdensity_fn, **parameters).step
-
-        def one_step(state, k):
-            state, info = kernel(k, state)
-            return state, (state.position, info.is_divergent, info.acceptance_rate)
-
-        keys = jax.random.split(sample_key, n_samples)
-        _, (positions, divergent, accept) = jax.lax.scan(one_step, last_state, keys)
-        return positions, divergent, accept
-
     chain_keys = jax.random.split(jax.random.PRNGKey(seed + 1), n_chains)
     # positions: (n_chains, n_samples, n_dim); divergent/accept: (n_chains, n_samples)
-    #
-    # chain_method: "vmap" runs every chain at once — fastest, but it holds all
-    # chains' NUTS trajectories live simultaneously, which OOMs on large-n_pix
-    # footprints (the ~94k-pixel Euclid TR1 combined fit) and forced callers down
-    # to n_chains=1, where R-hat is undefined.  "sequential" (lax.map) runs one
-    # chain at a time for ~1/n_chains of the peak memory at similar total work, so
-    # multi-chain R-hat becomes affordable on the full footprint.
-    if chain_method == "sequential":
-        positions, divergent, accept = jax.lax.map(
-            lambda xs: run_one_chain(*xs), (chain_keys, u0)
-        )
-    elif chain_method == "vmap":
-        positions, divergent, accept = jax.vmap(run_one_chain)(chain_keys, u0)
-    else:
-        raise ValueError("chain_method must be 'vmap' or 'sequential', "
-                         f"got {chain_method!r}")
+    positions, divergent, accept = runner(
+        chain_keys, u0,
+        jnp.asarray(delta_g_obs, dtype=jnp.float64), jnp.asarray(delta_t, dtype=jnp.float64))
 
     # Convergence diagnostics across chains (on the unconstrained samples).
     # R-hat needs >= 2 chains; with a single chain it is undefined (nan).

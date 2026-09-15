@@ -101,6 +101,23 @@ def make_log_likelihood(
             "precision=None, or the Gaussian GLS with use_skewed=False."
         )
 
+    # One compiled function per (n_sys, model, skew) signature.  The data are
+    # arguments, not constants, so every caller with the same signature shares the
+    # compilation; a fresh closure per call would recompile each time.  A precision
+    # operator is an object holding arrays and is not cached.
+    key = (int(n_sys), str(model), bool(use_skewed))
+    if precision is None and key in _CACHE:
+        return _CACHE[key]
+    fn = _build_log_likelihood(n_sys, model, use_skewed, precision)
+    if precision is None:
+        _CACHE[key] = fn
+    return fn
+
+
+_CACHE: dict[tuple[int, str, bool], Callable[[Array, Array, Array], Array]] = {}
+
+
+def _build_log_likelihood(n_sys, model, use_skewed, precision):
     _model = model
     _n_sys = n_sys
     _use_skewed = use_skewed

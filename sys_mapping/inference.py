@@ -358,6 +358,30 @@ def posterior_median_params(flat_chain: np.ndarray) -> np.ndarray:
     return np.median(flat_chain, axis=0)
 
 
+_REFINE_CACHE: dict = {}
+
+
+def _neg_log_lik_value_and_grad(n_sys: int, model: str, use_skewed: bool, precision=None):
+    """Compiled ``(u, delta_g, delta_t) -> (-log L, gradient)`` with ``sigma = exp(u_sigma)``.
+
+    The data are arguments, so refinements of same-shaped fields (a mock null)
+    share one compilation.  Not cached when a precision operator is given.
+    """
+    key = (int(n_sys), str(model), bool(use_skewed))
+    if precision is None and key in _REFINE_CACHE:
+        return _REFINE_CACHE[key]
+    log_lik = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
+    i_sigma = n_free_params(n_sys, model)
+
+    def neg(u, dg, dt):
+        return -log_lik(u.at[i_sigma].set(jnp.exp(u[i_sigma])), dg, dt)
+
+    fn = jax.jit(jax.value_and_grad(neg))
+    if precision is None:
+        _REFINE_CACHE[key] = fn
+    return fn
+
+
 def refine_to_mle(
     theta0: np.ndarray,
     delta_g_obs: np.ndarray,
@@ -447,14 +471,11 @@ def refine_to_mle(
     def _to_theta(u):
         return u.at[i_sigma].set(jnp.exp(u[i_sigma]))
 
-    @jax.jit
-    def _neg(u):
-        return -log_lik(_to_theta(u), _dg, _dt)
-
-    _neg_grad = jax.jit(jax.grad(_neg))
+    value_and_grad = _neg_log_lik_value_and_grad(n_sys, model, use_skewed, precision)
 
     def _fun(u):
-        return float(_neg(jnp.asarray(u))), np.asarray(_neg_grad(jnp.asarray(u)), dtype=float)
+        v, g = value_and_grad(jnp.asarray(u), _dg, _dt)
+        return float(v), np.asarray(g, dtype=float)
 
     # Two starts, because one is not reliably enough.  A posterior median of a
     # near-degenerate 23-parameter posterior can sit in a region where L-BFGS-B
