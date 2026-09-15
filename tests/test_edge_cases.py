@@ -452,3 +452,10 @@ def test_nuts_fits_of_same_shape_share_one_runner(small_field):
         nuts.run_nuts(3, model="additive", delta_g_obs=g + 0.01 * seed, delta_t=t,
                       n_chains=1, n_warmup=17, n_samples=13, seed=seed)
     assert len(nuts._RUNNER_CACHE) == before + 1
+
+
+def test_nuts_diagonal_mass_matrix_option(small_field):
+    g, t = small_field
+    chain, sampler = nuts.run_nuts(3, model="additive", delta_g_obs=g, delta_t=t, n_chains=1,
+                                   n_warmup=30, n_samples=20, seed=0, dense_mass_matrix=False)
+    assert chain.shape == (20, 4) and np.all(np.isfinite(chain))

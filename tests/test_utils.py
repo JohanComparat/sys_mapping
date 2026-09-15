@@ -335,6 +335,30 @@ class TestTemplateCorrelationMatrix:
         big = np.abs(full) > 0.05
         np.testing.assert_allclose(sub[big], full[big], rtol=0.15)
 
+    def test_cross_terms_equal_direct_cross_passes(self):
+        # The matrix builds cross terms from auto passes of summed fields; they must
+        # agree with a direct cross pass on identical positions.
+        pytest.importorskip("treecorr")
+        ra, dec, k = self._field()
+        _, xi = sm.template_correlation_matrix(ra, dec, k, **self.KW)
+        for i, j in ((0, 1), (0, 2), (1, 2)):
+            _, cross = sm.measure_kk_correlation_treecorr(
+                ra, dec, k[i], ra2=ra, dec2=dec, k2=k[j], **self.KW)
+            np.testing.assert_allclose(xi[i, j], cross, rtol=1e-5, atol=1e-7)
+
+    def test_weights_enter_every_entry(self):
+        pytest.importorskip("treecorr")
+        ra, dec, k = self._field()
+        w = 0.5 + np.abs(np.sin(np.radians(dec) * 5))
+        _, xi_w = sm.template_correlation_matrix(ra, dec, k, w=w, **self.KW)
+        _, auto_w = sm.measure_kk_correlation_treecorr(ra, dec, k[1], w, **self.KW)
+        np.testing.assert_allclose(xi_w[1, 1], auto_w, atol=1e-12)
+        _, cross_w = sm.measure_kk_correlation_treecorr(
+            ra, dec, k[0], w, ra2=ra, dec2=dec, k2=k[1], w2=w, **self.KW)
+        np.testing.assert_allclose(xi_w[0, 1], cross_w, rtol=1e-5, atol=1e-7)
+        with pytest.raises(ValueError, match="w must have shape"):
+            sm.template_correlation_matrix(ra, dec, k, w=w[:-1], **self.KW)
+
     def test_the_matrix_feeds_the_correction(self):
         # A 3-D matrix must reach the full-sum branch and change the answer when the
         # templates are correlated, or the cross terms were never used.
