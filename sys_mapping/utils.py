@@ -144,8 +144,10 @@ def compute_amplitude_bias(
     >>> a_sq = np.array([0.01, 0.02, 0.005])
     >>> b_sq = np.array([0.005, 0.01, 0.002])
     >>> add_bias, mult_factor = compute_amplitude_bias(a_sq, b_sq, C)
-    >>> add_bias     # additive offset on w(θ)
-    >>> mult_factor  # typically very close to 1.0
+    >>> round(add_bias, 4)     # additive offset on w(θ)
+    0.0347
+    >>> round(mult_factor, 3)  # multiplicative factor, close to 1
+    1.017
     """
     diag = np.diag(cov_matrix)
     additive_bias = float(np.dot(a_sq, diag))

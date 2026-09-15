@@ -5,13 +5,21 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    # Nightly full suite, slow statistical tests included.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         python-version: ["3.11", "3.12"]
+    env:
+      JAX_PLATFORMS: cpu
+      XLA_PYTHON_CLIENT_PREALLOCATE: "false"
 
     steps:
       - uses: actions/checkout@v4
@@ -20,19 +28,32 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
 
       - name: Install dependencies
         run: |
           pip install --upgrade pip
           pip install -e ".[dev,regression,glass]"
 
-      - name: Run tests with coverage
+      # Pull requests run the fast suite; pushes to main, the nightly schedule and manual
+      # runs include the slow statistical tests.
+      - name: Run fast tests with branch coverage
+        if: github.event_name == 'pull_request'
         run: |
-          pytest tests/ -v --cov=sys_mapping --cov-report=xml --cov-report=term-missing
+          pytest -m "not slow" \
+            --cov=sys_mapping --cov-branch --cov-report=xml --cov-report=term-missing
+
+      - name: Run full test suite with branch coverage
+        if: github.event_name != 'pull_request'
+        run: |
+          pytest \
+            --cov=sys_mapping --cov-branch --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage.xml
+          flags: py${{ matrix.python-version }}
           fail_ci_if_error: false

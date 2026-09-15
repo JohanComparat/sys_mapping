@@ -87,7 +87,8 @@ def make_log_likelihood(
     >>> log_lik = make_log_likelihood(n_sys, "combined")   # compile once
     >>> theta = jnp.asarray(pack_params(a, b, sigma, model="combined"))
     >>> ll = float(log_lik(theta, jnp.asarray(delta_g), jnp.asarray(delta_t)))
-    >>> ll  # typical value: large negative number
+    >>> bool(np.isfinite(ll))
+    True
     """
     if use_skewed and precision is not None:
         raise ValueError(

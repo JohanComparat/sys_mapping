@@ -80,7 +80,8 @@ def make_log_prob(
     7
     >>> import numpy as np
     >>> theta0 = np.zeros(n_dim); theta0[-1] = 0.1  # sigma = 0.1
-    >>> log_prob(theta0)  # finite negative number
+    >>> bool(np.isfinite(log_prob(theta0)))
+    True
     """
     log_likelihood = make_log_likelihood(n_sys, model, use_skewed)
     _delta_g = jnp.asarray(delta_g_obs)

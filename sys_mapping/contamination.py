@@ -277,7 +277,8 @@ def invert_contamination(
     >>> b = jnp.array([0.04,  0.01])
     >>> obs = apply_contamination(delta_g, delta_t, a, b)
     >>> recovered = invert_contamination(obs, delta_t, a, b)
-    >>> float(jnp.max(jnp.abs(recovered - delta_g)))  # < 1e-5
+    >>> bool(float(jnp.max(jnp.abs(recovered - delta_g))) < 1e-10)
+    True
     """
     mult_term = jnp.einsum("i,ij->j", b, delta_t)
     add_term = jnp.einsum("i,ij->j", a, delta_t)

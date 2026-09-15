@@ -63,7 +63,7 @@ def debias_params(
     >>> a_sq  # â² - Var[â], clipped at 0
     array([0.008 , 0.0015, 0.0004])
     >>> b_sq
-    array([0.005, 0.    , 0.    ])
+    array([0.0054, 0.    , 0.    ])
     """
     a_sq = np.maximum(a_hat**2 - var_a, 0.0)
     b_sq = np.maximum(b_hat**2 - var_b, 0.0)

@@ -76,47 +76,43 @@ def _compute_weights(
     return 1.0 / denominator
 
 
-try:
-    import jax as _jax
-    import jax.numpy as _jnp
-    from functools import partial as _partial
-    _JAX_AVAILABLE_REG = True
-except ImportError:  # pragma: no cover
-    _JAX_AVAILABLE_REG = False
+from functools import partial as _partial
 
-if _JAX_AVAILABLE_REG:
-    @_partial(_jax.jit, static_argnums=(4, 5))
-    def _isd_iterate_jax(X, y, ridge_diag, delta_t_lin, n_sys, max_iter, tol, w_max):
-        """Fully-jitted ISD reweighting loop (``lax.while_loop``).
+import jax as _jax
+import jax.numpy as _jnp
 
-        Numerically equivalent to the NumPy iteration in
-        :func:`polynomial_ols_decontamination`: the constant design matrix
-        ``X`` becomes a JIT constant, so the whole fixed-point iteration compiles
-        into a single kernel with no Python-level loop overhead.
-        """
-        n_pix, n_expanded = X.shape
-        Xt = X.T
-        eye = _jnp.eye(n_expanded)
+@_partial(_jax.jit, static_argnums=(4, 5))
+def _isd_iterate_jax(X, y, ridge_diag, delta_t_lin, n_sys, max_iter, tol, w_max):
+    """Fully-jitted ISD reweighting loop (``lax.while_loop``).
 
-        def cond(state):
-            it, _weights, _alpha, rel = state
-            return (it < max_iter) & (rel >= tol)
+    Numerically equivalent to the NumPy iteration in
+    :func:`polynomial_ols_decontamination`: the constant design matrix
+    ``X`` becomes a JIT constant, so the whole fixed-point iteration compiles
+    into a single kernel with no Python-level loop overhead.
+    """
+    n_pix, n_expanded = X.shape
+    Xt = X.T
+    eye = _jnp.eye(n_expanded)
 
-        def body(state):
-            it, weights, _alpha, _rel = state
-            Xw = Xt * weights                              # (n_expanded, n_pix)
-            XtWX = Xw @ X + eye * ridge_diag               # ridge on the diagonal
-            XtWy = Xw @ y
-            alpha_new, *_ = _jnp.linalg.lstsq(XtWX, XtWy, rcond=None)
-            field = alpha_new[:n_sys] @ delta_t_lin
-            w_new = 1.0 / _jnp.maximum(1.0 + field, 1e-6)
-            w_new = _jnp.clip(w_new, 1.0 / w_max, w_max)
-            rel_new = _jnp.linalg.norm(w_new - weights) / (_jnp.linalg.norm(weights) + 1e-30)
-            return (it + 1, w_new, alpha_new, rel_new)
+    def cond(state):
+        it, _weights, _alpha, rel = state
+        return (it < max_iter) & (rel >= tol)
 
-        init = (0, _jnp.ones(n_pix), _jnp.zeros(n_expanded), _jnp.asarray(tol + 1.0))
-        it, weights, alpha, _rel = _jax.lax.while_loop(cond, body, init)
-        return weights, alpha, it
+    def body(state):
+        it, weights, _alpha, _rel = state
+        Xw = Xt * weights                              # (n_expanded, n_pix)
+        XtWX = Xw @ X + eye * ridge_diag               # ridge on the diagonal
+        XtWy = Xw @ y
+        alpha_new, *_ = _jnp.linalg.lstsq(XtWX, XtWy, rcond=None)
+        field = alpha_new[:n_sys] @ delta_t_lin
+        w_new = 1.0 / _jnp.maximum(1.0 + field, 1e-6)
+        w_new = _jnp.clip(w_new, 1.0 / w_max, w_max)
+        rel_new = _jnp.linalg.norm(w_new - weights) / (_jnp.linalg.norm(weights) + 1e-30)
+        return (it + 1, w_new, alpha_new, rel_new)
+
+    init = (0, _jnp.ones(n_pix), _jnp.zeros(n_expanded), _jnp.asarray(tol + 1.0))
+    it, weights, alpha, _rel = _jax.lax.while_loop(cond, body, init)
+    return weights, alpha, it
 
 
 def elasticnet_contamination_fit(
@@ -452,16 +448,12 @@ def polynomial_ols_decontamination(
 
     # Opt-in fully-jitted iteration (identical numerics, no Python loop overhead).
     if backend == "jax":
-        if not _JAX_AVAILABLE_REG:
-            warnings.warn("backend='jax' requested but JAX is unavailable; "
-                          "falling back to NumPy.", stacklevel=2)
-        else:
-            w_j, a_j, it_j = _isd_iterate_jax(
-                _jnp.asarray(X), _jnp.asarray(delta_g_obs),
-                _jnp.asarray(ridge_diag), _jnp.asarray(delta_t_expanded[:n_sys]),
-                int(n_sys), int(max_iter), float(tol), float(_ISD_MAX_WEIGHT),
-            )
-            return np.asarray(w_j), np.asarray(a_j), int(it_j)
+        w_j, a_j, it_j = _isd_iterate_jax(
+            _jnp.asarray(X), _jnp.asarray(delta_g_obs),
+            _jnp.asarray(ridge_diag), _jnp.asarray(delta_t_expanded[:n_sys]),
+            int(n_sys), int(max_iter), float(tol), float(_ISD_MAX_WEIGHT),
+        )
+        return np.asarray(w_j), np.asarray(a_j), int(it_j)
 
     for iteration in range(1, max_iter + 1):
         weights_old = weights.copy()

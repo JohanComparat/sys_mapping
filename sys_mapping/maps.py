@@ -71,7 +71,7 @@ def systematic_power_spectrum(
     0.0
     >>> # Verify unit variance
     >>> ell = np.arange(len(cl))
-    >>> float(np.sum((2 * ell + 1) / (4 * np.pi) * cl))  # ≈ 1.0
+    >>> round(float(np.sum((2 * ell + 1) / (4 * np.pi) * cl)), 12)
     1.0
     """
     lmax = 3 * nside - 1
@@ -139,10 +139,10 @@ def generate_systematic_map(
     >>> m = generate_systematic_map(nside=64, family=2, seed=42)
     >>> m.shape
     (49152,)
-    >>> float(np.mean(m))   # exactly 0
-    0.0
-    >>> float(np.std(m))    # exactly 1
-    1.0
+    >>> bool(abs(float(np.mean(m))) < 1e-12)   # zero mean
+    True
+    >>> bool(abs(float(np.std(m)) - 1.0) < 1e-12)   # unit variance
+    True
     """
     if seed is not None:
         np.random.seed(seed)
@@ -303,14 +303,15 @@ def compute_overdensity(
     >>> from sys_mapping import pixelize_catalog, compute_overdensity
     >>> rng = np.random.default_rng(0)
     >>> nside = 32
-    >>> gal  = pixelize_catalog(rng.uniform(0, 360, 100_000),
-    ...                         rng.uniform(-90, 90, 100_000), nside)
-    >>> rand = pixelize_catalog(rng.uniform(0, 360, 500_000),
-    ...                         rng.uniform(-90, 90, 500_000), nside)
+    >>> def uniform_sphere(n):
+    ...     return rng.uniform(0, 360, n), np.degrees(np.arcsin(rng.uniform(-1, 1, n)))
+    >>> gal = pixelize_catalog(*uniform_sphere(100_000), nside)
+    >>> rand = pixelize_catalog(*uniform_sphere(500_000), nside)
     >>> delta_g, good = compute_overdensity(gal, rand)
     >>> delta_g.shape  # unmasked pixels only
     (12288,)
-    >>> abs(float(delta_g.mean())) < 0.01  # mean near zero
+    >>> # zero mean when weighted by the randoms, by construction of the normalisation
+    >>> bool(abs(np.sum(delta_g * rand[good])) < 1e-6 * rand[good].sum())
     True
     """
     max_random = np.max(random_counts)
@@ -632,15 +633,13 @@ def load_real_template(
     Examples
     --------
     >>> from sys_mapping.maps import load_real_template
-    >>> t, mask = load_real_template(
-    ...     "/data/GAIA_nstar_faint_NSIDE_00064.fits",
+    >>> t, mask = load_real_template(  # doctest: +SKIP
+    ...     "~/data/legacysurvey/dr10/systematics/0064/GAIA_nstar_faint_NSIDE_00064.fits",
     ...     column="nstar_faint",
     ... )
-    >>> t.shape
+    >>> t.shape  # doctest: +SKIP
     (49152,)
-    >>> abs(t[mask].mean()) < 1e-10   # mean=0 over valid pixels
-    True
-    >>> abs(t[mask].std() - 1.0) < 1e-10  # std=1 over valid pixels
+    >>> bool(abs(t[mask].mean()) < 1e-10)   # doctest: +SKIP
     True
     """
     from astropy.io import fits as astropy_fits
@@ -719,12 +718,12 @@ def load_real_templates(
     Examples
     --------
     >>> import sys_mapping as sm
-    >>> templates, names, mask = sm.load_real_templates(
-    ...     64, "~/data/legacysurvey/dr10/systematics"
+    >>> templates, names, mask = sm.load_real_templates(  # doctest: +SKIP
+    ...     64, "~/data/legacysurvey/dr10/systematics/0064"
     ... )
-    >>> templates.shape
+    >>> templates.shape  # doctest: +SKIP
     (2, 49152)
-    >>> names
+    >>> names  # doctest: +SKIP
     ['GAIA_nstar_faint', 'LS10_GALDEPTH_Z']
     """
     syst_dir = Path(syst_dir).expanduser()

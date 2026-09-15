@@ -7,7 +7,7 @@ representation of each decontamination method is consistent across all plots.
 Usage
 -----
 >>> from sys_mapping.plotting import METHOD_COLORS, METHOD_LINESTYLES, METHOD_LABELS
->>> ax.plot(theta, w_corr, color=METHOD_COLORS['MCMC-comb'],
+>>> ax.plot(theta, w_corr, color=METHOD_COLORS['MCMC-comb'],  # doctest: +SKIP
 ...         linestyle=METHOD_LINESTYLES['MCMC-comb'],
 ...         label=METHOD_LABELS['MCMC-comb'])
 

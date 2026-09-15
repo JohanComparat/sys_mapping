@@ -12,190 +12,185 @@ import warnings
 
 import numpy as np
 
-try:
-    import jax
-    import jax.numpy as jnp
-    _JAX_AVAILABLE = True
-except ImportError:
-    _JAX_AVAILABLE = False
+import jax
+import jax.numpy as jnp
 
-if _JAX_AVAILABLE:
-    # --- "data": batched Pearson |r| (n_sys, n_pix) × (n_pix,) → (n_sys,) ---
-    @jax.jit
-    def _jax_pearson(t_mat, g):
-        g_c = g - g.mean()
-        t_c = t_mat - t_mat.mean(axis=1, keepdims=True)
-        g_norm = jnp.linalg.norm(g_c) + 1e-30
-        t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
-        return jnp.abs(t_c @ g_c) / (g_norm * t_norm)
+# --- "data": batched Pearson |r| (n_sys, n_pix) × (n_pix,) → (n_sys,) ---
+@jax.jit
+def _jax_pearson(t_mat, g):
+    g_c = g - g.mean()
+    t_c = t_mat - t_mat.mean(axis=1, keepdims=True)
+    g_norm = jnp.linalg.norm(g_c) + 1e-30
+    t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
+    return jnp.abs(t_c @ g_c) / (g_norm * t_norm)
 
-    # --- "template": per-template OLS |t|-stat via vmap ---
-    def _one_tstat(t_i, g):
-        denom = jnp.dot(t_i, t_i) + 1e-30
-        alpha = jnp.dot(t_i, g) / denom
-        sigma2 = jnp.mean((g - alpha * t_i) ** 2)
-        return jnp.abs(alpha) / jnp.sqrt(sigma2 / denom + 1e-30)
+# --- "template": per-template OLS |t|-stat via vmap ---
+def _one_tstat(t_i, g):
+    denom = jnp.dot(t_i, t_i) + 1e-30
+    alpha = jnp.dot(t_i, g) / denom
+    sigma2 = jnp.mean((g - alpha * t_i) ** 2)
+    return jnp.abs(alpha) / jnp.sqrt(sigma2 / denom + 1e-30)
 
-    _jax_tstat = jax.jit(jax.vmap(_one_tstat, in_axes=(0, None)))
+_jax_tstat = jax.jit(jax.vmap(_one_tstat, in_axes=(0, None)))
 
-    # --- "isd": vmap over templates, poly_order=1 analytic ---
-    # Bin-assignment: equal-WIDTH (default) or equal-OCCUPANCY (quantile) edges.
-    # Quantile binning is robust when a template's pixel distribution is skewed —
-    # equal-width bins then collapse most pixels into one bin and lose the trend.
-    def _binidx_width(t_i, n_bins):
-        t_min, t_max = t_i.min(), t_i.max()
-        span = t_max - t_min + 1e-30
-        return jnp.clip(jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32),
-                        0, n_bins - 1)
+# --- "isd": vmap over templates, poly_order=1 analytic ---
+# Bin-assignment: equal-WIDTH (default) or equal-OCCUPANCY (quantile) edges.
+# Quantile binning is robust when a template's pixel distribution is skewed —
+# equal-width bins then collapse most pixels into one bin and lose the trend.
+def _binidx_width(t_i, n_bins):
+    t_min, t_max = t_i.min(), t_i.max()
+    span = t_max - t_min + 1e-30
+    return jnp.clip(jnp.floor((t_i - t_min) / span * n_bins).astype(jnp.int32),
+                    0, n_bins - 1)
 
-    def _binidx_quantile(t_i, n_bins):
-        edges = jnp.quantile(t_i, jnp.linspace(0.0, 1.0, n_bins + 1))
-        # place each pixel by the n_bins-1 interior quantile edges → indices 0..n_bins-1
-        return jnp.clip(jnp.searchsorted(edges[1:-1], t_i, side="right").astype(jnp.int32),
-                        0, n_bins - 1)
+def _binidx_quantile(t_i, n_bins):
+    edges = jnp.quantile(t_i, jnp.linspace(0.0, 1.0, n_bins + 1))
+    # place each pixel by the n_bins-1 interior quantile edges → indices 0..n_bins-1
+    return jnp.clip(jnp.searchsorted(edges[1:-1], t_i, side="right").astype(jnp.int32),
+                    0, n_bins - 1)
 
-    # Per-bin inverse variance, shared by both ISD kernels.
-    #
-    # The centred (two-pass) form is REQUIRED.  The algebraically equivalent
-    # E[g²] - E[g]² is what this code used to do, and under jit XLA contracts it
-    # into an FMA whose rounding returns ~1.5e-20 instead of exactly 0 for a bin
-    # holding a single pixel.  That squeaked past a `> 1e-20` guard and gave the
-    # bin an inverse variance of ~7e19, which swamped the whole chi²: a pure-noise
-    # template scored 6e17 against 389 for a genuinely contaminated one.  Eagerly
-    # the same expression returns exactly 0.0, so the bug appeared only in the
-    # compiled path and moves with the XLA version.
-    #
-    # Two further conditions make the test mean what it says: a bin holding one
-    # pixel carries no variance information whatever the arithmetic reports, and
-    # the floor is taken relative to the field's own scatter so it is scale-free.
-    # This matches the NumPy fallback in `snr_template_ranking`, which uses
-    # np.std (two-pass) and drops degenerate bins.
-    def _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar):
-        g_var = jnp.zeros(n_bins).at[bin_idx].add((g - g_mean[bin_idx]) ** 2) / n_b
-        g_var_floor = 1e-12 * jnp.mean((g - g_bar) ** 2)
-        valid = (count >= 2) & (g_var > g_var_floor)
-        inv_s2 = jnp.where(valid, n_b / jnp.where(valid, g_var, 1.0), 0.0)
-        return inv_s2, valid
+# Per-bin inverse variance, shared by both ISD kernels.
+#
+# The centred (two-pass) form is REQUIRED.  The algebraically equivalent
+# E[g²] - E[g]² is what this code used to do, and under jit XLA contracts it
+# into an FMA whose rounding returns ~1.5e-20 instead of exactly 0 for a bin
+# holding a single pixel.  That squeaked past a `> 1e-20` guard and gave the
+# bin an inverse variance of ~7e19, which swamped the whole chi²: a pure-noise
+# template scored 6e17 against 389 for a genuinely contaminated one.  Eagerly
+# the same expression returns exactly 0.0, so the bug appeared only in the
+# compiled path and moves with the XLA version.
+#
+# Two further conditions make the test mean what it says: a bin holding one
+# pixel carries no variance information whatever the arithmetic reports, and
+# the floor is taken relative to the field's own scatter so it is scale-free.
+# The NumPy reference in tests/test_jax_acceleration.py uses np.std (two-pass)
+# and drops degenerate bins in the same way.
+def _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar):
+    g_var = jnp.zeros(n_bins).at[bin_idx].add((g - g_mean[bin_idx]) ** 2) / n_b
+    g_var_floor = 1e-12 * jnp.mean((g - g_bar) ** 2)
+    valid = (count >= 2) & (g_var > g_var_floor)
+    inv_s2 = jnp.where(valid, n_b / jnp.where(valid, g_var, 1.0), 0.0)
+    return inv_s2, valid
 
-    def _isd_core(t_i, g, bin_idx, n_bins):
-        g_bar = g.mean()
-        count  = jnp.zeros(n_bins).at[bin_idx].add(1)
-        g_sum  = jnp.zeros(n_bins).at[bin_idx].add(g)
-        t_sum  = jnp.zeros(n_bins).at[bin_idx].add(t_i)
-        n_b    = count.clip(min=1)
-        g_mean = g_sum / n_b
-        t_mean = t_sum / n_b
-        inv_s2, valid = _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar)
-        chi2_null = jnp.sum(inv_s2 * (g_mean - g_bar) ** 2)
-        W   = inv_s2
-        S   = W.sum();   Ss  = (W * t_mean).sum();  Sn  = (W * g_mean).sum()
-        Sss = (W * t_mean ** 2).sum();  Ssn = (W * t_mean * g_mean).sum()
-        alpha = (S * Ssn - Ss * Sn) / (S * Sss - Ss ** 2 + 1e-30)
-        beta  = (Sn - alpha * Ss) / (S + 1e-30)
-        chi2_model = jnp.sum(inv_s2 * (g_mean - (alpha * t_mean + beta)) ** 2)
-        return jnp.where(jnp.sum(valid) < 2, 0.0,
-                         jnp.maximum(chi2_null - chi2_model, 0.0))
+def _isd_core(t_i, g, bin_idx, n_bins):
+    g_bar = g.mean()
+    count  = jnp.zeros(n_bins).at[bin_idx].add(1)
+    g_sum  = jnp.zeros(n_bins).at[bin_idx].add(g)
+    t_sum  = jnp.zeros(n_bins).at[bin_idx].add(t_i)
+    n_b    = count.clip(min=1)
+    g_mean = g_sum / n_b
+    t_mean = t_sum / n_b
+    inv_s2, valid = _bin_inv_var(g, bin_idx, n_bins, count, n_b, g_mean, g_bar)
+    chi2_null = jnp.sum(inv_s2 * (g_mean - g_bar) ** 2)
+    W   = inv_s2
+    S   = W.sum();   Ss  = (W * t_mean).sum();  Sn  = (W * g_mean).sum()
+    Sss = (W * t_mean ** 2).sum();  Ssn = (W * t_mean * g_mean).sum()
+    alpha = (S * Ssn - Ss * Sn) / (S * Sss - Ss ** 2 + 1e-30)
+    beta  = (Sn - alpha * Ss) / (S + 1e-30)
+    chi2_model = jnp.sum(inv_s2 * (g_mean - (alpha * t_mean + beta)) ** 2)
+    return jnp.where(jnp.sum(valid) < 2, 0.0,
+                     jnp.maximum(chi2_null - chi2_model, 0.0))
 
-    _jax_isd_cache: dict[tuple[int, bool], object] = {}
+_jax_isd_cache: dict[tuple[int, bool], object] = {}
 
-    def _get_jax_isd(n_bins: int, quantile: bool = False):
-        key = (n_bins, quantile)
-        if key not in _jax_isd_cache:
-            binf = _binidx_quantile if quantile else _binidx_width
-            _jax_isd_cache[key] = jax.jit(
-                jax.vmap(lambda t, g: _isd_core(t, g, binf(t, n_bins), n_bins),
-                         in_axes=(0, None))
-            )
-        return _jax_isd_cache[key]
+def _get_jax_isd(n_bins: int, quantile: bool = False):
+    key = (n_bins, quantile)
+    if key not in _jax_isd_cache:
+        binf = _binidx_quantile if quantile else _binidx_width
+        _jax_isd_cache[key] = jax.jit(
+            jax.vmap(lambda t, g: _isd_core(t, g, binf(t, n_bins), n_bins),
+                     in_axes=(0, None))
+        )
+    return _jax_isd_cache[key]
 
-    # --- "isd", general: arbitrary polynomial order + optional fracdet weights ---
-    def _one_isd_poly(t_i, g, w, n_bins, order, quantile):
-        """Δχ² of a weighted degree-``order`` polynomial fit of binned n̄(s̄).
+# --- "isd", general: arbitrary polynomial order + optional fracdet weights ---
+def _one_isd_poly(t_i, g, w, n_bins, order, quantile):
+    """Δχ² of a weighted degree-``order`` polynomial fit of binned n̄(s̄).
 
-        Generalises :func:`_isd_core` (poly_order=1, unit weights) to any order and
-        optional per-pixel weights ``w`` (fracdet).  Bin means use ``w``; the
-        per-bin standard error uses the unweighted variance / pixel count, exactly
-        as the NumPy fallback in :func:`snr_template_ranking`.  ``quantile`` selects
-        equal-occupancy bins (robust to skewed templates) over equal-width.
-        """
-        w_total = w.sum()
-        g_bar = jnp.dot(w, g) / (w_total + 1e-30)
-        bin_idx = _binidx_quantile(t_i, n_bins) if quantile else _binidx_width(t_i, n_bins)
-        W_b  = jnp.zeros(n_bins).at[bin_idx].add(w)          # Σ w
-        wt_b = jnp.zeros(n_bins).at[bin_idx].add(w * t_i)    # Σ w t
-        wg_b = jnp.zeros(n_bins).at[bin_idx].add(w * g)      # Σ w g
-        cnt  = jnp.zeros(n_bins).at[bin_idx].add(1.0)        # pixel count
-        g1   = jnp.zeros(n_bins).at[bin_idx].add(g)          # Σ g   (unweighted)
+    Generalises :func:`_isd_core` (poly_order=1, unit weights) to any order and
+    optional per-pixel weights ``w`` (fracdet).  Bin means use ``w``; the
+    per-bin standard error uses the unweighted variance / pixel count, exactly
+    as the NumPy reference implementation in the test suite.  ``quantile`` selects
+    equal-occupancy bins (robust to skewed templates) over equal-width.
+    """
+    w_total = w.sum()
+    g_bar = jnp.dot(w, g) / (w_total + 1e-30)
+    bin_idx = _binidx_quantile(t_i, n_bins) if quantile else _binidx_width(t_i, n_bins)
+    W_b  = jnp.zeros(n_bins).at[bin_idx].add(w)          # Σ w
+    wt_b = jnp.zeros(n_bins).at[bin_idx].add(w * t_i)    # Σ w t
+    wg_b = jnp.zeros(n_bins).at[bin_idx].add(w * g)      # Σ w g
+    cnt  = jnp.zeros(n_bins).at[bin_idx].add(1.0)        # pixel count
+    g1   = jnp.zeros(n_bins).at[bin_idx].add(g)          # Σ g   (unweighted)
 
-        s_arr = wt_b / jnp.maximum(W_b, 1e-30)               # weighted t mean
-        n_arr = wg_b / jnp.maximum(W_b, 1e-30)               # weighted g mean
-        n_b_uw = jnp.maximum(cnt, 1.0)
-        g_mean_uw = g1 / n_b_uw
-        inv_s2, ok = _bin_inv_var(g, bin_idx, n_bins, cnt, n_b_uw, g_mean_uw, g_bar)
-        valid = (W_b > 1e-30) & ok
-        inv_s2 = jnp.where(valid, inv_s2, 0.0)
+    s_arr = wt_b / jnp.maximum(W_b, 1e-30)               # weighted t mean
+    n_arr = wg_b / jnp.maximum(W_b, 1e-30)               # weighted g mean
+    n_b_uw = jnp.maximum(cnt, 1.0)
+    g_mean_uw = g1 / n_b_uw
+    inv_s2, ok = _bin_inv_var(g, bin_idx, n_bins, cnt, n_b_uw, g_mean_uw, g_bar)
+    valid = (W_b > 1e-30) & ok
+    inv_s2 = jnp.where(valid, inv_s2, 0.0)
 
-        chi2_null = jnp.sum(inv_s2 * (n_arr - g_bar) ** 2)
+    chi2_null = jnp.sum(inv_s2 * (n_arr - g_bar) ** 2)
 
-        # Weighted polynomial least squares (weight = inv_s2): solve on the
-        # sqrt-weighted Vandermonde to avoid squaring the condition number.
-        powers = jnp.arange(order + 1)
-        V = s_arr[:, None] ** powers[None, :]                # (n_bins, order+1)
-        sw = jnp.sqrt(inv_s2)
-        coeffs, *_ = jnp.linalg.lstsq(sw[:, None] * V, sw * n_arr, rcond=None)
-        f_s = V @ coeffs
-        chi2_model = jnp.sum(inv_s2 * (n_arr - f_s) ** 2)
+    # Weighted polynomial least squares (weight = inv_s2): solve on the
+    # sqrt-weighted Vandermonde to avoid squaring the condition number.
+    powers = jnp.arange(order + 1)
+    V = s_arr[:, None] ** powers[None, :]                # (n_bins, order+1)
+    sw = jnp.sqrt(inv_s2)
+    coeffs, *_ = jnp.linalg.lstsq(sw[:, None] * V, sw * n_arr, rcond=None)
+    f_s = V @ coeffs
+    chi2_model = jnp.sum(inv_s2 * (n_arr - f_s) ** 2)
 
-        n_valid = jnp.sum(valid)
-        ok = n_valid >= 2
-        # The range the fit is actually supported on: the outermost *valid* bin
-        # centres.  A polynomial fitted to binned means says nothing beyond them,
-        # and survey-property maps are skewed enough that evaluating a cubic out
-        # in the tail is not a small extrapolation -- it is the difference between
-        # a correction and a divergence.
-        s_lo = jnp.min(jnp.where(valid, s_arr, jnp.inf))
-        s_hi = jnp.max(jnp.where(valid, s_arr, -jnp.inf))
-        # Coefficients are returned alongside Delta chi^2 because the ISD *fit*
-        # (regression.iterative_systematics_decontamination) needs the fitted
-        # curve, not only its significance.  They are ascending in power:
-        # F(t) = coeffs[0] + coeffs[1] t + ... + coeffs[order] t**order.
-        return (jnp.where(ok, jnp.maximum(chi2_null - chi2_model, 0.0), 0.0),
-                jnp.where(ok, coeffs, jnp.zeros_like(coeffs)),
-                jnp.where(ok, s_lo, 0.0),
-                jnp.where(ok, s_hi, 0.0))
+    n_valid = jnp.sum(valid)
+    ok = n_valid >= 2
+    # The range the fit is actually supported on: the outermost *valid* bin
+    # centres.  A polynomial fitted to binned means says nothing beyond them,
+    # and survey-property maps are skewed enough that evaluating a cubic out
+    # in the tail is not a small extrapolation -- it is the difference between
+    # a correction and a divergence.
+    s_lo = jnp.min(jnp.where(valid, s_arr, jnp.inf))
+    s_hi = jnp.max(jnp.where(valid, s_arr, -jnp.inf))
+    # Coefficients are returned alongside Delta chi^2 because the ISD *fit*
+    # (regression.iterative_systematics_decontamination) needs the fitted
+    # curve, not only its significance.  They are ascending in power:
+    # F(t) = coeffs[0] + coeffs[1] t + ... + coeffs[order] t**order.
+    return (jnp.where(ok, jnp.maximum(chi2_null - chi2_model, 0.0), 0.0),
+            jnp.where(ok, coeffs, jnp.zeros_like(coeffs)),
+            jnp.where(ok, s_lo, 0.0),
+            jnp.where(ok, s_hi, 0.0))
 
-    _jax_isd_poly_cache: dict[tuple[int, int, bool], object] = {}
+_jax_isd_poly_cache: dict[tuple[int, int, bool], object] = {}
 
-    def _get_jax_isd_poly_full(n_bins: int, order: int, quantile: bool = False):
-        """vmapped kernel returning ``(delta_chi2, coeffs, t_lo, t_hi)``."""
-        key = (n_bins, order, quantile)
-        if key not in _jax_isd_poly_cache:
-            _jax_isd_poly_cache[key] = jax.jit(
-                jax.vmap(lambda t, g, w: _one_isd_poly(t, g, w, n_bins, order, quantile),
-                         in_axes=(0, None, None))
-            )
-        return _jax_isd_poly_cache[key]
+def _get_jax_isd_poly_full(n_bins: int, order: int, quantile: bool = False):
+    """vmapped kernel returning ``(delta_chi2, coeffs, t_lo, t_hi)``."""
+    key = (n_bins, order, quantile)
+    if key not in _jax_isd_poly_cache:
+        _jax_isd_poly_cache[key] = jax.jit(
+            jax.vmap(lambda t, g, w: _one_isd_poly(t, g, w, n_bins, order, quantile),
+                     in_axes=(0, None, None))
+        )
+    return _jax_isd_poly_cache[key]
 
-    def _get_jax_isd_poly(n_bins: int, order: int, quantile: bool = False):
-        """vmapped kernel returning Delta chi^2 only (ranking call sites)."""
-        full = _get_jax_isd_poly_full(n_bins, order, quantile)
-        return lambda t, g, w: full(t, g, w)[0]
+def _get_jax_isd_poly(n_bins: int, order: int, quantile: bool = False):
+    """vmapped kernel returning Delta chi^2 only (ranking call sites)."""
+    full = _get_jax_isd_poly_full(n_bins, order, quantile)
+    return lambda t, g, w: full(t, g, w)[0]
 
-    # --- null test: signed corr + permutation p-values, vmapped over resamples ---
-    def _null_test_jax(weights, delta_t, n_bootstrap, seed):
-        w_c = weights - weights.mean()
-        w_norm = jnp.linalg.norm(w_c) + 1e-30
-        t_c = delta_t - delta_t.mean(axis=1, keepdims=True)
-        t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
-        signed = (t_c @ w_c) / (t_norm * w_norm)             # (n_sys,)
-        obs = jnp.abs(signed)
+# --- null test: signed corr + permutation p-values, vmapped over resamples ---
+def _null_test_jax(weights, delta_t, n_bootstrap, seed):
+    w_c = weights - weights.mean()
+    w_norm = jnp.linalg.norm(w_c) + 1e-30
+    t_c = delta_t - delta_t.mean(axis=1, keepdims=True)
+    t_norm = jnp.linalg.norm(t_c, axis=1) + 1e-30
+    signed = (t_c @ w_c) / (t_norm * w_norm)             # (n_sys,)
+    obs = jnp.abs(signed)
 
-        keys = jax.random.split(jax.random.PRNGKey(seed), n_bootstrap)
-        one = lambda k: jnp.abs(t_c @ jax.random.permutation(k, w_c)) / (t_norm * w_norm)
-        perm = jax.vmap(one)(keys)                           # (n_bootstrap, n_sys)
-        count = jnp.sum(perm >= obs[None, :], axis=0)        # (n_sys,)
-        p = (count + 1.0) / (n_bootstrap + 1.0)
-        return signed, p
+    keys = jax.random.split(jax.random.PRNGKey(seed), n_bootstrap)
+    one = lambda k: jnp.abs(t_c @ jax.random.permutation(k, w_c)) / (t_norm * w_norm)
+    perm = jax.vmap(one)(keys)                           # (n_bootstrap, n_sys)
+    count = jnp.sum(perm >= obs[None, :], axis=0)        # (n_sys,)
+    p = (count + 1.0) / (n_bootstrap + 1.0)
+    return signed, p
 
 
 def null_test_cross_correlations(
@@ -280,47 +275,12 @@ def null_test_cross_correlations(
     ----------
     Ross et al. 2011, MNRAS 417, 1350.
     """
-    if _JAX_AVAILABLE:
-        signed, p = _null_test_jax(
-            jnp.asarray(weights, dtype=jnp.float64),
-            jnp.asarray(delta_t, dtype=jnp.float64),
-            int(n_bootstrap), int(seed),
-        )
-        return {"correlations": np.asarray(signed), "p_values": np.asarray(p)}
-
-    rng = np.random.default_rng(seed)
-    n_sys = delta_t.shape[0]
-
-    w_centered = weights - weights.mean()
-    w_norm = np.sqrt(np.sum(w_centered**2))
-
-    correlations = np.empty(n_sys)
-    for i, t_i in enumerate(delta_t):
-        t_centered = t_i - t_i.mean()
-        t_norm = np.sqrt(np.sum(t_centered**2))
-        if w_norm < 1e-30 or t_norm < 1e-30:
-            correlations[i] = 0.0
-        else:
-            correlations[i] = float(np.sum(w_centered * t_centered) / (w_norm * t_norm))
-
-    # Permutation p-values
-    p_values = np.empty(n_sys)
-    for i, t_i in enumerate(delta_t):
-        t_centered = t_i - t_i.mean()
-        t_norm = np.sqrt(np.sum(t_centered**2))
-        obs_r = abs(correlations[i])
-        count_extreme = 0
-        for _ in range(n_bootstrap):
-            w_shuffled = rng.permutation(w_centered)
-            if w_norm > 1e-30 and t_norm > 1e-30:
-                r_perm = abs(float(np.sum(w_shuffled * t_centered) / (w_norm * t_norm)))
-            else:
-                r_perm = 0.0
-            if r_perm >= obs_r:
-                count_extreme += 1
-        p_values[i] = (count_extreme + 1) / (n_bootstrap + 1)
-
-    return {"correlations": correlations, "p_values": p_values}
+    signed, p = _null_test_jax(
+        jnp.asarray(weights, dtype=jnp.float64),
+        jnp.asarray(delta_t, dtype=jnp.float64),
+        int(n_bootstrap), int(seed),
+    )
+    return {"correlations": np.asarray(signed), "p_values": np.asarray(p)}
 
 
 def calibrated_template_significance(
@@ -660,35 +620,16 @@ def snr_template_ranking(
     n_sys, n_pix = delta_t.shape
 
     if method == "template":
-        if _JAX_AVAILABLE:
-            return np.asarray(
-                _jax_tstat(jnp.asarray(delta_t, dtype=jnp.float64),
-                           jnp.asarray(delta_g_obs, dtype=jnp.float64))
-            )
-        # NumPy fallback: per-template OLS |t|-stat
-        snr = np.empty(n_sys)
-        for i, t_i in enumerate(delta_t):
-            denom = float(np.dot(t_i, t_i)) + 1e-30
-            alpha = float(np.dot(t_i, delta_g_obs)) / denom
-            sigma2 = float(np.mean((delta_g_obs - alpha * t_i) ** 2))
-            snr[i] = abs(alpha) / np.sqrt(sigma2 / denom + 1e-30)
-        return snr
+        return np.asarray(
+            _jax_tstat(jnp.asarray(delta_t, dtype=jnp.float64),
+                       jnp.asarray(delta_g_obs, dtype=jnp.float64))
+        )
 
     elif method == "data":
-        if _JAX_AVAILABLE:
-            return np.asarray(
-                _jax_pearson(jnp.asarray(delta_t, dtype=jnp.float64),
-                             jnp.asarray(delta_g_obs, dtype=jnp.float64))
-            )
-        # NumPy fallback: Pearson |r| per template
-        g_centered = delta_g_obs - delta_g_obs.mean()
-        g_norm = np.sqrt(np.sum(g_centered ** 2)) + 1e-30
-        snr = np.empty(n_sys)
-        for i, t_i in enumerate(delta_t):
-            t_centered = t_i - t_i.mean()
-            t_norm = np.sqrt(np.sum(t_centered ** 2)) + 1e-30
-            snr[i] = abs(float(np.sum(g_centered * t_centered) / (g_norm * t_norm)))
-        return snr
+        return np.asarray(
+            _jax_pearson(jnp.asarray(delta_t, dtype=jnp.float64),
+                         jnp.asarray(delta_g_obs, dtype=jnp.float64))
+        )
 
     elif method == "peak":
         import healpy as hp
@@ -707,89 +648,23 @@ def snr_template_ranking(
         if binning not in ("width", "quantile", "equal_occupancy"):
             raise ValueError("binning must be 'width', 'quantile', or 'equal_occupancy'")
         quantile = binning in ("quantile", "equal_occupancy")
-        if _JAX_AVAILABLE and poly_order == 1 and fracdet is None:
+        if poly_order == 1 and fracdet is None:
             return np.asarray(
                 _get_jax_isd(n_bins, quantile)(
                     jnp.asarray(delta_t, dtype=jnp.float64),
                     jnp.asarray(delta_g_obs, dtype=jnp.float64),
                 )
             )
-        if _JAX_AVAILABLE:
-            # General JAX path: arbitrary poly_order and/or fracdet weights.
-            w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
-                 else jnp.asarray(fracdet, dtype=jnp.float64))
-            return np.asarray(
-                _get_jax_isd_poly(n_bins, int(poly_order), quantile)(
-                    jnp.asarray(delta_t, dtype=jnp.float64),
-                    jnp.asarray(delta_g_obs, dtype=jnp.float64),
-                    w,
-                )
+        # Arbitrary poly_order and/or fracdet weights.
+        w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
+             else jnp.asarray(fracdet, dtype=jnp.float64))
+        return np.asarray(
+            _get_jax_isd_poly(n_bins, int(poly_order), quantile)(
+                jnp.asarray(delta_t, dtype=jnp.float64),
+                jnp.asarray(delta_g_obs, dtype=jnp.float64),
+                w,
             )
-
-        # NumPy fallback (JAX unavailable)
-        w = np.ones(n_pix, dtype=float) if fracdet is None else np.asarray(fracdet, dtype=float)
-        w_total = float(np.sum(w))
-        g_bar = float(np.dot(w, delta_g_obs) / w_total) if w_total > 1e-30 else 0.0
-
-        snr = np.empty(n_sys)
-        for i, t_i in enumerate(delta_t):
-            t_min, t_max = float(t_i.min()), float(t_i.max())
-            if t_min >= t_max:
-                snr[i] = 0.0
-                continue
-
-            # Assign each pixel to one of n_bins bins (equal-width or equal-occupancy)
-            if quantile:
-                edges = np.quantile(t_i, np.linspace(0.0, 1.0, n_bins + 1))
-                bin_idx = np.clip(np.searchsorted(edges[1:-1], t_i, side="right"),
-                                  0, n_bins - 1)
-            else:
-                span = t_max - t_min
-                bin_idx = np.floor((t_i - t_min) / span * n_bins).astype(int)
-                bin_idx = np.clip(bin_idx, 0, n_bins - 1)
-
-            s_b_list: list[float] = []
-            n_b_list: list[float] = []
-            sigma_b_list: list[float] = []
-            for b in range(n_bins):
-                mask_b = bin_idx == b
-                if not np.any(mask_b):
-                    continue
-                w_b = w[mask_b]
-                w_b_sum = float(np.sum(w_b))
-                if w_b_sum < 1e-30:
-                    continue
-                g_b = delta_g_obs[mask_b]
-                n_b_pix = int(np.sum(mask_b))
-                std_g = float(np.std(g_b))
-                if std_g < 1e-10:
-                    continue  # degenerate bin — all pixels have same overdensity
-                s_b_list.append(float(np.dot(w_b, t_i[mask_b]) / w_b_sum))
-                n_b_list.append(float(np.dot(w_b, g_b) / w_b_sum))
-                sigma_b_list.append(std_g / np.sqrt(n_b_pix))
-
-            n_valid = len(s_b_list)
-            if n_valid < 2:
-                snr[i] = 0.0
-                continue
-
-            s_arr = np.array(s_b_list)
-            n_arr = np.array(n_b_list)
-            sigma_arr = np.array(sigma_b_list)
-            inv_s2 = 1.0 / sigma_arr ** 2
-
-            chi2_null = float(np.dot((n_arr - g_bar) ** 2, inv_s2))
-
-            eff_order = min(poly_order, n_valid - 1)
-            import warnings as _warnings
-            with _warnings.catch_warnings():
-                _warnings.filterwarnings("ignore")
-                coeffs = np.polyfit(s_arr, n_arr, eff_order, w=1.0 / sigma_arr)
-            f_s = np.polyval(coeffs, s_arr)
-            chi2_model = float(np.dot((n_arr - f_s) ** 2, inv_s2))
-
-            snr[i] = max(chi2_null - chi2_model, 0.0)
-        return snr
+        )
 
     else:
         raise ValueError(f"method must be 'template', 'data', 'peak', or 'isd', got '{method}'")
@@ -1003,9 +878,9 @@ def isd_marginal_fit(
 
     Precision
     ---------
-    The JAX path solves the sqrt-weighted Vandermonde system rather than the
+    The kernel solves the sqrt-weighted Vandermonde system rather than the
     normal equations, so the condition number is not squared.  It agrees with the
-    NumPy fallback to ``~1e-12`` on well-conditioned inputs.
+    NumPy reference in the test suite to ``~1e-12`` on well-conditioned inputs.
 
     Examples
     --------
@@ -1038,75 +913,15 @@ def isd_marginal_fit(
     n_sys, n_pix = delta_t.shape
     order = int(poly_order)
 
-    if _JAX_AVAILABLE:
-        w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
-             else jnp.asarray(fracdet, dtype=jnp.float64))
-        dchi2, coeffs, t_lo, t_hi = _get_jax_isd_poly_full(n_bins, order, quantile)(
-            jnp.asarray(delta_t, dtype=jnp.float64),
-            jnp.asarray(delta_g_obs, dtype=jnp.float64),
-            w,
-        )
-        return (np.asarray(dchi2), np.asarray(coeffs),
-                np.stack([np.asarray(t_lo), np.asarray(t_hi)], axis=1))
-
-    # NumPy fallback (JAX unavailable)
-    w = np.ones(n_pix, dtype=float) if fracdet is None else np.asarray(fracdet, dtype=float)
-    w_total = float(np.sum(w))
-    g_bar = float(np.dot(w, delta_g_obs) / w_total) if w_total > 1e-30 else 0.0
-
-    dchi2 = np.zeros(n_sys)
-    coeffs = np.zeros((n_sys, order + 1))
-    t_range = np.zeros((n_sys, 2))
-    for i, t_i in enumerate(delta_t):
-        t_min, t_max = float(t_i.min()), float(t_i.max())
-        if t_min >= t_max:
-            continue
-
-        if quantile:
-            edges = np.quantile(t_i, np.linspace(0.0, 1.0, n_bins + 1))
-            bin_idx = np.clip(np.searchsorted(edges[1:-1], t_i, side="right"),
-                              0, n_bins - 1)
-        else:
-            bin_idx = np.clip(
-                np.floor((t_i - t_min) / (t_max - t_min) * n_bins).astype(int),
-                0, n_bins - 1)
-
-        s_b, n_b, sig_b = [], [], []
-        for b in range(n_bins):
-            m = bin_idx == b
-            if not np.any(m):
-                continue
-            w_b = w[m]
-            w_b_sum = float(np.sum(w_b))
-            if w_b_sum < 1e-30:
-                continue
-            std_g = float(np.std(delta_g_obs[m]))
-            if std_g < 1e-10:
-                continue
-            s_b.append(float(np.dot(w_b, t_i[m]) / w_b_sum))
-            n_b.append(float(np.dot(w_b, delta_g_obs[m]) / w_b_sum))
-            sig_b.append(std_g / np.sqrt(int(np.sum(m))))
-
-        if len(s_b) < 2:
-            continue
-
-        s_arr, n_arr, sig_arr = np.array(s_b), np.array(n_b), np.array(sig_b)
-        inv_s2 = 1.0 / sig_arr ** 2
-        chi2_null = float(np.dot((n_arr - g_bar) ** 2, inv_s2))
-
-        eff_order = min(order, len(s_arr) - 1)
-        import warnings as _warnings
-        with _warnings.catch_warnings():
-            _warnings.filterwarnings("ignore")
-            c_desc = np.polyfit(s_arr, n_arr, eff_order, w=1.0 / sig_arr)
-        f_s = np.polyval(c_desc, s_arr)
-        chi2_model = float(np.dot((n_arr - f_s) ** 2, inv_s2))
-
-        dchi2[i] = max(chi2_null - chi2_model, 0.0)
-        coeffs[i, : eff_order + 1] = c_desc[::-1]   # ascending powers
-        t_range[i] = (s_arr.min(), s_arr.max())
-
-    return dchi2, coeffs, t_range
+    w = (jnp.ones(n_pix, dtype=jnp.float64) if fracdet is None
+         else jnp.asarray(fracdet, dtype=jnp.float64))
+    dchi2, coeffs, t_lo, t_hi = _get_jax_isd_poly_full(n_bins, order, quantile)(
+        jnp.asarray(delta_t, dtype=jnp.float64),
+        jnp.asarray(delta_g_obs, dtype=jnp.float64),
+        w,
+    )
+    return (np.asarray(dchi2), np.asarray(coeffs),
+            np.stack([np.asarray(t_lo), np.asarray(t_hi)], axis=1))
 
 
 def footprint_mask_diagnostics(

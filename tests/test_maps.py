@@ -20,7 +20,8 @@ from sys_mapping.maps import (
 )
 
 # Paths to real data files — tests requiring these are skipped if absent.
-_SYST_DIR = Path("~/data/legacysurvey/dr10/systematics").expanduser()
+# Files live in the NSIDE-specific subdirectory.
+_SYST_DIR = Path("~/data/legacysurvey/dr10/systematics/0064").expanduser()
 _GAIA_PATH = _SYST_DIR / "GAIA_nstar_faint_NSIDE_00064.fits"
 _LS10_PATH = _SYST_DIR / "LS10_GALDEPTH_Z_NSIDE_0064.fits"
 _HAS_REAL_DATA = _GAIA_PATH.exists() and _LS10_PATH.exists()

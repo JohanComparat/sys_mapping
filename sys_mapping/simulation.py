@@ -301,8 +301,7 @@ def load_uchuu_mock(data_fits: str | Path, rand_fits: str | Path) -> dict:
     ...     '~/data/Uchuu/FullSky/mock_catalogues/'
     ...     'MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/'
     ...     'MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373_DATA.fits')
-    >>> # doctest: +SKIP
-    >>> cat = load_uchuu_mock(p, p.replace('_DATA', '_RAND'))
+    >>> cat = load_uchuu_mock(p, p.replace('_DATA', '_RAND'))  # doctest: +SKIP
     """
     from astropy.io import fits as afits
 
@@ -349,12 +348,10 @@ def load_systematic_maps(
 
     Examples
     --------
-    >>> # doctest: +SKIP
-    >>> t, names, footprint = load_systematic_maps('~/data/legacysurvey/dr10/systematics/', 64)
-    >>> t.shape
+    >>> t, names, footprint = load_systematic_maps(
+    ...     '~/data/legacysurvey/dr10/systematics/', 64)  # doctest: +SKIP
+    >>> t.shape  # doctest: +SKIP
     (5, 49152)
-    >>> footprint.sum()  # number of pixels inside the LS10 footprint
-    ...
     """
     syst_dir = Path(syst_dir).expanduser()
     if map_names is None:
