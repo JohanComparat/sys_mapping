@@ -1241,10 +1241,14 @@ def run_decontamination(
                 cl_input=preselect_cl_input,
                 cl_amplitude=preselect_cl_amplitude,
             )
-            keep = [s for s, p in zip(selected, isd_sig["p_values"])
-                    if p <= preselect_p_threshold]
-            selected = keep if keep else selected[:1]
+            kept_pos = [k for k, p in enumerate(isd_sig["p_values"])
+                        if p <= preselect_p_threshold] or [0]
+            selected = [selected[k] for k in kept_pos]
             result["preselect_isd"] = isd_sig
+            # The null was drawn for every candidate; the ISD threshold below must
+            # line up with the templates that survived the cut.
+            isd_sig = dict(isd_sig,
+                           delta_chi2_mocks=np.asarray(isd_sig["delta_chi2_mocks"])[:, kept_pos])
         else:
             isd_sig = None
 

@@ -67,6 +67,9 @@ source = ["sys_mapping"]
 branch = true
 
 [tool.coverage.report]
+# Measured 98.9% (line + branch) on the full suite; the floor leaves room for the
+# real-data tests CI cannot run.
+fail_under = 97
 show_missing = true
 skip_covered = false
 exclude_lines = [

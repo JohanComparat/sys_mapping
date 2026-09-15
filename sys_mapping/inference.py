@@ -463,19 +463,21 @@ def refine_to_mle(
     # start is analytic: for the additive model OLS *is* the MLE, and for the
     # combined model (a = OLS, b = 0) is on the ridge by construction.
     starts = [np.asarray(theta0, dtype=float)]
+    gamma0 = float(theta0[-1]) if use_skewed else None
     try:
-        a_ols, *_ = np.linalg.lstsq(np.asarray(delta_t).T,
-                                    np.asarray(delta_g_obs), rcond=None)
-        resid = np.asarray(delta_g_obs) - a_ols @ np.asarray(delta_t)
-        sig = max(float(np.std(resid)), 1e-9)
-        b0 = None if model == "multiplicative" else np.zeros(n_sys)
-        analytic = pack_params(
-            a_ols if model != "multiplicative" else np.zeros(n_sys),
-            b0 if model == "combined" else None,
-            sig,
-            gamma=(float(theta0[-1]) if use_skewed else None),
-            model=model,
-        )
+        if model == "multiplicative":
+            # No additive term to fit: b = 0 is the uncontaminated field itself.
+            sig = max(float(np.std(np.asarray(delta_g_obs))), 1e-9)
+            analytic = pack_params(None, np.zeros(n_sys), sig, gamma=gamma0, model=model)
+        else:
+            a_ols, *_ = np.linalg.lstsq(np.asarray(delta_t).T,
+                                        np.asarray(delta_g_obs), rcond=None)
+            resid = np.asarray(delta_g_obs) - a_ols @ np.asarray(delta_t)
+            sig = max(float(np.std(resid)), 1e-9)
+            analytic = pack_params(
+                a_ols, np.zeros(n_sys) if model == "combined" else None, sig,
+                gamma=gamma0, model=model,
+            )
         if analytic.shape == theta0.shape:
             starts.append(np.asarray(analytic, dtype=float))
     except np.linalg.LinAlgError:

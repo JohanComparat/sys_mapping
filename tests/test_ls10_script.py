@@ -234,3 +234,39 @@ class TestNullSpectrumIsMandatory:
             ls10.main()
         opts = {o for a in captured["parser"]._actions for o in a.option_strings}
         assert {"--null-cl-file", "--lrt-null-cl-file", "--allow-parametric-null"} <= opts
+
+
+@pytest.mark.filterwarnings("ignore:.*not matched to any sample.*:UserWarning")
+class TestNullFields:
+    """The GLASS null the script builds its calibrated statistics from."""
+
+    def test_null_overdensity_fields_are_reproducible_by_index(self, ls10):
+        pytest.importorskip("glass")
+        nside = 8
+        good = np.ones(12 * nside ** 2, dtype=bool)
+        kw = dict(nside=nside, good_pix=good, n_total_footprint=20000,
+                  z_edges=np.array([0.1, 0.3]), nz=np.array([1.0]), seed=7, cl_amplitude=5e-4)
+        both = ls10.null_overdensity_fields(2, **kw)
+        second = ls10.null_overdensity_fields(1, k_start=1, **kw)
+        assert both.shape == (2, good.sum())
+        np.testing.assert_array_equal(both[1], second[0])
+
+    def test_build_lrt_null_with_an_ols_fit(self, ls10, monkeypatch):
+        pytest.importorskip("glass")
+        nside = 8
+        npix = 12 * nside ** 2
+        good = np.ones(npix, dtype=bool)
+        rng = np.random.default_rng(0)
+        t = rng.standard_normal((2, npix))
+
+        def fake_decontamination(method, dg, dt, **kw):
+            a, *_ = np.linalg.lstsq(dt.T, dg, rcond=None)
+            return {"a_hat": a, "b_hat": np.zeros(dt.shape[0]),
+                    "sigma_hat": float(np.std(dg - a @ dt))}
+
+        monkeypatch.setattr(ls10.sm, "run_decontamination", fake_decontamination)
+        lam = ls10.build_lrt_null(2, nside, good, t, np.array([0.1, 0.3]), np.array([1.0]),
+                                  20000, seed=3, sampler="analytic", nuts_warmup=10,
+                                  nuts_samples=10, n_chains=1, cl_amplitude=5e-4)
+        assert lam.shape == (2,)
+        assert np.all(lam >= -1e-6)
