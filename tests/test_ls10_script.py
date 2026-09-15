@@ -270,3 +270,31 @@ class TestNullFields:
                                   nuts_samples=10, n_chains=1, cl_amplitude=5e-4)
         assert lam.shape == (2,)
         assert np.all(lam >= -1e-6)
+
+    def test_lrt_null_methods_agree(self, ls10, monkeypatch):
+        pytest.importorskip("glass")
+        nside = 8
+        npix = 12 * nside ** 2
+        good = np.ones(npix, dtype=bool)
+        t = np.random.default_rng(1).standard_normal((2, npix))
+
+        def ols_start(method, dg, dt, **kw):
+            a, *_ = np.linalg.lstsq(dt.T, dg, rcond=None)
+            return {"a_hat": a, "b_hat": np.zeros(dt.shape[0]),
+                    "sigma_hat": float(np.std(dg - a @ dt))}
+
+        monkeypatch.setattr(ls10.sm, "run_decontamination", ols_start)
+        args = (3, nside, good, t, np.array([0.1, 0.3]), np.array([1.0]), 20000)
+        kw = dict(seed=11, sampler="analytic", nuts_warmup=10, nuts_samples=10, n_chains=1,
+                  cl_amplitude=5e-4)
+        via_nuts = ls10.build_lrt_null(*args, method="nuts", **kw)
+        via_maxima = ls10.build_lrt_null(*args, method="maxima", **kw)
+        np.testing.assert_allclose(via_maxima, via_nuts, rtol=1e-5, atol=1e-6)
+
+
+def test_empty_template_directory_is_refused(ls10, tmp_path, monkeypatch):
+    (tmp_path / "cat").mkdir()
+    monkeypatch.setattr(sys, "argv", ["run_ls10_analysis.py", "--catalog-dir", str(tmp_path / "cat"),
+                                      "--template-dir", str(tmp_path)])
+    with pytest.raises(SystemExit, match="No FITS templates"):
+        ls10.main()

@@ -376,3 +376,56 @@ class TestSnrPreselect:
         assert isinstance(result, SnrPreselectionResult)
         assert result.method == "isd"
         assert np.all(result.snr_values >= 0)
+
+
+class TestLrtFromMaxima:
+    """Batched additive-versus-combined likelihood ratios from the maxima of both models."""
+
+    @staticmethod
+    def _fields(n_field=4, n_pix=3000, n_sys=3, seed=0):
+        rng = np.random.default_rng(seed)
+        T = rng.standard_normal((n_sys, n_pix))
+        G = rng.standard_normal((n_field, n_pix)) * 0.2 + 0.03 * T[0] * (1 + 0.1 * T[1])
+        return G, T
+
+    def test_matches_refined_maxima(self):
+        import sys_mapping as sm
+        G, T = self._fields()
+        out = sm.lrt_from_maxima(G, T)
+        assert out["converged"].all()
+        for k in range(len(G)):
+            a, *_ = np.linalg.lstsq(T.T, G[k], rcond=None)
+            s = float(np.std(G[k] - a @ T))
+            th0 = sm.refine_to_mle(sm.pack_params(a, None, s, model="additive"), G[k], T,
+                                   model="additive")
+            th1 = sm.refine_to_mle(sm.pack_params(a, np.zeros(3), s, model="combined"), G[k], T,
+                                   model="combined")
+            ref = sm.likelihood_ratio_test(G[k], T, th0, th1, "additive", "combined").lambda_lr
+            assert abs(out["lambda"][k] - ref) < 1e-5 * max(1.0, abs(ref))
+
+    def test_non_negative_and_batch_independent(self):
+        import sys_mapping as sm
+        G, T = self._fields(n_field=5)
+        full = sm.lrt_from_maxima(G, T, batch_size=64)
+        chunked = sm.lrt_from_maxima(G, T, batch_size=2)
+        np.testing.assert_allclose(chunked["lambda"], full["lambda"], rtol=1e-9, atol=1e-9)
+        assert np.all(full["lambda"] >= -1e-6)
+
+    def test_skewed_likelihood(self):
+        import sys_mapping as sm
+        G, T = self._fields(n_field=2)
+        out = sm.lrt_from_maxima(G, T, use_skewed=True)
+        assert out["theta_null"].shape == (2, 3 + 2) and out["theta_alt"].shape == (2, 6 + 2)
+        assert np.all(out["lambda"] >= -1e-6)
+
+    def test_warns_when_not_converged(self):
+        import sys_mapping as sm
+        G, T = self._fields(n_field=1)
+        with pytest.warns(RuntimeWarning, match="did not converge"):
+            sm.lrt_from_maxima(G, T, n_iter=1, grad_tol=1e-12)
+
+    def test_rejects_mismatched_shapes(self):
+        import sys_mapping as sm
+        G, T = self._fields()
+        with pytest.raises(ValueError, match="must be"):
+            sm.lrt_from_maxima(G[:, :-1], T)

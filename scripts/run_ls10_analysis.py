@@ -38,6 +38,7 @@ import warnings
 from pathlib import Path
 
 import healpy as hp
+import jax.numpy as jnp
 import numpy as np
 import yaml
 from astropy.io import fits
@@ -235,7 +236,7 @@ def null_overdensity_fields(n_mocks, nside, good_pix, n_total_footprint, z_edges
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
                    k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False,
-                   draw="pixel"):
+                   draw="pixel", method="maxima"):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -258,7 +259,16 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     mock_fields = null_overdensity_fields(
         n_mocks, nside, good_pix, n_total_footprint, z_edges, nz, seed,
         rand_factor=rand_factor, k_start=k_start,
-        cl_amplitude=cl_amplitude, cl_input=cl_input, draw=draw).T      # (n_good, n_mocks)
+        cl_amplitude=cl_amplitude, cl_input=cl_input, draw=draw)        # (n_mocks, n_good)
+
+    if method == "maxima":
+        # Both maxima of every mock found together (closed-form additive, batched L-BFGS
+        # for combined): the statistic the NUTS path below reaches, without a posterior
+        # per mock.
+        return sm.lrt_from_maxima(mock_fields, delta_t, use_skewed=use_skewed)["lambda"]
+    if method != "nuts":
+        raise ValueError(f"method must be 'maxima' or 'nuts', got {method!r}")
+    mock_fields = mock_fields.T                                     # (n_good, n_mocks)
 
     def fit_theta(model, dg, dt):
         method = "MCMC-add" if model == "additive" else "MCMC-comb"
@@ -353,6 +363,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         k_start=m, cl_amplitude=args.lrt_null_cl_amplitude,
         cl_input=null_cl_input, use_skewed=bool(getattr(args, "skewed", False)),
         draw=getattr(args, "null_draw", "pixel"),
+        method=getattr(args, "lrt_null_method", "maxima"),
     )
     merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
     n_ge = int(np.sum(merged >= lam))
@@ -1030,13 +1041,41 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         # Refine both to true maxima before differencing their log-likelihoods.
         # The chains live in the PCA-rotated basis, which is the basis
         # delta_t_rot supplies below, so refine there.
-        theta_add = sm.refine_to_mle(
-            sm.posterior_median_params(res_add["flat_chain"]),
-            delta_g, delta_t_rot, model="additive")
+        _skewed = bool(getattr(args, "skewed", False))
+        # MCMC-add is always Gaussian; under --skewed the nested pair is additive+gamma
+        # against combined+gamma, so the additive start gains gamma = 0.
+        _th_add0 = sm.posterior_median_params(res_add["flat_chain"])
+        if _skewed:
+            _th_add0 = np.append(_th_add0, 0.0)
+        theta_add = sm.refine_to_mle(_th_add0, delta_g, delta_t_rot, model="additive",
+                                     use_skewed=_skewed)
         theta_comb = sm.refine_to_mle(
             sm.posterior_median_params(res_comb["flat_chain"]),
-            delta_g, delta_t_rot, model="combined",
-            use_skewed=bool(getattr(args, "skewed", False)))
+            delta_g, delta_t_rot, model="combined", use_skewed=_skewed)
+        # The same batched maximiser the mock null uses, on the data: keep, per model,
+        # whichever maximum has the higher likelihood, so data and null are maximised by
+        # the same means and neither is reported below a point the other found.
+        _mx = sm.lrt_from_maxima(delta_g, delta_t, use_skewed=_skewed)
+        _n_lrt = delta_t.shape[0]
+        _ll_add = sm.make_log_likelihood(_n_lrt, "additive", _skewed)
+        _ll_comb = sm.make_log_likelihood(_n_lrt, "combined", _skewed)
+
+        def _to_rot(theta, n_amp):
+            out = np.array(theta, dtype=float)
+            for blk in range(n_amp):
+                out[blk * _n_lrt:(blk + 1) * _n_lrt] = _R @ out[blk * _n_lrt:(blk + 1) * _n_lrt]
+            return out
+
+        for _name, _fn, _n_amp in (("add", _ll_add, 1), ("comb", _ll_comb, 2)):
+            _cand = _to_rot(_mx["theta_null" if _name == "add" else "theta_alt"][0], _n_amp)
+            _cur = theta_add if _name == "add" else theta_comb
+            _l_cand = float(_fn(jnp.asarray(_cand), jnp.asarray(delta_g), jnp.asarray(delta_t_rot)))
+            _l_cur = float(_fn(jnp.asarray(_cur), jnp.asarray(delta_g), jnp.asarray(delta_t_rot)))
+            if _l_cand > _l_cur:
+                if _name == "add":
+                    theta_add = _cand
+                else:
+                    theta_comb = _cand
         # Mock-calibrated null (opt-in): the Wilks χ² is overconfident on the correlated field.
         if getattr(args, "lrt_null_mocks", 0) > 0:
             print(f"\nBuilding LRT mock null ({args.lrt_null_mocks} uncontaminated fits) …", flush=True)
@@ -1049,13 +1088,14 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 args.nuts_warmup, args.nuts_samples, args.n_chains,
                 cl_amplitude=args.lrt_null_cl_amplitude,
                 cl_input=null_cl_input,
-                use_skewed=bool(getattr(args, "skewed", False)),
+                use_skewed=_skewed,
                 draw=getattr(args, "null_draw", "pixel"),
+                method=getattr(args, "lrt_null_method", "maxima"),
             )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
-            null_model="additive", alt_model="combined", significance=0.05,
-            null_lambda=_null_lambda,
+            null_model="additive", alt_model="combined", use_skewed=_skewed,
+            significance=0.05, null_lambda=_null_lambda,
         )
         print(f"\nLRT  λ_LR={lrt.lambda_lr:.2f}  p={lrt.p_value:.4f}  "
               f"reject_null={lrt.reject_null}  [{lrt.calibration}]")
@@ -1795,6 +1835,11 @@ def main():
                              "N >= 370.  0 skips it.")
     parser.add_argument("--significance-seed", type=int, default=70000,
                         help="Base seed for the --significance-n-mocks realisations.")
+    parser.add_argument("--lrt-null-method", choices=("maxima", "nuts"), default="maxima",
+                        help="How each mock of the LRT null is fitted: both maxima found "
+                             "together by the batched optimiser (maxima, default), or a NUTS "
+                             "fit per model refined to its maximum (nuts).  Same statistic; "
+                             "maxima is about 80x faster.")
     parser.add_argument("--null-draw", choices=("pixel", "catalogue"), default="pixel",
                         help="How every GLASS null realisation is drawn: galaxy and random "
                              "counts per footprint pixel (pixel, default), or full-sky "
@@ -1905,8 +1950,11 @@ def main():
     if args.template_dir:
         templates, template_names = load_templates_from_dir(args.template_dir, args.nside)
         if templates is None:
-            print(f"No FITS files in {args.template_dir}; using synthetic templates.")
-            templates, template_names = synthetic_templates(args.nside)
+            # A mistyped directory must not silently turn a real-data run into one on
+            # synthetic templates.
+            raise SystemExit(f"No FITS templates in {args.template_dir}. Pass the directory "
+                             f"holding the maps (e.g. systematics/0128), or omit "
+                             f"--template-dir to run on synthetic templates deliberately.")
         else:
             print(f"Loaded {templates.shape[0]} external templates: {template_names}")
     else:
