@@ -12,6 +12,8 @@ from __future__ import annotations
 import warnings
 
 import numpy as np
+
+from ._array import namespace
 import jax.numpy as jnp
 from jax import Array
 
@@ -65,8 +67,9 @@ def debias_params(
     >>> b_sq
     array([0.0054, 0.    , 0.    ])
     """
-    a_sq = np.maximum(a_hat**2 - var_a, 0.0)
-    b_sq = np.maximum(b_hat**2 - var_b, 0.0)
+    xp = namespace(a_hat, b_hat, var_a, var_b)
+    a_sq = xp.maximum(a_hat**2 - var_a, 0.0)
+    b_sq = xp.maximum(b_hat**2 - var_b, 0.0)
     return a_sq, b_sq
 
 
@@ -111,13 +114,15 @@ def debias_params_matrix(
     >>> bool(np.allclose(A[0, 0], a_sq[0]))
     True
     """
-    def _psd(x_hat: np.ndarray, cov: np.ndarray) -> np.ndarray:
-        x_hat = np.asarray(x_hat, dtype=float)
-        cov = np.atleast_2d(np.asarray(cov, dtype=float))
-        m = np.outer(x_hat, x_hat) - cov
+    xp = namespace(a_hat, b_hat, cov_a, cov_b)
+
+    def _psd(x_hat, cov):
+        x_hat = xp.asarray(x_hat, dtype=float)
+        cov = xp.atleast_2d(xp.asarray(cov, dtype=float))
+        m = xp.outer(x_hat, x_hat) - cov
         m = 0.5 * (m + m.T)                       # kill asymmetry from round-off
-        w, v = np.linalg.eigh(m)
-        return (v * np.maximum(w, 0.0)) @ v.T
+        w, v = xp.linalg.eigh(m)
+        return (v * xp.maximum(w, 0.0)) @ v.T
 
     return _psd(a_hat, cov_a), _psd(b_hat, cov_b)
 

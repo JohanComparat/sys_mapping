@@ -21,6 +21,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+
+from ._array import namespace
 import healpy as hp
 
 
@@ -536,17 +538,18 @@ def standardise_on_footprint(
     >>> float(round(scales[2], 1))
     4.0
     """
-    delta_t = np.asarray(delta_t, dtype=float)
+    xp = namespace(delta_t)
+    delta_t = xp.asarray(delta_t, dtype=float)
     if delta_t.ndim != 2:
         raise ValueError(
             f"delta_t must be (n_sys, n_pix); got shape {delta_t.shape}"
         )
     means = delta_t.mean(axis=1)
     centred = delta_t - means[:, None]
-    scales = np.sqrt(np.mean(centred ** 2, axis=1))
+    scales = xp.sqrt(xp.mean(centred ** 2, axis=1))
     # A constant row has nothing to rescale.  Dividing by its zero rms would give
     # NaN amplitudes for every template, not just that one.
-    safe = np.where(scales > 0, scales, 1.0)
+    safe = xp.where(scales > 0, scales, 1.0)
     out = centred / safe[:, None]
     if return_scales:
         return out, means, scales

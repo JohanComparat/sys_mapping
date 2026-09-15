@@ -70,8 +70,6 @@ CASES = {
 # Each entry is a (case, transform) that is known not to trace.  Remove an entry when the
 # function is ported; strict xfail makes a stale entry fail the suite.
 _NUMPY_ON_TRACER = {
-    "debias_params": "np.maximum on the amplitudes (correction.py)",
-    "debias_params_matrix": "np.linalg.eigh on the debiased matrix (correction.py)",
     "correct_two_point_function": "np.asarray on w_obs (correction.py)",
     "rotate_templates": "np.linalg.eigh on the second moment (correction.py)",
     "sample_covariance": "np.cov (covariance.py)",
@@ -79,7 +77,6 @@ _NUMPY_ON_TRACER = {
     "calibrated_template_significance": "np.linalg.pinv and input validation (diagnostics.py)",
     "residual_template_correlation_test": "np.asarray and input validation (diagnostics.py)",
     "snr_template_ranking": "np.asarray before the JAX kernel (diagnostics.py)",
-    "standardise_on_footprint": "np.asarray (maps.py)",
     "posterior_median_params": "np.median (inference.py)",
 }
 KNOWN_FAILURES: dict[tuple[str, str], str] = {
