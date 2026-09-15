@@ -527,6 +527,98 @@ def generate_glass_delta_map(
     raise RuntimeError("glass.generate yielded no fields")
 
 
+def draw_null_overdensity(
+    nside: int,
+    good_pixels: np.ndarray,
+    n_total_footprint: float,
+    z_max: float,
+    *,
+    seed: int,
+    rand_factor: float = 2.0,
+    cl_amplitude: float | None = None,
+    cl_slope: float = -1.5,
+    cl_input: np.ndarray | None = None,
+    lognormal_shift: float | None = None,
+) -> np.ndarray:
+    """One uncontaminated overdensity realisation on the footprint, drawn per pixel.
+
+    The GLASS field of :func:`generate_glass_delta_map` sets the expected galaxy count
+    of each footprint pixel, :math:`\bar n (1 + \delta)` with
+    :math:`\bar n = n_{\rm total}/n_{\rm good}`; galaxy and random counts are drawn
+    as Poisson variates (randoms at ``rand_factor`` times the galaxy density) and
+    reduced to an overdensity exactly as :func:`~sys_mapping.maps.compute_overdensity`
+    reduces data.  This is the distribution a catalogue mock produces once pixelised
+    (``glass.positions_from_delta`` draws a Poisson count per pixel), without
+    generating and pixelising the positions: on 28 000 pixels at 100 galaxies per
+    pixel it takes 0.01 s per realisation against about 1 s, with the same pixel
+    variance and the same amplitude scatter across templates.
+
+    The field uses ``seed``; the counts use an independent stream derived from it.
+
+    Returns
+    -------
+    ``(n_good,)`` overdensity at ``good_pixels``.
+    """
+    good_pixels = np.asarray(good_pixels, dtype=bool)
+    n_good = int(good_pixels.sum())
+    delta = generate_glass_delta_map(
+        nside, z_max, cl_amplitude=cl_amplitude, cl_slope=cl_slope, cl_input=cl_input,
+        lognormal_shift=lognormal_shift, seed=seed)[good_pixels]
+    nbar = float(n_total_footprint) / n_good
+    rng = np.random.default_rng([int(seed), 1])
+    n_gal = rng.poisson(nbar * np.clip(1.0 + delta, 0.0, None)).astype(float)
+    n_rand = rng.poisson(rand_factor * nbar, n_good).astype(float)
+    total_gal, total_rand = n_gal.sum(), n_rand.sum()
+    if total_gal < 1 or total_rand < 1:
+        return np.zeros(n_good)
+    norm = total_gal / total_rand
+    return np.where(n_rand > 0, n_gal / (norm * np.where(n_rand > 0, n_rand, 1.0)) - 1.0, 0.0)
+
+
+def generate_glass_null_overdensity(
+    n_mocks: int,
+    nside: int,
+    good_pixels: np.ndarray,
+    n_total_footprint: float,
+    z_max: float,
+    *,
+    seed: int = 0,
+    k_start: int = 0,
+    rand_factor: float = 2.0,
+    cl_amplitude: float | None = None,
+    cl_slope: float = -1.5,
+    cl_input: np.ndarray | None = None,
+    lognormal_shift: float | None = None,
+) -> np.ndarray:
+    """``(n_mocks, n_good)`` uncontaminated realisations from :func:`draw_null_overdensity`.
+
+    Realisation ``k`` always uses ``seed + k``, so indices ``[k_start, k_start + n_mocks)``
+    reproduce exactly the realisations a longer run would have drawn.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from sys_mapping.glass_mocks import generate_glass_null_overdensity
+    >>> good = np.ones(12 * 16**2, dtype=bool)
+    >>> fields = generate_glass_null_overdensity(3, 16, good, 3e5, 0.3, seed=1,
+    ...                                          cl_amplitude=5e-4)
+    >>> fields.shape
+    (3, 3072)
+    >>> later = generate_glass_null_overdensity(1, 16, good, 3e5, 0.3, seed=1, k_start=2,
+    ...                                         cl_amplitude=5e-4)
+    >>> bool(np.array_equal(fields[2], later[0]))
+    True
+    """
+    good_pixels = np.asarray(good_pixels, dtype=bool)
+    out = np.empty((int(n_mocks), int(good_pixels.sum())))
+    for i, k in enumerate(range(k_start, k_start + int(n_mocks))):
+        out[i] = draw_null_overdensity(
+            nside, good_pixels, n_total_footprint, z_max, seed=seed + k,
+            rand_factor=rand_factor, cl_amplitude=cl_amplitude, cl_slope=cl_slope,
+            cl_input=cl_input, lognormal_shift=lognormal_shift)
+    return out
+
+
 def sample_positions_from_delta(
     delta: np.ndarray,
     ngal_per_arcmin2: float,

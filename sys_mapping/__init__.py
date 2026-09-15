@@ -123,6 +123,8 @@ from .glass_mocks import (
     sanitise_cl,
     generate_glass_fullsky_mock,
     generate_glass_delta_map,
+    draw_null_overdensity,
+    generate_glass_null_overdensity,
     sample_positions_from_delta,
 )
 from .simulation import (
@@ -257,6 +259,8 @@ __all__ = [
     "sanitise_cl",
     "generate_glass_fullsky_mock",
     "generate_glass_delta_map",
+    "draw_null_overdensity",
+    "generate_glass_null_overdensity",
     "sample_positions_from_delta",
     # simulation
     "ContaminationConfig",

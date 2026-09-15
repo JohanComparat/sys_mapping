@@ -193,16 +193,26 @@ def _subsample(lon, lat, k, n_max, seed=0):
 
 
 def null_overdensity_fields(n_mocks, nside, good_pix, n_total_footprint, z_edges, nz, seed,
-                            *, rand_factor=2, k_start=0, cl_amplitude=None, cl_input=None):
+                            *, rand_factor=2, k_start=0, cl_amplitude=None, cl_input=None,
+                            draw="pixel"):
     """Uncontaminated GLASS overdensity realisations on the sample's footprint.
 
-    Surface density matched to the data (``n_total = n_total_footprint x n_full / n_good``)
-    and clustering set by ``cl_input``, the sample's matched spectrum.  Realisation ``k``
-    always uses ``seed + k``, so a top-up of indices ``[k_start, k_start + n_mocks)``
-    reproduces exactly the realisations a longer run would have drawn.
+    Surface density matched to the data and clustering set by ``cl_input``, the sample's
+    matched spectrum.  Realisation ``k`` always uses ``seed + k``, so a top-up of indices
+    ``[k_start, k_start + n_mocks)`` reproduces exactly the realisations a longer run would
+    have drawn.  ``draw="pixel"`` draws counts per footprint pixel
+    (:func:`sys_mapping.generate_glass_null_overdensity`); ``"catalogue"`` generates and
+    pixelises full-sky position catalogues.
 
     Returns ``(n_mocks, n_good)``.
     """
+    if draw == "pixel":
+        return sm.generate_glass_null_overdensity(
+            n_mocks, nside, good_pix, n_total_footprint, float(np.asarray(z_edges)[-1]),
+            seed=seed, k_start=k_start, rand_factor=rand_factor,
+            cl_amplitude=cl_amplitude, cl_input=cl_input)
+    if draw != "catalogue":
+        raise ValueError(f"draw must be 'pixel' or 'catalogue', got {draw!r}")
     from sys_mapping.glass_mocks import generate_glass_fullsky_mock
     n_full = hp.nside2npix(nside)
     n_good = int(good_pix.sum())
@@ -224,7 +234,8 @@ def null_overdensity_fields(n_mocks, nside, good_pix, n_total_footprint, z_edges
 
 def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footprint,
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
-                   k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False):
+                   k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False,
+                   draw="pixel"):
     """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
     sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
 
@@ -247,7 +258,7 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
     mock_fields = null_overdensity_fields(
         n_mocks, nside, good_pix, n_total_footprint, z_edges, nz, seed,
         rand_factor=rand_factor, k_start=k_start,
-        cl_amplitude=cl_amplitude, cl_input=cl_input).T      # (n_good, n_mocks)
+        cl_amplitude=cl_amplitude, cl_input=cl_input, draw=draw).T      # (n_good, n_mocks)
 
     def fit_theta(model, dg, dt):
         method = "MCMC-add" if model == "additive" else "MCMC-comb"
@@ -341,6 +352,7 @@ def _resume_lrt_null(sample_id, nside, good_pix, delta_t, n_total_footprint, out
         args.lrt_null_seed, args.sampler, args.nuts_warmup, args.nuts_samples, args.n_chains,
         k_start=m, cl_amplitude=args.lrt_null_cl_amplitude,
         cl_input=null_cl_input, use_skewed=bool(getattr(args, "skewed", False)),
+        draw=getattr(args, "null_draw", "pixel"),
     )
     merged = np.concatenate([old_null, np.asarray(new_null, dtype=float)])
     n_ge = int(np.sum(merged >= lam))
@@ -812,6 +824,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 n_mocks=preselect_n_mocks, seed=0, rand_factor=2,
                 n_jobs=args.preselect_n_jobs,
                 cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
+                draw=getattr(args, "null_draw", "pixel"),
             )
             _keep = [s for s, p in zip(_selected, _isd_sig["p_values"])
                      if p <= preselect_p_threshold]
@@ -850,6 +863,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 n_mocks=args.isd_n_mocks, poly_order=3, binning="quantile",
                 seed=0, rand_factor=2, n_jobs=args.preselect_n_jobs,
                 cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
+                draw=getattr(args, "null_draw", "pixel"),
             )
             _isd_chi2_68 = np.percentile(_isd_null["delta_chi2_mocks"], 68, axis=0)
             print(f"  ISD chi2_68 = {np.array2string(_isd_chi2_68, precision=1)}")
@@ -983,7 +997,8 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             args.significance_n_mocks, nside, good_pix, int(len(ra_gal)),
             np.array([_zs0, _zs1]), np.array([float(len(ra_gal))]),
             seed=args.significance_seed,
-            cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude)
+            cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
+            draw=getattr(args, "null_draw", "pixel"))
         _sig = sm.calibrated_template_significance(delta_g, delta_t, _sig_null)
         _a_iid = np.linalg.lstsq(delta_t.T, delta_g, rcond=None)[0]
         _res = delta_g - _a_iid @ delta_t
@@ -1035,6 +1050,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
                 cl_amplitude=args.lrt_null_cl_amplitude,
                 cl_input=null_cl_input,
                 use_skewed=bool(getattr(args, "skewed", False)),
+                draw=getattr(args, "null_draw", "pixel"),
             )
         lrt = sm.likelihood_ratio_test(
             delta_g, delta_t_rot, theta_add, theta_comb,
@@ -1779,6 +1795,11 @@ def main():
                              "N >= 370.  0 skips it.")
     parser.add_argument("--significance-seed", type=int, default=70000,
                         help="Base seed for the --significance-n-mocks realisations.")
+    parser.add_argument("--null-draw", choices=("pixel", "catalogue"), default="pixel",
+                        help="How every GLASS null realisation is drawn: galaxy and random "
+                             "counts per footprint pixel (pixel, default), or full-sky "
+                             "position catalogues pixelised afterwards (catalogue).  Same "
+                             "distribution; the pixel draw is about 100x faster.")
     parser.add_argument("--min-per-pixel", type=float, default=None,
                         help="Choose each sample's resolution: the finest NSIDE no finer "
                              "than --nside at which the footprint holds this many galaxies "

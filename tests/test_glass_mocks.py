@@ -308,3 +308,55 @@ class TestSpectrumIsChosenNotDefaulted:
         assert np.all(1.0 + a >= 0.0)
         # A spectrum 100x stronger gives a visibly wider field on the same seed.
         assert b.std() > 3 * a.std()
+
+
+@pytest.mark.filterwarnings("ignore:.*not matched to any sample.*:UserWarning")
+class TestPixelNullDraw:
+    """Null realisations drawn per footprint pixel."""
+
+    def test_same_statistics_as_catalogue_draw(self):
+        pytest.importorskip("glass")
+        import healpy as hp
+        from sys_mapping.glass_mocks import generate_glass_fullsky_mock, generate_glass_null_overdensity
+        nside, n_mocks = 16, 60
+        npix = hp.nside2npix(nside)
+        good = np.abs(hp.pix2ang(nside, np.arange(npix), lonlat=True)[1]) > 20
+        n_foot = 80 * int(good.sum())
+        pix = generate_glass_null_overdensity(n_mocks, nside, good, n_foot, 0.3, seed=5,
+                                              cl_amplitude=5e-3)
+        cat_var = []
+        for k in range(n_mocks):
+            cat = generate_glass_fullsky_mock(nside, int(n_foot * npix / good.sum()),
+                                              np.array([0.05, 0.3]), np.array([1.0]),
+                                              seed=900 + k, rand_factor=2, cl_amplitude=5e-3)
+            ng = sm.pixelize_catalog(cat["ra"], cat["dec"], nside)[good].astype(float)
+            nr = sm.pixelize_catalog(cat["ra_rand"], cat["dec_rand"], nside)[good].astype(float)
+            cat_var.append(np.var(ng / (nr * ng.sum() / nr.sum()) - 1.0))
+        assert abs(np.mean(np.var(pix, axis=1)) / np.mean(cat_var) - 1.0) < 0.05
+        assert np.all(np.abs(pix.mean(axis=1)) < 0.02)
+
+    def test_counts_follow_the_field(self):
+        pytest.importorskip("glass")
+        from sys_mapping.glass_mocks import draw_null_overdensity, generate_glass_delta_map
+        nside = 16
+        good = np.ones(12 * nside ** 2, dtype=bool)
+        dg = draw_null_overdensity(nside, good, 2e6, 0.3, seed=3, cl_amplitude=5e-3)
+        delta = generate_glass_delta_map(nside, 0.3, seed=3, cl_amplitude=5e-3)
+        assert np.corrcoef(dg, delta)[0, 1] > 0.8          # shot noise dilutes the field
+
+    def test_isd_significance_accepts_both_draws(self):
+        pytest.importorskip("glass")
+        from sys_mapping import isd_template_significance
+        nside = 8
+        npix = 12 * nside ** 2
+        rng = np.random.default_rng(0)
+        dt = rng.standard_normal((2, npix))
+        dg = 0.3 * dt[0] + rng.standard_normal(npix) * 0.2
+        kw = dict(good_pixels=np.ones(npix, bool), nside=nside, n_total=0,
+                  n_total_footprint=40000, z_edges=np.array([0.1, 0.3]), nz=np.array([1.0]),
+                  n_mocks=3, seed=0, rand_factor=2, cl_amplitude=5e-3)
+        for draw in ("pixel", "catalogue"):
+            r = isd_template_significance(dg, dt, draw=draw, **kw)
+            assert r["delta_chi2_mocks"].shape == (3, 2)
+        with pytest.raises(ValueError, match="draw must be"):
+            isd_template_significance(dg, dt, draw="nope", **kw)

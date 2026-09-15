@@ -1051,6 +1051,7 @@ def isd_template_significance(
     binning: str = "width",
     cl_amplitude: float | None = None,
     cl_input: np.ndarray | None = None,
+    draw: str = "pixel",
 ) -> dict[str, np.ndarray]:
     """ISD Δχ² significance: compare data against systematic-free GLASS mocks.
 
@@ -1120,6 +1121,13 @@ def isd_template_significance(
         GLASS/healpy-bound) mock loop.  ``1`` (default) runs serially; ``-1``
         uses all cores.  Mock ``k`` always uses ``seed + k``, so results are
         reproducible regardless of ``n_jobs``.
+    draw:
+        ``"pixel"`` (default) draws each mock's galaxy and random counts per footprint
+        pixel from the GLASS field with :func:`~glass_mocks.draw_null_overdensity`;
+        ``"catalogue"`` generates and pixelises full-sky position catalogues with
+        :func:`~glass_mocks.generate_glass_fullsky_mock`.  The two have the same
+        distribution; the pixel draw is about a hundred times faster and gives
+        different realisations for the same seed.
 
     Returns
     -------
@@ -1133,9 +1141,9 @@ def isd_template_significance(
 
     Notes
     -----
-    Mocks are generated with :func:`~glass_mocks.generate_glass_fullsky_mock`,
-    pixelised with :func:`~maps.pixelize_catalog`, and restricted to the survey
-    footprint via ``good_pixels``.  The same template maps ``delta_t`` are used
+    Mocks are drawn per footprint pixel (``draw="pixel"``) or generated as catalogues
+    and pixelised (``draw="catalogue"``), and restricted to the survey footprint via
+    ``good_pixels``.  The same template maps ``delta_t`` are used
     for both the data and the mocks.
 
     p-value formula (smoothed to avoid zero):
@@ -1174,9 +1182,11 @@ def isd_template_significance(
     Tessore et al. 2023, OJAp, 6, 11.
     """
     import healpy as hp
-    from .glass_mocks import generate_glass_fullsky_mock
+    from .glass_mocks import draw_null_overdensity, generate_glass_fullsky_mock
     from .maps import pixelize_catalog
 
+    if draw not in ("pixel", "catalogue"):
+        raise ValueError(f"draw must be 'pixel' or 'catalogue', got {draw!r}")
     n_sys = delta_t.shape[0]
 
     if n_total_footprint is not None:
@@ -1191,6 +1201,16 @@ def isd_template_significance(
 
     def _one_mock(k: int) -> np.ndarray:
         """Δχ² of a single systematic-free GLASS mock (mock ``k`` uses seed+k)."""
+        if draw == "pixel":
+            n_foot = (n_total_footprint if n_total_footprint is not None
+                      else n_total * int(good_pixels.sum()) / hp.nside2npix(nside))
+            delta_g_mock = draw_null_overdensity(
+                nside, good_pixels, n_foot, float(z_edges[-1]), seed=seed + k,
+                rand_factor=rand_factor, cl_amplitude=cl_amplitude, cl_input=cl_input)
+            return snr_template_ranking(
+                delta_g_mock, delta_t, method="isd",
+                n_bins=n_bins, poly_order=poly_order, fracdet=fracdet, binning=binning,
+            )
         cat = generate_glass_fullsky_mock(
             nside, n_total, z_edges, nz, seed=seed + k,
             rand_factor=rand_factor, cl_amplitude=cl_amplitude,
