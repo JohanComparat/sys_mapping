@@ -31,6 +31,7 @@ density maps.
    :caption: Validation & tests
 
    testing
+   coverage
    results_mock_analysis
    results_systematic_tests
    results_validation
