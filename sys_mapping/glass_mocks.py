@@ -313,7 +313,7 @@ def generate_glass_fullsky_mock(
     rand_factor: int = 10,
     seed: int | None = None,
 ) -> MockCatalogDict:
-    """Generate a full-sky lognormal galaxy mock catalog using GLASS.
+    r"""Generate a full-sky lognormal galaxy mock catalog using GLASS.
 
     The mock has the angular clustering statistics of a lognormal random field
     with the given power spectrum amplitude, and the redshift distribution set
@@ -540,7 +540,7 @@ def draw_null_overdensity(
     cl_input: np.ndarray | None = None,
     lognormal_shift: float | None = None,
 ) -> np.ndarray:
-    """One uncontaminated overdensity realisation on the footprint, drawn per pixel.
+    r"""One uncontaminated overdensity realisation on the footprint, drawn per pixel.
 
     The GLASS field of :func:`generate_glass_delta_map` sets the expected galaxy count
     of each footprint pixel, :math:`\bar n (1 + \delta)` with

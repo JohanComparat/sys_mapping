@@ -459,3 +459,13 @@ def test_nuts_diagonal_mass_matrix_option(small_field):
     chain, sampler = nuts.run_nuts(3, model="additive", delta_g_obs=g, delta_t=t, n_chains=1,
                                    n_warmup=30, n_samples=20, seed=0, dense_mass_matrix=False)
     assert chain.shape == (20, 4) and np.all(np.isfinite(chain))
+
+
+def test_package_sources_have_no_invalid_escapes():
+    # A LaTeX command in a non-raw docstring (\rm, \bar, \alpha) is read as a control
+    # character and garbles the rendered maths; Python flags most of them as SyntaxWarning.
+    from pathlib import Path
+    for path in sorted(Path(sm.__file__).parent.glob("*.py")):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", SyntaxWarning)
+            compile(path.read_text(), str(path), "exec")

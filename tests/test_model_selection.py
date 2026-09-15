@@ -403,6 +403,39 @@ class TestLrtFromMaxima:
             ref = sm.likelihood_ratio_test(G[k], T, th0, th1, "additive", "combined").lambda_lr
             assert abs(out["lambda"][k] - ref) < 1e-5 * max(1.0, abs(ref))
 
+    def test_combined_maximum_past_an_efficiency_pole(self):
+        # A lognormal field at NSIDE 64 with |b| ~ 0.2: an unguarded L-BFGS run reached a
+        # pixel where 1 + b.t = 0, jumped onto the |b| -> inf ridge, and the start (b = 0)
+        # was returned, giving lambda = 0 for a field whose maximum gives lambda = 3178.
+        import healpy as hp
+        import sys_mapping as sm
+        nside, n_mean = 64, 30
+        a = np.array([0.023544836830993034, 0.1611116148499621, -0.12223743125399032])
+        b = np.array([0.0249036122306942, 0.1821298850813109, -0.16517591481792673])
+        t = sm.generate_systematic_maps(nside, families=[0, 1, 2], seed=0)
+        rng = np.random.default_rng(98)
+        np.random.seed(98)
+        lmax = 3 * nside - 1
+        ell = np.arange(lmax + 1.0)
+        cl = (ell + 1.0) ** -2
+        cl[0] = 0.0
+        cl *= 0.25 / np.sum((2 * ell + 1) / (4 * np.pi) * cl)
+        delta = np.exp(hp.synfast(cl, nside=nside, lmax=lmax) - 0.125) - 1.0
+        lat = 90.0 - np.degrees(hp.pix2ang(nside, np.arange(12 * nside**2))[0])
+        mask = np.abs(lat) > 20.0
+        counts = rng.poisson(np.maximum(n_mean * (1 + delta * (1 + b @ t) + a @ t), 0) * mask)
+        g, good = sm.compute_overdensity(counts, np.round(mask * n_mean * 8).astype(int))
+        T, R, _ = sm.rotate_templates(sm.assign_template_values(t, good))
+        out = sm.lrt_from_maxima(g, T)
+        assert out["converged"].all()
+        th = out["theta_alt"][0]
+        assert np.min(1 + th[3:6] @ T) > 0
+        start = sm.pack_params(R @ a, R @ b, float(np.std(g)), model="combined")
+        th1 = sm.refine_to_mle(start, g, T, model="combined")
+        ll = sm.make_log_likelihood(3, "combined")
+        assert float(ll(th, g, T)) >= float(ll(th1, g, T)) - 1e-6
+        assert out["lambda"][0] > 1000
+
     def test_non_negative_and_batch_independent(self):
         import sys_mapping as sm
         G, T = self._fields(n_field=5)

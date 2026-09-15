@@ -534,7 +534,7 @@ def snr_template_ranking(
     fracdet: np.ndarray | None = None,
     binning: str = "width",
 ) -> np.ndarray:
-    """Rank systematic templates by signal-to-noise ratio of their contamination.
+    r"""Rank systematic templates by signal-to-noise ratio of their contamination.
 
     Four SNR definitions:
 
@@ -825,7 +825,7 @@ def isd_marginal_fit(
     fracdet: np.ndarray | None = None,
     binning: str = "quantile",
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Marginal (one-template-at-a-time) binned polynomial fit of the density.
+    r"""Marginal (one-template-at-a-time) binned polynomial fit of the density.
 
     This is the fit that Iterative Systematics Decontamination actually performs:
     for each template independently, bin the footprint by that template's value,

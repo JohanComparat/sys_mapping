@@ -189,6 +189,8 @@ def likelihood_ratio_test(
 
 
 _MAXIMA_CACHE: dict = {}
+_MAXIMA_GRAD_STOP = 1e-9  # largest gradient component at which an L-BFGS run stops
+_MAXIMA_RESTARTS = 3      # L-BFGS runs per maximum, each started from the best point so far
 
 
 def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
@@ -207,16 +209,38 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
         opt = optax.lbfgs()
         value_and_grad = optax.value_and_grad_from_state(neg)
 
-        def step(carry, _):
-            u, state = carry
+        def step(carry):
+            u, state, u_best, f_best, _ = carry
             value, grad = value_and_grad(u, state=state)
+            # Keep the best finite point: near a pixel where 1 + b.t = 0 the gradient
+            # explodes and a step can throw the iterate onto the flat ridge |b| -> inf.
+            ok = jnp.isfinite(value) & jnp.all(jnp.isfinite(grad))
+            improved = ok & (value < f_best)
+            u_best = jnp.where(improved, u, u_best)
+            f_best = jnp.where(improved, value, f_best)
             updates, state = opt.update(grad, state, u, value=value, grad=grad, value_fn=neg)
-            return (optax.apply_updates(u, updates), state), None
+            return optax.apply_updates(u, updates), state, u_best, f_best, ok
 
-        (u, _), _ = jax.lax.scan(step, (u0, opt.init(u0)), None, length=n_iter)
-        # Never report a point worse than the start.
-        better = neg(u) <= neg(u0)
-        u = jnp.where(better, u, u0)
+        def running(carry):
+            # Stop at convergence (past it the line search spends its full step budget on
+            # every iteration without moving) or once the value or gradient is not finite.
+            _, state, _, _, ok = carry
+            count = optax.tree_utils.tree_get(state, "count")
+            grad = optax.tree_utils.tree_get(state, "grad")
+            return (count == 0) | (ok & (count < n_iter)
+                                   & (jnp.max(jnp.abs(grad)) > _MAXIMA_GRAD_STOP))
+
+        def run_from(u_start, _):
+            f0 = neg(u_start)
+            carry = (u_start, opt.init(u_start), u_start, f0, jnp.asarray(True))
+            u, _, u_best, f_best, _ = jax.lax.while_loop(running, step, carry)
+            f_end = neg(u)
+            u_best = jnp.where(jnp.isfinite(f_end) & (f_end <= f_best), u, u_best)
+            return u_best, None
+
+        # Restart from the best point with a fresh curvature memory; a run that converged
+        # stops again after one iteration.
+        u, _ = jax.lax.scan(run_from, u0, None, length=_MAXIMA_RESTARTS)
         return u, jnp.max(jnp.abs(jax.grad(neg)(u)))
 
     def one(g, T):
@@ -229,7 +253,13 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
             return -ll_add(u.at[i_add].set(jnp.exp(u[i_add])), g, T)
 
         def neg_comb(u):
-            return -ll_comb(u.at[i_comb].set(jnp.exp(u[i_comb])), g, T)
+            # The maximum is sought where every pixel's efficiency 1 + b.t is positive, the
+            # region that holds b = 0; the likelihood has a pole wherever 1 + b.t = 0, and
+            # the line search backtracks from +inf.
+            feasible = jnp.min(1.0 + u[n_sys:2 * n_sys] @ T) > 0.0
+            u_safe = jnp.where(feasible, u, u.at[n_sys:2 * n_sys].set(0.0))
+            value = -ll_comb(u_safe.at[i_comb].set(jnp.exp(u_safe[i_comb])), g, T)
+            return jnp.where(feasible, value, jnp.inf)
 
         u_add = jnp.concatenate([a, log_sig[None], gamma0])
         g_add = jnp.asarray(0.0)
@@ -256,18 +286,19 @@ def lrt_from_maxima(
     batch_size: int = 64,
     grad_tol: float = 1e-3,
 ) -> dict[str, np.ndarray]:
-    """Additive-versus-combined :math:`\lambda_{\rm LR}` of many fields at once, from their maxima.
+    r"""Additive-versus-combined :math:`\lambda_{\rm LR}` of many fields at once, from their maxima.
 
     For each row of ``delta_g`` the additive maximum is the least-squares solution (found by
     L-BFGS as well when ``use_skewed``), and the combined maximum is found by L-BFGS started
-    from it with ``b = 0``, a point on the combined model's ridge.  All rows are optimised
+    from it with ``b = 0``, a point on the combined model's ridge; each L-BFGS run stops when
+    its largest gradient component falls below 1e-9, or after ``n_iter`` iterations.  All rows are optimised
     together under ``jax.vmap``, in batches of ``batch_size``, with one compilation per
     ``(n_sys, use_skewed, n_iter)``.
 
     This is the null :func:`lrt_null_distribution` builds when ``fit_theta`` returns maxima,
     without fitting a posterior per mock: on 7 040 pixels with 11 templates, 8 mocks take
-    0.6 s after compilation, against 50 s for NUTS fits refined to their maxima, with
-    :math:`\lambda_{\rm LR}` equal to a relative 1e-6.
+    0.15 s after compilation, against about 50 s for NUTS fits refined to their maxima,
+    with :math:`\lambda_{\rm LR}` equal to a relative 8e-7.
 
     Parameters
     ----------

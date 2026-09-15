@@ -385,7 +385,7 @@ RESPONSE_KINDS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class TemplateResponse:
-    """A per-template contamination response :math:`F(t)`.
+    r"""A per-template contamination response :math:`F(t)`.
 
     The response is applied as a *selection efficiency*,
 

@@ -290,7 +290,7 @@ def polynomial_ols_decontamination(
     lambda_poly: float = 0.0,
     backend: str = "numpy",
 ) -> tuple[np.ndarray, np.ndarray, int]:
-    """Iteratively reweighted OLS on a multivariate polynomial template basis.
+    r"""Iteratively reweighted OLS on a multivariate polynomial template basis.
 
     .. warning::
        **This is not ISD.**  Up to and including v1.2 this function was named
@@ -1173,12 +1173,14 @@ def run_decontamination(
     -----
     **Weight convention**
 
-    * OLS / ElasticNet / ISD-1 / ISD-3 / MCMC-add:
-      ``w(p) = 1 / (1 + a_hat @ t(p))`` — additive weight.
-    * MCMC-comb:
-      ``w(p) = (1 + δ_g_clean(p)) / (1 + δ_g_obs(p))`` — exact pixel-level
-      inverse of the contamination weight; cancels ``weight_cont`` exactly
-      when (a_hat, b_hat) equal the true parameters.
+    * OLS / ElasticNet: ``w(p) = 1 / (1 + a_hat @ t(p))``, the additive weight.
+    * ISD-1 / ISD-3: the cumulative product of the per-step corrections.
+    * MCMC-add / MCMC-comb: ``w(p) = (1 + δ_g_clean(p)) / (1 + δ_g_obs(p))``, the
+      exact pixel-level inverse of the contamination, with ``b_hat = 0`` for
+      MCMC-add; it cancels the contamination when (a_hat, b_hat) equal the true
+      parameters.
+
+    All weights are clipped to ``[1/20, 20]``.
 
     References
     ----------
@@ -1230,12 +1232,19 @@ def run_decontamination(
 
         if preselect_method == "isd" and preselect_p_threshold is not None:
             _ns = nside or int(round(np.sqrt(len(good_pixels) / 12)))
+            # The same statistic ISD computes (degree, bins, binning), so the null can
+            # also serve as the ISD stopping threshold below.
+            _pre_order = 1
+            if method.startswith("ISD-"):
+                _pre_order = int(isd_poly_order if isd_poly_order is not None
+                                 else method.split("-", 1)[1])
             isd_sig = isd_template_significance(
                 delta_g_obs, delta_t[selected], good_pixels, _ns,
                 n_total=0,  # overridden by n_total_footprint below
                 z_edges=z_edges, nz=nz,
                 n_total_footprint=n_total_footprint,
                 n_mocks=preselect_n_mocks, seed=preselect_seed,
+                n_bins=isd_n_bins, poly_order=_pre_order, binning=isd_binning,
                 rand_factor=preselect_rand_factor,
                 n_jobs=preselect_n_jobs,
                 cl_input=preselect_cl_input,

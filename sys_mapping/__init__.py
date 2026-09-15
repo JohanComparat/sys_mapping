@@ -1,3 +1,5 @@
+__version__ = "1.4.0"
+
 import jax
 
 jax.config.update("jax_enable_x64", True)
@@ -144,6 +146,7 @@ from .simulation import (
 )
 
 __all__ = [
+    "__version__",
     # contamination
     "RESPONSE_KINDS",
     "TemplateResponse",
