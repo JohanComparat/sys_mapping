@@ -341,13 +341,11 @@ python scripts/run_paper_validation.py --nside 512 --n-real 119 \
 
 | Script | Output |
 |---|---|
-| `scripts/generate_results_ls10_summary.py` | `docs/results_ls10.rst` from `*_params.json` |
-| `scripts/plot_ls10_wtheta_corrected.py` | `docs/_static/results_ls10/wtheta_corrected_nside64.png` |
+| `scripts/generate_results_ls10_summary.py` | `docs/results_ls10.rst`, `docs/results_ls10_recommendations.rst` and the nine `docs/results_ls10_*.rst` sample pages, from the issued products |
+| `scripts/plot_ls10_occupancy_products.py` | `docs/_static/results_ls10/wtheta_ratio_occupancy.png` |
+| `scripts/analyze_detectability_law.py` | `docs/detectability_law.rst` and its figures and tables |
 | `scripts/plot_runtime_scaling.py` | `docs/_static/runtime_scaling.png` |
 | `scripts/plot_simulation_tests.py` | simulation-test figures under `docs/_static/` |
-
-The per-sample pages under `docs/results_ls10_*.rst` are written by hand; their
-generator is under `scripts/archive/`, which carries its own README.
 
 ### `scripts/benchmark_corrfunc_vs_treecorr.py`
 
@@ -529,9 +527,11 @@ All symbols above are importable directly from `sys_mapping`.
 
 ## Data files
 
-### Generated outputs (`data/sys_weights/` — git-ignored)
+### Generated outputs (`data/sys_weights_auto/`, `data/sys_weights/` — git-ignored)
 
-Produced by `scripts/compute_sys_weights.py` or `scripts/run_ls10_analysis.py`:
+Produced by `scripts/run_ls10_analysis.py` (and `scripts/compute_sys_weights.py`).
+`data/sys_weights_auto/` holds the issued products, each sample at the resolution its
+occupancy supports; `data/sys_weights/` holds the same fits at NSIDE 32, 64 and 128.
 
 | File | Contents |
 |---|---|

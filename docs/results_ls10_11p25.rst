@@ -1,9 +1,9 @@
 .. _sample-11p25:
 
-BGS VLIM log M\ :sub:`*` ≥ 11.25,  z < 0.35 — detailed systematic analysis
-===============================================================================
+BGS VLIM log M* ≥ 11.25, z < 0.35
+=================================
 
-High-mass BGS VLIM sample (541,855 galaxies, z < 0.35).  Shot noise dominates per-pixel statistics at both resolutions.  The LRT rejects the additive null at NSIDE 64 (:math:`\lambda_{\rm LR} = 123.4`).
+541,855 galaxies, issued at NSIDE 64 (25.1 galaxies per pixel over 21,555 pixels). Leading template: ``GAIA_phot_g_mean_flux`` at 3.80 calibrated, family-wise p ≤ 0.0025. Recommended column: ``WEIGHT_SYS``; a template is detected (family-wise p ≤ 0.0025) and the NSIDE 64 likelihood ratio requires the multiplicative term (p = 0.020).
 
 .. contents:: On this page
    :local:
@@ -11,246 +11,107 @@ High-mass BGS VLIM sample (541,855 galaxies, z < 0.35).  Shot noise dominates pe
 
 .. seealso::
 
-   :doc:`results_ls10` — summary tables and figures for all nine samples.
+   :doc:`results_ls10` — all nine samples.
 
-----
-
-Sample statistics
------------------
+Template significance
+---------------------
 
 .. csv-table::
-   :header: "Parameter", "NSIDE 32", "NSIDE 64", "NSIDE 128", "NSIDE 256"
-   :widths: 36, 16, 16, 16, 16
+   :header: "template", "S cal", "S iid", "p", "κ"
 
-   "Stellar-mass threshold", "log M* ≥ 11.25", "log M* ≥ 11.25", "log M* ≥ 11.25", "log M* ≥ 11.25"
-   "Redshift limit", "z < 0.35", "z < 0.35", "z < 0.35", "z < 0.35"
-   "N\ :sub:`gal`", "541,855", "541,855", "541,855", "541,855"
-   "N\ :sub:`pix` (good footprint)", "5,609", "21,555", "84,131", "325,324"
-   "N\ :sub:`templates`", "11", "11", "11", "11"
-   "MCMC walkers", "210", "210", "210", "210"
-   "MCMC steps after burn-in", "1500", "1500", "1500", "1500"
+   "GAIA_phot_g_mean_flux", "3.80", "4.08", "0.0025", "1.07"
+   "GAIA_phot_rp_mean_flux", "3.58", "3.75", "0.0025", "1.05"
+   "GAIA_phot_bp_mean_flux", "3.40", "3.52", "0.0025", "1.04"
+   "LS10_GALDEPTH_G", "2.13", "3.95", "0.0274", "1.85"
+   "LS10_PSFSIZE_R", "1.21", "2.54", "0.2095", "2.09"
+   "LS10_GALDEPTH_Z", "0.93", "1.65", "0.3317", "1.78"
+   "GAIA_nstar_medium", "0.92", "2.22", "0.3766", "2.42"
+   "LS10_NOBS_R", "0.84", "1.42", "0.4040", "1.70"
+   "LS10_GALDEPTH_R", "0.48", "0.83", "0.6384", "1.70"
+   "GAIA_nstar_faint", "0.39", "0.85", "0.7082", "2.17"
+   "LS10_EBV", "0.00", "0.00", "1.0000", "2.91"
 
-----
+Calibrated on 400 realisations; p is per template, with floor 0.0025.
 
-Goodness-of-fit: :math:`\hat{\sigma}` by method and resolution
-------------------------------------------------------------------
-
-The noise parameter :math:`\hat{\sigma}` measures residual scatter after systematic subtraction — lower is better.  Results are shown for NSIDE 32, 64, 128, and 256.  ISD-3 is unavailable at NSIDE 128 and 256 (no partial files generated at those resolutions).
-
-.. csv-table::
-   :header: "Method", ":math:`\hat{\sigma}` (N32)", ":math:`\hat{\sigma}` (N64)", ":math:`\hat{\sigma}` (N128)", ":math:`\hat{\sigma}` (N256)", "Notes"
-   :widths: 14, 12, 12, 12, 12, 38
-
-   "OLS", "0.3308", "0.3842", "0.6405", "1.2602", "closed-form least-squares"
-   "ElasticNet", "0.3319", "0.3846", "0.6406", "1.2603", "L1+L2 regularised; 3-fold CV"
-   "ISD-1", "0.3308", "0.3842", "0.6405", "1.2602", "iterative self-calibration; poly order 1"
-   "ISD-3 †", "0.7031", "0.6196", "0.6454", "1.3131", "† degree-3 polynomial; unavailable at NSIDE 128/256"
-   "MCMC-add", "0.3313", "0.3843", "0.6406", "1.2602", "MCMC additive; acc N32=0.386 N64=0.389"
-   "MCMC-comb", "0.4062", "0.3930", "0.6329", "1.2117", "MCMC combined; acc N32=0.293 N64=0.288"
-
-† ISD-3 uses a degree-3 polynomial expansion and is ill-conditioned with correlated templates.
-
-Likelihood Ratio Test (additive vs combined model)
---------------------------------------------------
+Fitted amplitudes (NSIDE 64)
+----------------------------
 
 .. csv-table::
-   :header: "Resolution", ":math:`\lambda_{\rm LR}`", "dof", "p-value", "Reject H₀"
-   :widths: 14, 14, 8, 22, 12
+   :header: "template", "a OLS", "a ElasticNet", "a ISD-1", "a ISD-3", "a MCMC-add", "a MCMC-comb", "b MCMC-comb"
 
-   "NSIDE 32", "613.5", "11", "< 10\ :sup:`-124`", "**Yes**"
-   "NSIDE 64", "123.4", "11", "< 10\ :sup:`-21`", "**Yes**"
-   "NSIDE 128", "140.8", "11", "< 10\ :sup:`-24`", "**Yes**"
-   "NSIDE 256", "597.3", "11", "< 10\ :sup:`-121`", "**Yes**"
+   "GAIA_nstar_faint", "+0.0090", "-0.0000", "+0.0000", "+0.0000", "+0.0090", "+0.0067", "+0.0523"
+   "GAIA_nstar_medium", "-0.0235", "-0.0159", "+0.0000", "+0.0000", "-0.0235", "-0.0206", "-0.0466"
+   "GAIA_phot_bp_mean_flux", "-0.0192", "-0.0079", "-0.0150", "+0.0000", "-0.0193", "-0.0193", "-0.0025"
+   "GAIA_phot_g_mean_flux", "+0.0333", "+0.0015", "+0.0000", "-0.0163", "+0.0333", "+0.0271", "+0.0021"
+   "GAIA_phot_rp_mean_flux", "-0.0270", "-0.0050", "+0.0000", "+0.0000", "-0.0270", "-0.0189", "-0.0076"
+   "LS10_EBV", "-0.0000", "-0.0000", "+0.0000", "+0.0000", "-0.0000", "-0.0007", "+0.0381"
+   "LS10_GALDEPTH_G", "+0.0130", "+0.0120", "+0.0000", "+0.0000", "+0.0130", "+0.0049", "-0.0133"
+   "LS10_GALDEPTH_R", "+0.0035", "+0.0037", "+0.0169", "+0.0187", "+0.0035", "+0.0031", "-0.0358"
+   "LS10_GALDEPTH_Z", "+0.0050", "+0.0040", "+0.0000", "+0.0000", "+0.0050", "+0.0073", "-0.0274"
+   "LS10_NOBS_R", "+0.0051", "+0.0041", "+0.0000", "+0.0000", "+0.0051", "+0.0133", "+0.0711"
+   "LS10_PSFSIZE_R", "-0.0071", "-0.0060", "+0.0000", "+0.0000", "-0.0071", "-0.0037", "-0.0226"
 
-MCMC acceptance fractions:
-NSIDE 32: add 0.386, comb 0.293  NSIDE 64: add 0.389, comb 0.288  NSIDE 128: add 0.387, comb 0.287  NSIDE 256: add 0.390, comb 0.301.  Healthy range: 0.15–0.50.
+Amplitudes are per unit template standard deviation on the footprint.
 
-----
-
-Template amplitude ranking — additive model (MCMC-add, NSIDE 64)
-------------------------------------------------------------------
-
-All 11 templates sorted by absolute MCMC-add additive amplitude :math:`|\hat{a}_i|`.  OLS shown for comparison.
-
-.. csv-table::
-   :header: "Rank", "Template", "NSIDE", ":math:`\hat{a}_i` (MCMC-add)", ":math:`\hat{a}_i` (OLS)", "Physical meaning"
-   :widths: 5, 28, 6, 14, 14, 50
-   :stub-columns: 1
-
-   "1", "**GAIA_nstar_faint**", "64", "+0.2755", "+0.2785", "GAIA faint stellar density (photometric mis-classification of faint stars as galaxies)"
-   "2", "**GAIA_nstar_medium**", "64", "-0.1944", "-0.1970", "GAIA medium stellar density (crowding and deblending near bright stars)"
-   "3", "**GAIA_phot_g_mean_flux**", "64", "+0.0530", "+0.0522", "GAIA mean stellar flux in G band (scattered-light / sky-background variations)"
-   "4", "**GAIA_phot_rp_mean_flux**", "64", "-0.0511", "-0.0504", "GAIA mean stellar flux in RP band (red scattered light)"
-   "5", "**GAIA_phot_bp_mean_flux**", "64", "-0.0334", "-0.0331", "GAIA mean stellar flux in BP band (blue scattered light)"
-   "6", "LS10_GALDEPTH_G_NSIDE_0064", "?", "+0.0132", "+0.0131", "LS10_GALDEPTH_G_NSIDE_0064"
-   "7", "LS10_PSFSIZE_R_NSIDE_0064", "?", "-0.0079", "-0.0079", "LS10_PSFSIZE_R_NSIDE_0064"
-   "8", "LS10_GALDEPTH_Z_NSIDE_0064", "?", "+0.0054", "+0.0054", "LS10_GALDEPTH_Z_NSIDE_0064"
-   "9", "LS10_NOBS_R_NSIDE_0064", "?", "+0.0044", "+0.0045", "LS10_NOBS_R_NSIDE_0064"
-   "10", "LS10_GALDEPTH_R_NSIDE_0064", "?", "+0.0034", "+0.0034", "LS10_GALDEPTH_R_NSIDE_0064"
-   "11", "LS10_EBV_NSIDE_0064", "?", "-0.0029", "-0.0028", "LS10_EBV_NSIDE_0064"
-
-----
-
-Template amplitude ranking — multiplicative model (MCMC-comb, NSIDE 64)
---------------------------------------------------------------------------
-
-All 11 templates sorted by absolute MCMC-comb multiplicative amplitude :math:`|\hat{b}_i|`.
+Weights
+-------
 
 .. csv-table::
-   :header: "Rank", "Template", "NSIDE", ":math:`\hat{b}_i` (MCMC-comb)", "Physical meaning"
-   :widths: 5, 30, 6, 16, 50
-   :stub-columns: 1
+   :header: "column", "min", "max", "1 %", "99 %", "clipped", "identically 1"
 
-   "1", "**GAIA_nstar_faint**", "64", "+0.3944", "GAIA faint stellar density (photometric mis-classification of faint stars as galaxies)"
-   "2", "**GAIA_nstar_medium**", "64", "-0.2422", "GAIA medium stellar density (crowding and deblending near bright stars)"
-   "3", "**LS10_EBV_NSIDE_0064**", "?", "+0.0513", "LS10_EBV_NSIDE_0064"
-   "4", "**GAIA_phot_bp_mean_flux**", "64", "-0.0343", "GAIA mean stellar flux in BP band (blue scattered light)"
-   "5", "**GAIA_phot_g_mean_flux**", "64", "+0.0288", "GAIA mean stellar flux in G band (scattered-light / sky-background variations)"
-   "6", "GAIA_phot_rp_mean_flux", "64", "-0.0168", "GAIA mean stellar flux in RP band (red scattered light)"
-   "7", "LS10_GALDEPTH_G_NSIDE_0064", "?", "+0.0137", "LS10_GALDEPTH_G_NSIDE_0064"
-   "8", "LS10_GALDEPTH_R_NSIDE_0064", "?", "+0.0098", "LS10_GALDEPTH_R_NSIDE_0064"
-   "9", "LS10_GALDEPTH_Z_NSIDE_0064", "?", "-0.0063", "LS10_GALDEPTH_Z_NSIDE_0064"
-   "10", "LS10_NOBS_R_NSIDE_0064", "?", "+0.0054", "LS10_NOBS_R_NSIDE_0064"
-   "11", "LS10_PSFSIZE_R_NSIDE_0064", "?", "-0.0016", "LS10_PSFSIZE_R_NSIDE_0064"
+   "WEIGHT_OLS", "0.570", "1.280", "0.906", "1.099", "0.000 %", "no"
+   "WEIGHT_ENET", "0.651", "1.235", "0.915", "1.088", "0.000 %", "no"
+   "WEIGHT_ISD1", "0.922", "1.077", "0.928", "1.073", "0.000 %", "no"
+   "WEIGHT_ISD3", "0.918", "1.109", "0.926", "1.097", "0.000 %", "no"
+   "WEIGHT_ADD", "0.050", "1.952", "0.897", "1.117", "0.003 %", "no"
+   "WEIGHT_COMB", "0.050", "20.000", "0.871", "1.124", "0.023 %", "no"
 
-----
+.. figure:: /_static/results_ls10/issued/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_map.png
+   :width: 95%
 
-Per-galaxy weight statistics (NSIDE 64)
-----------------------------------------
+   Weight maps at NSIDE 64, one panel per method.
 
-From the ``*_NSIDE0064_WEIGHTS.fits`` file.  Mean ≈ 1 and small std indicate a well-behaved weight distribution.
+.. figure:: /_static/results_ls10/issued/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_hist.png
+   :width: 70%
+
+   Weight distributions.
+
+Angular correlation function
+----------------------------
+
+.. figure:: /_static/results_ls10/issued/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_wtheta.png
+   :width: 80%
+
+   Observed and corrected w(θ), full cross-template correction.
+
+.. csv-table:: Corrected over observed w(θ).
+   :header: "method", "at 30′", "smallest ratio", "at θ"
+
+   "OLS", "0.982", "0.785", "220′"
+   "ElasticNet", "0.985", "0.819", "220′"
+   "ISD-1", "0.994", "0.960", "220′"
+   "ISD-3", "0.993", "0.954", "220′"
+   "MCMC-add", "0.981", "0.778", "220′"
+   "MCMC-comb", "0.979", "0.803", "220′"
+
+Likelihood ratio
+----------------
 
 .. csv-table::
-   :header: "Method", "N", "mean", "std", "p1", "p5", "p50", "p95", "p99"
-   :widths: 14, 12, 8, 8, 8, 8, 8, 8, 8
+   :header: "NSIDE", "λ LR", "mock p", "null mean / max", "N"
 
-   "OLS", "541,855", "0.9914", "0.0352", "0.8993", "0.9443", "0.9892", "1.0495", "1.0841"
-   "ElasticNet", "541,855", "0.9906", "0.0252", "0.9133", "0.9564", "0.9927", "1.0248", "1.0468"
-   "ISD-1", "541,855", "0.9914", "0.0355", "0.8980", "0.9439", "0.9893", "1.0500", "1.0844"
-   "ISD-3 †", "541,855", "1.8450", "9.0095", "0.7238", "0.8593", "0.9633", "1.2506", "5.9101"
-   "MCMC-add", "541,855", "0.9914", "0.0352", "0.8990", "0.9445", "0.9892", "1.0493", "1.0843"
-   "MCMC-comb", "541,855", "1.0292", "0.0470", "0.9159", "0.9462", "1.0363", "1.0932", "1.1294"
+   "32", "636.5", "0.020", "34.4 / 106.5", "50"
+   "64", "127.4", "0.020", "47.2 / 108.9", "50"
 
-----
+Resolution comparison
+---------------------
 
-Systematic weight maps
-----------------------
+.. csv-table:: Residual scatter :math:`\hat\sigma`.
+   :header: "method", "NSIDE 32", "NSIDE 64", "NSIDE 128"
 
-.. raw:: html
-
-   <p style="text-align:center;font-weight:bold;margin-bottom:0.4em">Mollweide weight maps — all six methods</p>
-   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:1100px;margin:auto">
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_weight_map.png" style="width:100%" alt="weight maps NSIDE 32 weight maps">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 32 weight maps</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_map.png" style="width:100%" alt="weight maps NSIDE 64 weight maps">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 64 weight maps</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_weight_map.png" style="width:100%" alt="weight maps NSIDE 128 weight maps">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 128 weight maps</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_map.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_map.png" style="width:100%" alt="weight maps NSIDE 256 weight maps">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 weight maps</figcaption>
-     </figure>
-   </div>
-
-
-Systematic weight distributions
--------------------------------
-
-Narrow peaks near 1 indicate stable weight estimates.  ElasticNet weights may be exactly 1 when cross-validation selects zero amplitudes.
-
-.. raw:: html
-
-   <p style="text-align:center;font-weight:bold;margin-bottom:0.4em">Per-galaxy weight distributions — all six methods</p>
-   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:1100px;margin:auto">
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_weight_hist.png" style="width:100%" alt="weight distributions NSIDE 32 weight distributions">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 32 weight distributions</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_hist.png" style="width:100%" alt="weight distributions NSIDE 64 weight distributions">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 64 weight distributions</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_weight_hist.png" style="width:100%" alt="weight distributions NSIDE 128 weight distributions">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 128 weight distributions</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_hist.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_weight_hist.png" style="width:100%" alt="weight distributions NSIDE 256 weight distributions">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256 weight distributions</figcaption>
-     </figure>
-   </div>
-
-
-Angular clustering w(θ) before and after correction
------------------------------------------------------
-
-Each panel shows the observed angular two-point correlation function (solid black) and the corrected :math:`w(\theta)` for all six methods.  A well-corrected sample shows suppressed excess clustering at all scales.  Each panel corresponds to one map resolution.
-
-.. raw:: html
-
-   <p style="text-align:center;font-weight:bold;margin-bottom:0.4em">w(θ): observed vs corrected — all six methods</p>
-   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:1100px;margin:auto">
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0032_wtheta.png" style="width:100%" alt="wtheta NSIDE 32">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 32</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_wtheta.png" style="width:100%" alt="wtheta NSIDE 64">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 64</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0128_wtheta.png" style="width:100%" alt="wtheta NSIDE 128">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 128</figcaption>
-     </figure>
-     <figure style="text-align:center;margin:0">
-       <a href="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_wtheta.png" target="_blank">
-         <img src="_static/results_ls10/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0256_wtheta.png" style="width:100%" alt="wtheta NSIDE 256">
-       </a>
-       <figcaption style="font-size:0.82em;color:#555">NSIDE 256</figcaption>
-     </figure>
-   </div>
-
-
-----
-
-Cosmological analysis verdict
------------------------------
-
-Sub-degree scales (:math:`\theta < 30'`): regime is **moderately contaminated** (:math:`\delta w/w \approx +2.2\%` at 30 arcmin).
-
-* Without correction: **borderline** without correction.
-* After correction: **suitable** after applying ``WEIGHT_COMB``.
-* **Large-angle warning** (:math:`\theta > 2°`): max correction 17.4% at 181 arcmin — any analysis using angular scales > 1° **must** apply ``WEIGHT_COMB``.
-
-LRT (NSIDE 64): :math:`\lambda_{\rm LR} = 123.4` (dof = 11), p = 3.7e-21 → **Reject H₀** — multiplicative contamination is statistically detected.
-
-**Recommendation**: use ``WEIGHT_COMB`` (``WEIGHT_SYS``) for all science-grade analyses.
-
+   "OLS", "0.3309", "0.3842", "0.6412"
+   "ElasticNet", "0.3313", "0.3843", "0.6413"
+   "ISD-1", "0.3317", "0.3847", "0.6416"
+   "ISD-3", "0.3317", "0.3852", "0.6417"
+   "MCMC-add", "0.3313", "0.3843", "0.6413"
+   "MCMC-comb", "0.3199", "0.3931", "0.6570"

@@ -1,659 +1,437 @@
 #!/usr/bin/env python3
-"""
-Generate docs/results_ls10.rst from *_params.json files at NSIDE 32, 64, 128, 256.
+"""Generate the LS10 results pages from the pipeline products on disk.
 
-Run from the repo root:
+Writes ``docs/results_ls10.rst``, ``docs/results_ls10_recommendations.rst`` and one
+page per sample, ``docs/results_ls10_<anchor>.rst``.  Every number is read from:
+
+``data/sys_weights_auto/``
+    the products as issued, each sample at the finest NSIDE whose mean occupancy
+    reaches 25 galaxies per pixel (``run_ls10_analysis.py --min-per-pixel``);
+    ``*_WEIGHTS.fits`` are read for the weight statistics when present.
+``data/sys_weights/``
+    the same fits at NSIDE 32, 64 and 128, for the resolution comparison.
+``results/ls10_mocklrt/NSIDE00xx/``
+    the mock-calibrated additive-versus-combined likelihood ratio.
+
+The issued products' figures are copied to ``docs/_static/results_ls10/issued/``.
+
+Run from the repository root::
+
     python scripts/generate_results_ls10_summary.py
 """
+from __future__ import annotations
 
-import json
 import glob
-import os
-import math
+import json
+import re
+import shutil
+from pathlib import Path
 
-REPO = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
-WEIGHTS_DIR = os.path.join(REPO, "data", "sys_weights")
-OUT = os.path.join(REPO, "docs", "results_ls10.rst")
+import numpy as np
 
-NSIDES = [32, 64, 128]
-NSIDE_NPIX = {32: "5 600", 64: "21 600", 128: "84 000", 256: "330 000"}
-NSIDE_AREA = {32: "3.36", 64: "0.84", 128: "0.21", 256: "0.052"}
+REPO = Path(__file__).resolve().parent.parent
+ISSUED = REPO / "data" / "sys_weights_auto"
+GRID = REPO / "data" / "sys_weights"
+LRT = REPO / "results" / "ls10_mocklrt"
+DOCS = REPO / "docs"
+STATIC = DOCS / "_static" / "results_ls10"
+FIG = STATIC / "issued"
 
-# ── sample order and display labels ───────────────────────────────────────────
-SAMPLES = [
-    dict(tag="9.0",   zmax="0.08",  ngal="523 486",   nrand="2 617 332",  label="9.0,  0.08",
-         sid="LS10_VLIM_ANY_9.0_Mstar_12.0_0.05_z_0.08_N_0523486",   anchor="9p0",
-         label_long=r"log M\* ≥ 9.0,  z < 0.08  (N = 523 486)",
-         dw30="-7.2 %", dw30_note="Systematics-dominated at all scales"),
-    dict(tag="9.5",   zmax="0.12",  ngal="1 432 502", nrand="7 160 697",  label="9.5,  0.12",
-         sid="LS10_VLIM_ANY_9.5_Mstar_12.0_0.05_z_0.12_N_1432502",   anchor="9p5",
-         label_long=r"log M\* ≥ 9.5,  z < 0.12  (N = 1 432 502)",
-         dw30="-4.8 %", dw30_note="Systematics-dominated"),
-    dict(tag="10.0",  zmax="0.18",  ngal="2 759 238", nrand="13 795 884", label="10.0, 0.18",
-         sid="LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238",  anchor="10p0",
-         label_long=r"log M\* ≥ 10.0,  z < 0.18  (N = 2 759 238)",
-         dw30="-0.4 %", dw30_note="Borderline (correction < noise)"),
-    dict(tag="10.25", zmax="0.22",  ngal="3 308 841", nrand="16 544 481", label="10.25, 0.22",
-         sid="LS10_VLIM_ANY_10.25_Mstar_12.0_0.05_z_0.22_N_3308841", anchor="10p25",
-         label_long=r"log M\* ≥ 10.25,  z < 0.22  (N = 3 308 841)",
-         dw30="n/a", dw30_note="no measurement available"),
-    dict(tag="10.5",  zmax="0.26",  ngal="3 263 228", nrand="16 315 418", label="10.5, 0.26",
-         sid="LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228",  anchor="10p5",
-         label_long=r"log M\* ≥ 10.5,  z < 0.26  (N = 3 263 228)",
-         dw30="n/a", dw30_note="no measurement available"),
-    dict(tag="10.75", zmax="0.31",  ngal="2 802 710", nrand="14 013 316", label="10.75, 0.31",
-         sid="LS10_VLIM_ANY_10.75_Mstar_12.0_0.05_z_0.31_N_2802710", anchor="10p75",
-         label_long=r"log M\* ≥ 10.75,  z < 0.31  (N = 2 802 710)",
-         dw30="n/a", dw30_note="no measurement available"),
-    dict(tag="11.0",  zmax="0.35",  ngal="1 619 838", nrand="8 097 853",  label="11.0, 0.35",
-         sid="LS10_VLIM_ANY_11.0_Mstar_12.0_0.05_z_0.35_N_1619838",  anchor="11p0",
-         label_long=r"log M\* ≥ 11.0,  z < 0.35  (N = 1 619 838)",
-         dw30="-0.1 %", dw30_note="Sub-degree OK; large-scale systematic present"),
-    dict(tag="11.25", zmax="0.35",  ngal="541 855",   nrand="2 708 912",  label="11.25, 0.35",
-         sid="LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855", anchor="11p25",
-         label_long=r"log M\* ≥ 11.25,  z < 0.35  (N = 541 855)",
-         dw30="+2.2 %", dw30_note="Large-scale dominated"),
-    dict(tag="11.5",  zmax="0.35",  ngal="120 882",   nrand="606 304",    label="11.5, 0.35",
-         sid="LS10_VLIM_ANY_11.5_Mstar_12.0_0.05_z_0.35_N_0120882",  anchor="11p5",
-         label_long=r"log M\* ≥ 11.5,  z < 0.35  (N = 120 882)",
-         dw30="+0.7 %", dw30_note="Statistics-dominated"),
-]
+GRID_NSIDES = (32, 64, 128)
+LRT_NSIDES = (32, 64)
+METHODS = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
+COLUMN = {"OLS": "WEIGHT_OLS", "ElasticNet": "WEIGHT_ENET", "ISD-1": "WEIGHT_ISD1",
+          "ISD-3": "WEIGHT_ISD3", "MCMC-add": "WEIGHT_ADD", "MCMC-comb": "WEIGHT_COMB"}
+ALPHA = 0.05          # detection and rejection level for the recommendation
+CLIP = (1 / 20, 20)
+THETA_REF = 30.0      # arcmin
 
 
-def _load(sid, nside):
-    path = os.path.join(WEIGHTS_DIR, f"{sid}_NSIDE{nside:04d}_params.json")
-    if not os.path.exists(path):
-        return {}
-    with open(path) as f:
-        return json.load(f)
+# ── loading ────────────────────────────────────────────────────────────────────
+
+def _mstar(sample_id: str) -> str:
+    return sample_id.split("_")[3]
 
 
-def _fmt(v, digits=4):
-    if v is None or (isinstance(v, float) and math.isnan(v)):
-        return "—"
-    return f"{v:.{digits}f}"
+def _anchor(mstar: str) -> str:
+    return mstar.replace(".", "p")
 
 
-def _pval_str(lam, dof=11):
-    if lam is None or (isinstance(lam, float) and math.isnan(lam)):
-        return "—"
-    if lam > 1000:
-        return "< 10\\ :sup:`-200`"
-    if lam > 500:
-        return "< 10\\ :sup:`-100`"
-    if lam > 300:
-        return "< 10\\ :sup:`-60`"
-    if lam > 200:
-        return "< 10\\ :sup:`-40`"
-    if lam > 100:
-        return "< 10\\ :sup:`-18`"
-    if lam > 66:
-        return "< 10\\ :sup:`-9`"
-    return "< 10\\ :sup:`-3`"
+def _zmax(sample_id: str) -> str:
+    return re.search(r"_z_([0-9.]+)_N_", sample_id).group(1)
 
 
-def _reject(lam, dof=11, alpha=0.05):
-    critical = {11: 19.68, 44: 60.5}
-    c = critical.get(dof, 19.68)
-    if lam is None or (isinstance(lam, float) and math.isnan(lam)):
-        return "—"
-    return "**Yes**" if lam > c else "No"
+def _short(name: str) -> str:
+    return name.split("_NSIDE")[0]
 
 
-def fig_block(href, src, width, maxw, alt, caption=None):
-    lines = [
-        ".. raw:: html",
-        "",
-        '   <figure style="text-align:center;margin:1em 0;">',
-        f'     <a href="{href}" target="_blank">',
-        f'       <img src="{src}"',
-        f'            style="width:{width};max-width:{maxw};" alt="{alt}">',
-        "     </a>",
-    ]
-    if caption:
-        lines.append(
-            f'     <figcaption style="font-size:0.87em;color:#555;margin-top:0.3em;">{caption}</figcaption>'
-        )
-    lines.append("   </figure>")
-    lines.append("")
-    return "\n".join(lines)
+def load_issued() -> list[dict]:
+    rows = []
+    for f in glob.glob(str(ISSUED / "LS10_VLIM_ANY_*_params.json")):
+        d = json.load(open(f))
+        w = json.load(open(f.replace("_params.json", "_wtheta_data.json")))
+        d["_wtheta"] = w
+        d["_stem"] = Path(f).name.replace("_params.json", "")
+        d["_weights"] = weight_stats(Path(f.replace("_params.json", "_WEIGHTS.fits")))
+        rows.append(d)
+    return sorted(rows, key=lambda d: float(_mstar(d["sample_id"])))
 
 
-def grid_fig_block(srcs, captions, alt_prefix, title=None):
-    """2×2 HTML grid of figures.  srcs and captions are lists of 4 items."""
-    html = [".. raw:: html", ""]
-    inner = []
-    if title:
-        inner.append(f'   <p style="text-align:center;font-weight:bold;margin-bottom:0.4em">{title}</p>')
-    inner.append('   <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;max-width:1100px;margin:auto">')
-    for src, cap in zip(srcs, captions):
-        inner.append('     <figure style="text-align:center;margin:0">')
-        inner.append(f'       <a href="{src}" target="_blank">')
-        inner.append(f'         <img src="{src}" style="width:100%" alt="{alt_prefix} {cap}">')
-        inner.append('       </a>')
-        inner.append(f'       <figcaption style="font-size:0.82em;color:#555">{cap}</figcaption>')
-        inner.append('     </figure>')
-    inner.append('   </div>')
-    html.extend(inner)
-    html.append("")
-    return "\n".join(html)
+def weight_stats(path: Path) -> dict | None:
+    if not path.exists():
+        return None
+    from astropy.io import fits
+    out = {}
+    with fits.open(path, memmap=True) as h:
+        hdr, data = h[1].header, h[1].data
+        out["WEIGHTVER"] = hdr.get("WEIGHTVER")
+        out["TPLBASIS"] = hdr.get("TPLBASIS")
+        for m, col in list(COLUMN.items()) + [("SYS", "WEIGHT_SYS")]:
+            if col not in data.columns.names:
+                continue
+            w = np.asarray(data[col], float)
+            out[m] = dict(min=float(w.min()), max=float(w.max()),
+                          p1=float(np.percentile(w, 1)), p99=float(np.percentile(w, 99)),
+                          clip=float(np.mean((w <= CLIP[0] * 1.002) | (w >= CLIP[1] * 0.999))),
+                          unity=bool(np.all(w == 1.0)))
+    return out
 
 
-# ── load all data ──────────────────────────────────────────────────────────────
-data = {}
-for s in SAMPLES:
-    data[s["tag"]] = {ns: _load(s["sid"], ns) for ns in NSIDES}
-
-# ── helpers ────────────────────────────────────────────────────────────────────
-TNAMES_ABBREV = {
-    "GAIA_nstar_faint": "ns_fnt",
-    "GAIA_nstar_medium": "ns_med",
-    "GAIA_phot_bp_mean_flux": "bp_fl",
-    "GAIA_phot_g_mean_flux": "g_fl",
-    "GAIA_phot_rp_mean_flux": "rp_fl",
-    "LS10_EBV": "EBV",
-    "LS10_GALDEPTH_G": "GD_G",
-    "LS10_GALDEPTH_R": "GD_R",
-    "LS10_GALDEPTH_Z": "GD_Z",
-    "LS10_NOBS_R": "NOBS_R",
-    "LS10_PSFSIZE_R": "PSF_R",
-}
-
-def _tabbrev(tname):
-    for k, v in TNAMES_ABBREV.items():
-        if tname.startswith(k):
-            return v
-    return tname[:10]
+def load_grid(sample_id: str) -> dict[int, dict]:
+    out = {}
+    for ns in GRID_NSIDES:
+        p = GRID / f"{sample_id}_NSIDE{ns:04d}_params.json"
+        if p.exists():
+            out[ns] = json.load(open(p))
+    return out
 
 
-def _dominant_template(d):
-    ahat = d.get("a_hat_add") or d.get("a_hat", [])
-    tnames = d.get("template_names", [])
-    if not ahat or not tnames:
-        return "GAIA:nstar_faint"
-    idx = max(range(len(ahat)), key=lambda i: abs(ahat[i]))
-    return tnames[idx] if idx < len(tnames) else "GAIA:nstar_faint"
+def load_lrt(sample_id: str) -> dict[int, dict]:
+    out = {}
+    for ns in LRT_NSIDES:
+        p = LRT / f"NSIDE{ns:04d}" / f"{sample_id}_NSIDE{ns:04d}_params.json"
+        if p.exists():
+            lrt = json.load(open(p)).get("lrt") or {}
+            if lrt.get("calibration") == "mock":
+                out[ns] = lrt
+    return out
 
 
-def _sigma_row(s, ns):
-    """Return csv-table row for sigma_hat at one NSIDE."""
-    d = data[s["tag"]][ns]
-    # Per-method values live under "methods"; the two MCMC ones are also at the
-    # top level, where the flat sigma_hat_* keys used to be.
-    meth = d.get("methods") or {}
-    def _m(name, flat):
-        v = (meth.get(name) or {}).get("sigma_hat")
-        return v if v is not None else d.get(flat)
-    ols   = _m("OLS", "sigma_hat_ols")
-    enet  = _m("ElasticNet", "sigma_hat_enet")
-    isd1  = _m("ISD-1", "sigma_hat_isd1")
-    isd3  = _m("ISD-3", "sigma_hat_isd3")
-    add_  = _m("MCMC-add", "sigma_hat_add")
-    comb  = _m("MCMC-comb", "sigma_hat_comb")
-    named = [(k, v) for k, v in [("ols", ols), ("enet", enet), ("isd1", isd1),
-                                  ("add", add_), ("comb", comb)] if v is not None]
-    best_key = min(named, key=lambda x: x[1])[0] if named else None
-    def c(key, v):
-        fs = _fmt(v)
-        return f":best-result:`{fs}`" if key == best_key else fs
-    return (f'   "{s["label"]}", "{c("ols", ols)}", "{c("enet", enet)}", '
-            f'"{c("isd1", isd1)}", "{_fmt(isd3)}", "{c("add", add_)}", "{c("comb", comb)}"')
+# ── derived quantities ─────────────────────────────────────────────────────────
+
+def leading(d: dict) -> tuple[int, str]:
+    s = d["significance"]["significance"]
+    i = int(np.argmax(s))
+    return i, _short(d["template_names"][i])
 
 
-# ── build RST string ──────────────────────────────────────────────────────────
-lines = []
-W = lines.append
+def fwp_str(sig: dict) -> str:
+    if sig["family_wise_p"] <= sig["p_value_floor"]:
+        return f"≤ {sig['p_value_floor']:.4f}"
+    return f"{sig['family_wise_p']:.4f}"
 
-W("Results: systematic weights")
-W("===========================")
-W("")
-W("Per-galaxy systematic weights for the nine LS10 BGS volume-limited stellar-mass")
-W("threshold samples, computed by ``scripts/run_ls10_analysis.py`` with 11")
-W("observational templates (GAIA DR3 star density and photometry; LS10 imaging depth,")
-W("PSF size, and exposure count) at NSIDE 32, 64, 128, and 256.  **Use** ``WEIGHT_COMB``")
-W("(MCMC combined model) for all science analyses; ``WEIGHT_ADD`` and ``WEIGHT_OLS``")
-W("are provided as cross-checks.  See :doc:`pipeline_ls10` for how to reproduce these")
-W("results.")
-W("")
-W(".. role:: best-result")
-W("")
-W(".. contents:: On this page")
-W("   :local:")
-W("   :depth: 1")
-W("")
-W("")
-W("")
-W("Run configuration")
-W("-----------------")
-W("")
-W(".. list-table::")
-W("   :widths: 35 65")
-W("   :header-rows: 1")
-W("")
-W("   * - Parameter")
-W("     - Value")
-W("   * - Script")
-W("     - ``scripts/run_ls10_analysis.py``")
-W("   * - NSIDE")
-W("     - 32 (pixel area ≈ 3.36 deg²; 12 288 sky pixels),")
-W("       64 (≈ 0.84 deg²; 49 152 pixels),")
-W("       128 (≈ 0.21 deg²; 196 608 pixels),")
-W("       256 (≈ 0.052 deg²; 786 432 pixels)")
-W("   * - Templates")
-W("     - 11 maps at the analysis NSIDE: GAIA DR3 (nstar_faint, nstar_medium,")
-W("       phot_g/bp/rp_mean_flux) and LS10 imaging (EBV, GALDEPTH_G/R/Z, NOBS_R, PSFSIZE_R)")
-W("   * - Decontamination methods")
-W("     - OLS, ElasticNet, ISD-1, ISD-3, MCMC-add, MCMC-comb")
-W("   * - MCMC walkers / steps / burn-in")
-W("     - 210 / 1500 / 300")
-W("   * - Recommended weight column")
-W("     - ``WEIGHT_COMB`` — MCMC combined model (additive + multiplicative)")
-W("   * - Additive weight column")
-W("     - ``WEIGHT_ADD`` — MCMC additive model only")
-W("   * - OLS weight column")
-W("     - ``WEIGHT_OLS`` — ordinary least-squares regression")
-W("")
-W("")
-W("")
-W("Sample overview")
-W("---------------")
-W("")
-W("The nine BGS VLIM (volume-limited stellar mass threshold) samples span")
-W(r":math:`\log_{10}(M_*/M_\odot) \in [9.0, 11.5]` at their respective")
-W("redshift limits.")
-W("")
-W(".. csv-table::")
-W('   :header: "Sample (log M* ≥, z <)", "N\\ :sub:`gal`", "N\\ :sub:`rand`"')
-W("   :widths: 22, 14, 16")
-W("")
-for s in SAMPLES:
-    W(f'   "{s["label"]}", "{s["ngal"]}", "{s["nrand"]}"')
-W("")
-W("Goodness-of-fit comparison")
-W("~~~~~~~~~~~~~~~~~~~~~~~~~~")
-W("")
-W("The noise parameter :math:`\\hat{{\\sigma}}` measures the residual scatter of the")
-W("galaxy overdensity after subtracting the systematic model — lower is better.")
-W(f"All six methods were run at NSIDE {', '.join(str(n) for n in NSIDES)}.")
-W("The bold entry in each row is the method with the lowest :math:`\\hat{\\sigma}`")
-W("across the six methods.")
-W("")
 
-for ns in NSIDES:
-    npix = NSIDE_NPIX[ns]
-    area = NSIDE_AREA[ns]
-    W(f"**NSIDE {ns}** (pixel area ≈ {area} deg², :math:`N_{{\\rm pix}} ≈ {npix}`):")
-    W("")
-    W(".. csv-table::")
-    W('   :header: "Sample (log M* ≥, z <)", "OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"')
-    W("   :widths: 22, 8, 9, 8, 9, 9, 10")
-    W("")
-    for s in SAMPLES:
-        W(_sigma_row(s, ns))
-    W("")
+def wtheta_depth(d: dict) -> dict[str, tuple[float, float]]:
+    """Per method: the smallest corrected/observed ratio and the separation it occurs at."""
+    w = d["_wtheta"]
+    th, wo = np.asarray(w["theta_arcmin"]), np.asarray(w["w_obs"])
+    pos = wo > 0
+    out = {}
+    for m in METHODS:
+        r = np.asarray(w["all_w_corr"][m])[pos] / wo[pos]
+        k = int(np.argmin(r))
+        out[m] = (float(r[k]), float(th[pos][k]))
+    return out
 
-W("**ISD-1** and **ISD-3** fit one template at a time against its own binned density")
-W("relation, at degree 1 and 3.  The degree buys curvature in one template's value")
-W("rather than cross-products between templates, so the two differ only where the")
-W("response is non-linear; on this grid they agree to within a few per cent.")
-W("")
-W("**Key observations:**")
-W("")
-W("* **OLS and ISD-1** give nearly identical :math:`\\hat{\\sigma}` (differences")
-W("  < 0.001) at all resolutions, consistent with ISD-1 converging to the OLS")
-W("  solution for linearly contaminated data.")
-W("")
-W("* **ElasticNet** is marginally worse than OLS due to regularisation shrinkage.")
-W("  For some samples/NSIDEs, ElasticNet CV selects zero amplitudes — those")
-W("  weight distributions are flat (all weights = 1.0); this is a legitimate result.")
-W("")
-W("* **NSIDE 32 — multiplicative model overfits.**")
-W("  At NSIDE 32 (≈ 5 600 pixels), :math:`\\hat{\\sigma}_{\\rm comb} > \\hat{\\sigma}_{\\rm add}`")
-W("  for *all* nine samples.  With only ≈ 5 600 pixels and 11 multiplicative")
-W("  parameters, the combined model absorbs noise.  LRT still strongly rejects H₀.")
-W("  **Use NSIDE 64 or higher for science.**")
-W("")
-W("* **NSIDE 64** — MCMC-comb lowers :math:`\\hat{\\sigma}` relative to MCMC-add")
-W("  only for the two densest intermediate-mass samples (log M* ≥ 10.0 and 10.25,")
-W("  which have the highest LRT statistics).  For the remaining seven samples,")
-W("  :math:`\\hat{\\sigma}_{\\rm comb} > \\hat{\\sigma}_{\\rm add}`, reflecting that")
-W("  the multiplicative correction tightens the angular-clustering profile rather")
-W("  than the pixel-level residual.  **WEIGHT_COMB is still the recommended choice**")
-W("  for all samples: the LRT strongly rejects the additive-only model and the")
-W("  combined correction removes degree-scale power that WEIGHT_ADD leaves behind.")
-W("")
-W("* **NSIDE 128 and 256** — :math:`\\hat{\\sigma}` rises above its NSIDE 64 minimum")
-W("  because finer pixels contain fewer galaxies per pixel (higher Poisson noise).")
-W("  At NSIDE 128 the combined model overfits for the two sparsest samples")
-W("  (:math:`\\hat{\\sigma}_{\\rm comb} > 1` for log M* = 9.0 and 11.5).")
-W("  At NSIDE 256 overfitting extends to all sparse samples at both ends of the")
-W("  mass range (:math:`\\hat{\\sigma}_{\\rm comb} > 1` for log M* ≤ 9.5 and")
-W("  log M* ≥ 11.25).  The intermediate dense samples (log M* 10.0–11.0) remain")
-W("  below 1 at both NSIDEs.  **NSIDE 64 is the recommended analysis resolution.**")
-W("")
-W("")
-W("")
-W("Systematics are detected: Likelihood Ratio Test")
-W("-----------------------------------------------")
-W("")
-W("To decide whether multiplicative contamination is needed on top of an additive")
-W("offset, we compare two nested models with a **Likelihood Ratio Test (LRT)**:")
-W("")
-W("* :math:`H_0` — *additive only*: galaxy density fluctuations are offset by")
-W("  :math:`\\sum_i a_i\\,t_i(p)` at pixel :math:`p`, but the survey area is uniform.")
-W("* :math:`H_1` — *combined* (Berlfein et al. 2024): both additive shifts")
-W("  :math:`a_i` *and* multiplicative depth variations :math:`b_i` are present.")
-W("")
-W("The test statistic")
-W(":math:`\\lambda_{\\rm LR} = 2[\\ln\\mathcal{L}_1 - \\ln\\mathcal{L}_0]`")
-W("follows a :math:`\\chi^2(11)` distribution under :math:`H_0`.")
-W("Critical value at 5 %: :math:`\\chi^2_{11,\\,0.95} \\approx 19.7`.")
-W("")
 
-for ns in NSIDES:
-    W(f"**NSIDE {ns}:**")
-    W("")
-    W(".. csv-table::")
-    W('   :header: "Sample (log M* ≥, z <)", "λ\\ :sub:`LR`", "dof", "p-value", "Reject H\\ :sub:`0`"')
-    W("   :widths: 24, 12, 6, 20, 12")
-    W("")
-    for s in SAMPLES:
-        d = data[s["tag"]][ns]
-        lrt = d.get("lrt") or {}
-        lam = lrt.get("lambda_lr")
-        dof = lrt.get("n_dof", 11)
-        lam_str = _fmt(lam, 1) if lam is not None and not math.isnan(lam) else "—"
-        W(f'   "{s["label"]}", "{lam_str}", "{dof}", "{_pval_str(lam)}", "{_reject(lam)}"')
-    W("")
+def ratio_at(d: dict, method: str, theta: float) -> float:
+    w = d["_wtheta"]
+    th, wo = np.asarray(w["theta_arcmin"]), np.asarray(w["w_obs"])
+    k = int(np.argmin(np.abs(np.log(th / theta))))
+    return float(w["all_w_corr"][method][k] / wo[k])
 
-W("**Interpretation.**  With 11 templates (dof = 11) the LRT is highly sensitive:")
-W("**all nine samples reject :math:`H_0` at all four NSIDEs.**")
-W(":math:`\\lambda_{\\rm LR}` grows with NSIDE because finer pixels yield more")
-W("independent data points, amplifying the power of the test.  The dominant")
-W("driver in all cases is GAIA stellar-density maps.")
-W("")
-W("")
-W("")
-W("Fractional systematic uncertainty on :math:`w(\\theta)`")
-W("-------------------------------------------------------")
-W("")
-W("The table below shows the fractional correction")
-W(":math:`\\delta w/w = (w_{\\rm comb} - w_{\\rm obs})/w_{\\rm obs}`.")
-W("For the six samples with external measurements, values come from")
-W("``~/software/sum_stat/`` (TreeCorr, NSIDE = 64 weights) and are given")
-W("at :math:`\\theta = 30'` and as max and RMS over 1–200 arcmin.")
-W("For the three intermediate samples (log M* = 10.25, 10.5, 10.75),")
-W("values are derived from the sys_mapping internal :math:`w(\\theta)` (NSIDE 64,")
-W("0.6–272 arcmin range); max is over the full range and RMS over 1–200 arcmin.")
-W("")
-W(".. csv-table::")
-W('   :header: "Sample (log M* ≥)", "δw/w at 30′", "max \\|δw/w\\|", "RMS δw/w (1–200′)", "Regime"')
-W("   :widths: 18, 14, 22, 12, 34")
-W("")
-W('   "9.0",  "−7.2 %", "8.4 % (at 23′)",  "5.9 %", "Systematics-dominated at all scales"')
-W('   "9.5",  "−4.8 %", "4.9 % (at 15′)",  "3.7 %", "Systematics-dominated"')
-W('   "10.0", "−0.4 %", "2.0 % (at 120′)", "0.6 %", "Borderline (correction < noise at sub-degree)"')
-W('   "10.25","≈0 %",   "3.2 % (at 178′)", "1.0 %", "Sub-degree clean; degree-scale correction present"')
-W('   "10.5", "≈0 %",   "5.2 % (at 178′)", "1.6 %", "Sub-degree clean; degree-scale correction present"')
-W('   "10.75","≈0 %",   "8.6 % (at 178′)", "2.5 %", "Sub-degree clean; degree-scale correction significant"')
-W('   "11.0", "−0.1 %", "11.5 % (at 181′)","2.4 %", "Sub-degree OK; large-scale systematic present"')
-W('   "11.25","+2.2 %", "17.4 % (at 181′)","6.5 %", "Large-scale dominated"')
-W('   "11.5", "+0.7 %", "9.7 % (at 97′)",  "3.3 %", "Statistics-dominated"')
-W("")
-W("")
-W("")
-W("Is LS10 BGS (:math:`r < 19.5`) systematics-limited?")
-W("---------------------------------------------------")
-W("")
-W("**Low-mass samples (log** :math:`M_* < 10.0` **)** — YES, correction is essential.")
-W("The fractional correction reaches 5–8 % at :math:`\\theta \\approx 30'`.")
-W("Use ``WEIGHT_COMB`` for all analyses.")
-W("")
-W("**Intermediate samples (log** :math:`10.0 \\leq M_* < 11.0` **) at sub-degree")
-W("scales** — NO at :math:`\\theta < 30'` (:math:`\\delta w/w \\lesssim 0\\%`).")
-W("Clustering science at sub-degree scales is safe after applying ``WEIGHT_COMB``.")
-W("However, degree-scale corrections of 3–13 % are present and grow with")
-W(":math:`\\theta`; large-angle analyses **must** apply ``WEIGHT_COMB``.")
-W("")
-W("**All samples at large angles (**\\ :math:`\\theta > 2°`\\ **)** — YES.  GAIA")
-W("stellar-density maps carry degree-scale power imposing a 10–40 % fractional")
-W("correction on :math:`w(\\theta)`.  BAO, ISW, and angular dipole analyses")
-W("**must** apply ``WEIGHT_COMB`` weights.")
-W("")
-W("**Recommendation**: always use ``WEIGHT_COMB`` (NSIDE 64) for science-grade analyses.")
-W("")
-W("")
-W("")
-W("Cross-sample comparison (NSIDE 64)")
-W("----------------------------------")
-W("")
-W("Key metrics at NSIDE 64.  :math:`\\delta w/w` values at :math:`\\theta = 30'`")
-W("are from the TreeCorr HDF5 pipeline; n/a = no measurement available.")
-W("")
-W(".. csv-table::")
-W('   :header: "Sample (log M*≥, z<)", "N\\ :sub:`gal`", "N\\ :sub:`pix`", "λ\\ :sub:`LR`", "Reject H\\ :sub:`0`", "σ̂ OLS", "σ̂ MCMC-add", "σ̂ MCMC-comb", "δw/w at 30′"')
-W("   :widths: 18, 11, 9, 9, 9, 8, 11, 12, 12")
-W("")
-for s in SAMPLES:
-    d = data[s["tag"]][64]
-    lrt = d.get("lrt") or {}
-    lam = lrt.get("lambda_lr")
-    lam_str = _fmt(lam, 1) if lam is not None and not math.isnan(lam) else "—"
-    npix = d.get("n_good_pix", 0)
-    ols  = d.get("sigma_hat_ols")
-    add_ = d.get("sigma_hat_add")
-    comb = d.get("sigma_hat_comb")
-    cs_named = [(k, v) for k, v in [("ols", ols), ("add", add_), ("comb", comb)] if v is not None]
-    best_cs = min(cs_named, key=lambda x: x[1])[0] if cs_named else None
-    def cs(key, v):
-        fs = _fmt(v)
-        return f":best-result:`{fs}`" if key == best_cs else fs
-    W(f'   "{s["label"]}", "{s["ngal"]}", "{npix:,}", "{lam_str}", "{_reject(lam)}", '
-      f'"{cs("ols", ols)}", "{cs("add", add_)}", "{cs("comb", comb)}", "{s["dw30"]}"')
-W("")
-W("")
-W("")
-W("Per-sample results — all 9 samples")
-W("----------------------------------")
-W("")
-W("For each sample: weight maps and histograms at all four NSIDEs, angular clustering")
-W("w(θ) comparing observed and six corrected measurements, and a table of key numbers.")
-W("")
 
-# ── per-sample sections ────────────────────────────────────────────────────────
-for s in SAMPLES:
-    dd = {ns: data[s["tag"]][ns] for ns in NSIDES}
-    sid = s["sid"]
-    anchor = s["anchor"]
-    label_long = s["label_long"]
-    ngal = s["ngal"]
+def lrt_nside(d: dict) -> int:
+    """The likelihood-ratio grid nearest the resolution the sample is issued at."""
+    return 64 if d["nside"] >= 64 else 32
 
-    W(f".. _ls10-sample-{anchor}:")
-    W("")
-    W(label_long)
-    # Sphinx measures the underline against the title's SOURCE line, so the
-    # escapes count even though they render as one character each.
-    W("~" * len(label_long))
-    W("")
 
-    # Weight maps: 2×2 grid (NSIDE 32, 64, 128, 256)
-    wmap_srcs = [f"_static/results_ls10/{sid}_NSIDE{ns:04d}_weight_map.png" for ns in NSIDES]
-    wmap_caps = [f"NSIDE {ns} (≈{NSIDE_NPIX[ns]} pix)" for ns in NSIDES]
-    W(grid_fig_block(wmap_srcs, wmap_caps,
-                     f"Weight maps log M*≥{s['tag']}",
-                     f"Systematic weight maps — log M* ≥ {s['tag']}"))
+def recommendation(d: dict, lrt: dict[int, dict]) -> tuple[str, str]:
+    """(column, reason): contamination found by either calibrated test, and whether the
+    likelihood ratio nearest the issued resolution requires the multiplicative term."""
+    sig = d["significance"]
+    ns = lrt_nside(d)
+    l = lrt.get(ns)
+    detected = sig["family_wise_p"] <= ALPHA
+    rejects = l is not None and l["p_value"] <= ALPHA
+    if not detected and not rejects:
+        return ("WEIGHT_ISD3",
+                f"neither test finds contamination (family-wise p = {sig['family_wise_p']:.3f}"
+                + (f", NSIDE {ns} likelihood-ratio p = {l['p_value']:.3f}" if l else "")
+                + "), so a correction is expected to add more variance than it removes")
+    evidence = []
+    if detected:
+        evidence.append(f"a template is detected (family-wise p {fwp_str(sig)})")
+    if rejects:
+        evidence.append(f"the NSIDE {ns} likelihood ratio requires the multiplicative term "
+                        f"(p = {l['p_value']:.3f})")
+    reason = " and ".join(evidence)
+    if not rejects and l is not None:
+        reason += (f"; the NSIDE {ns} likelihood ratio does not require the multiplicative "
+                   f"term (p = {l['p_value']:.3f}), so WEIGHT_ADD is the simpler alternative")
+    return "WEIGHT_SYS", reason
 
-    # Weight histograms: 2×2 grid
-    whist_srcs = [f"_static/results_ls10/{sid}_NSIDE{ns:04d}_weight_hist.png" for ns in NSIDES]
-    whist_caps = [f"NSIDE {ns}" for ns in NSIDES]
-    W(grid_fig_block(whist_srcs, whist_caps,
-                     f"Weight distributions log M*≥{s['tag']}",
-                     f"Weight distributions — log M* ≥ {s['tag']}"))
 
-    # w(θ) figures: 2×2 grid
-    wtheta_srcs = [f"_static/results_ls10/{sid}_NSIDE{ns:04d}_wtheta.png" for ns in NSIDES]
-    wtheta_caps = [f"NSIDE {ns}" for ns in NSIDES]
-    W(grid_fig_block(wtheta_srcs, wtheta_caps,
-                     f"Angular clustering w(θ) log M*≥{s['tag']}",
-                     f"Angular clustering w(θ) — observed and corrected (one line per method) — log M* ≥ {s['tag']}"))
+# ── RST helpers ────────────────────────────────────────────────────────────────
 
-    # Key numbers csv-table: all 4 NSIDEs
-    lam_strs = []
-    rej_strs = []
-    for ns in NSIDES:
-        lrt_d = dd[ns].get("lrt") or {}
-        lam = lrt_d.get("lambda_lr")
-        lam_strs.append(_fmt(lam, 1) if lam is not None and not math.isnan(lam) else "—")
-        rej_strs.append(_reject(lam))
+def title(text: str, ch: str) -> list[str]:
+    return [text, ch * len(text), ""]
 
-    npix_strs = [str(dd[ns].get("n_good_pix", "—")) for ns in NSIDES]
-    ols_strs  = [_fmt(dd[ns].get("sigma_hat_ols"))  for ns in NSIDES]
-    enet_strs = [_fmt(dd[ns].get("sigma_hat_enet")) for ns in NSIDES]
-    isd1_strs = [_fmt(dd[ns].get("sigma_hat_isd1")) for ns in NSIDES]
-    isd3_strs = [_fmt(dd[ns].get("sigma_hat_isd3")) for ns in NSIDES]
-    add_strs  = [_fmt(dd[ns].get("sigma_hat_add"))  for ns in NSIDES]
-    comb_strs = [_fmt(dd[ns].get("sigma_hat_comb")) for ns in NSIDES]
-    acc_add_strs  = [f"{dd[ns].get('acceptance_fraction_add'):.3f}"  if dd[ns].get('acceptance_fraction_add')  is not None else "—" for ns in NSIDES]
-    acc_comb_strs = [f"{dd[ns].get('acceptance_fraction_comb'):.3f}" if dd[ns].get('acceptance_fraction_comb') is not None else "—" for ns in NSIDES]
-    dom_strs = [_tabbrev(_dominant_template(dd[ns])) for ns in NSIDES]
 
-    def _col4(vals):
-        return ", ".join(f'"{v}"' for v in vals)
+def csv_table(header: list[str], rows: list[list[str]], caption: str = "",
+              widths: list[int] | None = None) -> list[str]:
+    out = [f".. csv-table::{(' ' + caption) if caption else ''}",
+           "   :header: " + ", ".join(f'"{h}"' for h in header)]
+    if widths:
+        out.append("   :widths: " + ", ".join(map(str, widths)))
+    out.append("")
+    for r in rows:
+        out.append("   " + ", ".join(f'"{c}"' for c in r))
+    out.append("")
+    return out
 
-    W(f".. csv-table:: Key numbers — log M* ≥ {s['tag']}")
-    W('   :header: "Parameter", "NSIDE 32", "NSIDE 64", "NSIDE 128", "NSIDE 256"')
-    W("   :widths: 28, 15, 15, 15, 15")
-    W("")
-    W(f'   "N\\ :sub:`gal`",             "{ngal}",  "{ngal}", "{ngal}", "{ngal}"')
-    W(f'   "N\\ :sub:`pix` (good)",      {_col4(npix_strs)}')
-    lrt_combined = ", ".join(f'"{lam_strs[i]} ({rej_strs[i]})"' for i in range(len(NSIDES)))
-    W(f'   "LRT λ\\ :sub:`LR` (dof=11)", {lrt_combined}')
-    W(f'   "σ̂ OLS",                     {_col4(ols_strs)}')
-    W(f'   "σ̂ ElasticNet",               {_col4(enet_strs)}')
-    W(f'   "σ̂ ISD-1",                    {_col4(isd1_strs)}')
-    W(f'   "σ̂ ISD-3 ‡",                  {_col4(isd3_strs)}')
-    W(f'   "σ̂ MCMC-add",                 {_col4(add_strs)}')
-    W(f'   "σ̂ MCMC-comb",                {_col4(comb_strs)}')
-    W(f'   "MCMC-add acc. frac.",         {_col4(acc_add_strs)}')
-    W(f'   "MCMC-comb acc. frac.",        {_col4(acc_comb_strs)}')
-    W(f'   "Dominant template",           {_col4(dom_strs)}')
-    W(f'   "δw/w at 30′",                 "—", "{s["dw30"]}", "—", "—"')
-    W("")
-    W("ISD-3 fits the same marginal relation as ISD-1 at degree 3, so the two")
-    W("  separate only where the template response is non-linear.")
-    W("")
-    W("")
-    W(".. seealso::")
-    W("")
-    W(f"   :doc:`results_ls10_{anchor}` — full template amplitude tables, weight statistics, "
-      f"and cosmological analysis verdict for log M* ≥ {s['tag']}.")
-    W("")
 
-W("----")
-W("")
-W("Point estimates — 11-template analysis (NSIDE 64)")
-W("-------------------------------------------------")
-W("")
-W("The table below lists posterior-median point estimates from the NSIDE = 64 run (11 templates).")
-W("Column abbreviations:")
-W("")
-W(".. list-table::")
-W("   :widths: 12 35")
-W("   :header-rows: 1")
-W("")
-W("   * - Abbreviation")
-W("     - Full template name")
-W("   * - EBV")
-W("     - LS10:EBV")
-W("   * - GD_G")
-W("     - LS10:GALDEPTH_G")
-W("   * - GD_R")
-W("     - LS10:GALDEPTH_R")
-W("   * - GD_Z")
-W("     - LS10:GALDEPTH_Z")
-W("   * - NOBS_R")
-W("     - LS10:NOBS_R")
-W("   * - PSF_R")
-W("     - LS10:PSFSIZE_R")
-W("   * - ns_fnt")
-W("     - GAIA:nstar_faint")
-W("   * - ns_med")
-W("     - GAIA:nstar_medium")
-W("   * - bp_fl")
-W("     - GAIA:phot_bp_mean_flux")
-W("   * - g_fl")
-W("     - GAIA:phot_g_mean_flux")
-W("   * - rp_fl")
-W("     - GAIA:phot_rp_mean_flux")
-W("")
-W("The dominant systematic in all samples is **GAIA:nstar_faint** (stellar density).")
-W("")
-W("Additive point estimates :math:`\\hat{a}_i` (MCMC-add, NSIDE 64)")
-W("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-W("")
-W(".. csv-table::")
-W('   :header: "Sample (log M* ≥, z <)", "EBV", "GD_G", "GD_R", "GD_Z", "NOBS_R", "PSF_R", "ns_fnt", "ns_med", "bp_fl", "g_fl", "rp_fl"')
-W("   :widths: 14, 7, 7, 7, 7, 7, 7, 8, 8, 7, 7, 7")
-W("   :stub-columns: 1")
-W("")
-for s in SAMPLES:
-    d64 = data[s["tag"]][64]
-    ahat = d64.get("a_hat_add", [])
-    if ahat and len(ahat) == 11:
-        vals = [f"{v:+.4f}" for v in ahat]
-        W(f'   "{s["label"]}", ' + ", ".join(vals))
-    else:
-        W(f'   "{s["label"]}", —, —, —, —, —, —, —, —, —, —, —')
-W("")
-W("Multiplicative point estimates :math:`\\hat{b}_i` (MCMC-comb, NSIDE 64)")
-W("~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~")
-W("")
-W(".. csv-table::")
-W('   :header: "Sample (log M* ≥, z <)", "EBV", "GD_G", "GD_R", "GD_Z", "NOBS_R", "PSF_R", "ns_fnt", "ns_med", "bp_fl", "g_fl", "rp_fl"')
-W("   :widths: 14, 7, 7, 7, 7, 7, 7, 8, 8, 7, 7, 7")
-W("   :stub-columns: 1")
-W("")
-for s in SAMPLES:
-    d64 = data[s["tag"]][64]
-    bhat = d64.get("b_hat_comb", [])
-    if bhat and len(bhat) == 11:
-        vals = [f"{v:+.4f}" for v in bhat]
-        W(f'   "{s["label"]}", ' + ", ".join(vals))
-    else:
-        W(f'   "{s["label"]}", —, —, —, —, —, —, —, —, —, —, —')
-W("")
-W("**Key pattern**: ``GAIA:nstar_faint`` (ns_fnt) carries the largest amplitude")
-W("in nearly every sample.  The anti-correlated ``GAIA:nstar_medium`` (ns_med)")
-W("reflects stellar colour selection at moderate magnitudes.  LS10:GALDEPTH_R")
-W("captures imaging-depth variations in the :math:`r` band.")
-W("")
-W("")
-W("")
-W("Outcome")
-W("-------")
-W("")
-W("The systematic decontamination analysis of LS10 BGS VLIM (:math:`r < 19.5`)")
-W("yields a clear conclusion:")
-W("")
-W("* **Systematics are present and detectable.**  The LRT rejects the additive")
-W("  null for **all nine samples** at **all four NSIDEs** (dof = 11,")
-W("  :math:`\\chi^2_{11,\\,0.95} \\approx 19.7`).  The dominant")
-W("  source is GAIA stellar density (nstar_faint).")
-W("")
-W("* **Sub-degree clustering is safe after correction.**  At :math:`\\theta < 30'`,")
-W("  the fractional correction is :math:`\\delta w/w < 2\\%` for log M* ≥ 10.0.")
-W("")
-W("* **Large-angle clustering requires the correction.**  At :math:`\\theta > 2°`,")
-W("  stellar contamination contributes 10–40 % to :math:`w(\\theta)`.")
-W("")
-W("* **Use NSIDE 64 weights** for all science.  NSIDE 32 overfits the multiplicative")
-W("  model (too few pixels).  NSIDE 128/256 add noise without improving the fit.")
-W("")
-W("* **Recommended weight**: ``WEIGHT_COMB`` (NSIDE 64) for all science.")
-W("")
+def figure(src: str, width: str, caption: str) -> list[str]:
+    return [f".. figure:: /{src}", f"   :width: {width}", "", f"   {caption}", ""]
 
-rst = "\n".join(lines)
-with open(OUT, "w") as f:
-    f.write(rst)
 
-print(f"Wrote {OUT}  ({len(lines)} lines)")
+# ── pages ──────────────────────────────────────────────────────────────────────
+
+def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dict]) -> str:
+    L: list[str] = []
+    L += title("Results: systematic weights", "=")
+    L += ["Per-galaxy systematic weights for the nine LS10 BGS volume-limited stellar-mass",
+          "threshold samples, computed by ``scripts/run_ls10_analysis.py`` with 11 templates",
+          "(Gaia DR3 star counts and fluxes; LS10 extinction, depth, exposure count and PSF",
+          "size). Each sample is issued at the finest NSIDE whose mean occupancy reaches 25",
+          "galaxies per pixel. :doc:`results_ls10_recommendations` gives the column to use per",
+          "sample, and :doc:`pipeline_ls10` how to reproduce the products.", "",
+          ".. contents:: On this page", "   :local:", "   :depth: 1", ""]
+
+    L += title("Issued products", "-")
+    have_w = all(d["_weights"] for d in issued)
+    header = ["log M* ≥", "z <", "N gal", "NSIDE", "N pix", "galaxies / pixel"]
+    if have_w:
+        header += ["WEIGHT_SYS 1–99 %", "clipped"]
+    rows = []
+    for d in issued:
+        r = [_mstar(d["sample_id"]), _zmax(d["sample_id"]), f"{d['n_galaxies']:,}",
+             str(d["nside"]), f"{d['n_good_pix']:,}", f"{d['n_galaxies'] / d['n_good_pix']:.1f}"]
+        if have_w:
+            s = d["_weights"]["SYS"]
+            r += [f"{s['p1']:.3f}–{s['p99']:.3f}", f"{100 * s['clip']:.3f} %"]
+        rows.append(r)
+    L += csv_table(header, rows)
+    if have_w:
+        vers = sorted({str(d["_weights"]["WEIGHTVER"]) for d in issued})
+        basis = sorted({str(d["_weights"]["TPLBASIS"]) for d in issued})
+        L += [f"Every file records ``WEIGHTVER`` = {', '.join(vers)} and ``TPLBASIS`` = "
+              f"``{', '.join(basis)}``. *Clipped* is the fraction of galaxies at the weight clip "
+              f"[1/20, 20].", ""]
+    L += ["The two-point correction uses the full cross-template matrix",
+          r":math:`\xi_{ij}(\theta)`, measured from the template values the galaxies carry.", ""]
+
+    L += title("Detection of systematics", "-")
+    L += ["Each template amplitude is scored against its scatter over uncontaminated GLASS",
+          "realisations drawn with the sample's matched spectrum",
+          "(``sys_mapping.calibrated_template_significance``). The family-wise p compares the",
+          "largest significance over the templates with the largest of each realisation, and",
+          "is bounded below by 1/(N+1). κ is the calibrated error over the independent-pixel",
+          "error.", ""]
+    rows = []
+    for d in issued:
+        sig = d["significance"]
+        i, name = leading(d)
+        infl = np.asarray(sig["inflation"])
+        rows.append([_mstar(d["sample_id"]), str(d["nside"]), name,
+                     f"{sig['significance'][i]:.2f}", f"{sig['significance'][i] * infl[i]:.2f}",
+                     fwp_str(sig), f"{np.median(infl):.1f}", f"{infl.min():.1f}–{infl.max():.1f}",
+                     str(sig["n_null"])])
+    L += csv_table(["log M* ≥", "NSIDE", "leading template", "S cal", "S iid", "family-wise p",
+                    "κ median", "κ range", "N"], rows)
+
+    L += title("Additive or combined model: likelihood ratio", "-")
+    L += ["Both models are refined to their likelihood maxima, and the statistic is ranked",
+          "against 50 uncontaminated realisations of the sample's matched spectrum fitted the",
+          "same way. The Wilks p assumes independent pixels and is shown for contrast.", ""]
+    rows = []
+    for ns in LRT_NSIDES:
+        for d in issued:
+            l = lrts[d["sample_id"]].get(ns)
+            if l is None:
+                continue
+            nl = np.asarray(l.get("null_lambda") or [np.nan])
+            rows.append([_mstar(d["sample_id"]), str(ns), f"{l['lambda_lr']:.1f}",
+                         f"{l['p_chi2']:.1e}", f"{l['p_value']:.3f}",
+                         f"{np.nanmin(nl):.1f} / {l['null_lambda_mean']:.1f} / {l['null_lambda_max']:.1f}",
+                         "**yes**" if l["p_value"] <= ALPHA else "no"])
+    L += csv_table(["log M* ≥", "NSIDE", "λ LR", "Wilks p", "mock p", "null min / mean / max",
+                    "rejects additive"], rows)
+    L += ["The likelihood-ratio grids use templates standardised over each map's own valid",
+          "region rather than over the footprint; on the footprint basis the NSIDE 64 statistic",
+          "changes by a median of 0.7 %.", ""]
+
+    L += title("Corrected angular correlation function", "-")
+    L += figure("_static/results_ls10/wtheta_ratio_occupancy.png", "95%",
+                "Corrected over observed w(θ), each sample at its issued resolution.")
+    rows = []
+    for d in issued:
+        depth = wtheta_depth(d)
+        rows.append([_mstar(d["sample_id"]), str(d["nside"]),
+                     f"{ratio_at(d, 'MCMC-comb', THETA_REF):.3f}"]
+                    + [f"{depth[m][0]:.3f} ({depth[m][1]:.0f}′)" for m in METHODS])
+    L += csv_table(["log M* ≥", "NSIDE", "MCMC-comb at 30′"]
+                   + [f"{m} min" for m in METHODS], rows)
+    L += ["*min* is the smallest corrected/observed ratio over the 30 bins and the separation",
+          "it occurs at.", ""]
+
+    L += title("Resolution comparison", "-")
+    L += ["The same fits at NSIDE 32, 64 and 128. Coarser pixels hold more galaxies, so",
+          r":math:`\hat\sigma` tracks shot noise and does not select a resolution.", ""]
+    for key, label in (("MCMC-add", "additive"), ("MCMC-comb", "combined")):
+        rows = []
+        for d in issued:
+            g = grids[d["sample_id"]]
+            rows.append([_mstar(d["sample_id"])]
+                        + [f"{g[ns]['methods'][key]['sigma_hat']:.4f}" if ns in g else "—"
+                           for ns in GRID_NSIDES])
+        L += csv_table(["log M* ≥"] + [f"NSIDE {ns}" for ns in GRID_NSIDES], rows,
+                       caption=rf"Residual scatter :math:`\hat\sigma` of the {label} model.")
+
+    L += title("Per-sample pages", "-")
+    L += [f"* :doc:`results_ls10_{_anchor(_mstar(d['sample_id']))}`" for d in issued] + [""]
+    return "\n".join(L)
+
+
+def recommendations_page(issued: list[dict], lrts: dict[str, dict]) -> str:
+    L: list[str] = [".. _ls10-recommendations:", ""]
+    L += title("LS10 systematic-correction recommendations", "=")
+    L += ["The weight column to use per sample, from two tests on the issued products: whether",
+          "any template is detected by the calibrated significance, and whether the",
+          "mock-calibrated likelihood ratio on the grid nearest the issued resolution (NSIDE 32",
+          f"below NSIDE 64, NSIDE 64 otherwise) requires the multiplicative term. Both at",
+          f"α = {ALPHA}.", ""]
+    rows = []
+    for d in issued:
+        col, reason = recommendation(d, lrts[d["sample_id"]])
+        ns = lrt_nside(d)
+        l = lrts[d["sample_id"]].get(ns)
+        rows.append([_mstar(d["sample_id"]), str(d["nside"]), fwp_str(d["significance"]),
+                     f"{l['p_value']:.3f} (NSIDE {ns})" if l else "—", f"``{col}``", reason])
+    L += csv_table(["log M* ≥", "NSIDE", "family-wise p", "likelihood-ratio p", "column",
+                    "reason"], rows, widths=[8, 7, 11, 13, 13, 48])
+    L += ["``WEIGHT_SYS`` is ``WEIGHT_COMB``, the combined additive and multiplicative model.",
+          "``WEIGHT_ISD3`` is recommended only where neither test finds contamination, following",
+          "the break-even condition measured on :doc:`results_algorithm_characterisation`.", ""]
+    return "\n".join(L)
+
+
+def sample_page(d: dict, lrt: dict[int, dict], grid: dict[int, dict]) -> str:
+    ms, sid = _mstar(d["sample_id"]), d["sample_id"]
+    anchor, ns = _anchor(ms), d["nside"]
+    sig = d["significance"]
+    names = [_short(n) for n in d["template_names"]]
+    i, lead = leading(d)
+    col, reason = recommendation(d, lrt)
+    L: list[str] = [f".. _sample-{anchor}:", ""]
+    L += title(f"BGS VLIM log M* ≥ {ms}, z < {_zmax(sid)}", "=")
+    L += [f"{d['n_galaxies']:,} galaxies, issued at NSIDE {ns} "
+          f"({d['n_galaxies'] / d['n_good_pix']:.1f} galaxies per pixel over "
+          f"{d['n_good_pix']:,} pixels). Leading template: ``{lead}`` at "
+          f"{sig['significance'][i]:.2f} calibrated, family-wise p {fwp_str(sig)}. "
+          f"Recommended column: ``{col}``; {reason}.", "",
+          ".. contents:: On this page", "   :local:", "   :depth: 1", "",
+          ".. seealso::", "", "   :doc:`results_ls10` — all nine samples.", ""]
+
+    L += title("Template significance", "-")
+    infl = np.asarray(sig["inflation"])
+    rows = [[names[k], f"{sig['significance'][k]:.2f}",
+             f"{sig['significance'][k] * infl[k]:.2f}", f"{sig['p_values'][k]:.4f}",
+             f"{infl[k]:.2f}"] for k in np.argsort(sig["significance"])[::-1]]
+    L += csv_table(["template", "S cal", "S iid", "p", "κ"], rows)
+    L += [f"Calibrated on {sig['n_null']} realisations; p is per template, with floor "
+          f"{sig['p_value_floor']:.4f}.", ""]
+
+    L += title(f"Fitted amplitudes (NSIDE {ns})", "-")
+    rows = []
+    for k, n in enumerate(names):
+        rows.append([n] + [f"{d['methods'][m]['a_hat'][k]:+.4f}" for m in METHODS]
+                    + [f"{d['methods']['MCMC-comb']['b_hat'][k]:+.4f}"])
+    L += csv_table(["template"] + [f"a {m}" for m in METHODS] + ["b MCMC-comb"], rows)
+    L += ["Amplitudes are per unit template standard deviation on the footprint.", ""]
+
+    if d["_weights"]:
+        L += title("Weights", "-")
+        rows = []
+        for m in METHODS:
+            s = d["_weights"].get(m)
+            if s:
+                rows.append([COLUMN[m], f"{s['min']:.3f}", f"{s['max']:.3f}", f"{s['p1']:.3f}",
+                             f"{s['p99']:.3f}", f"{100 * s['clip']:.3f} %",
+                             "yes" if s["unity"] else "no"])
+        L += csv_table(["column", "min", "max", "1 %", "99 %", "clipped", "identically 1"], rows)
+    L += figure(f"_static/results_ls10/issued/{d['_stem']}_weight_map.png", "95%",
+                f"Weight maps at NSIDE {ns}, one panel per method.")
+    L += figure(f"_static/results_ls10/issued/{d['_stem']}_weight_hist.png", "70%",
+                "Weight distributions.")
+
+    L += title("Angular correlation function", "-")
+    L += figure(f"_static/results_ls10/issued/{d['_stem']}_wtheta.png", "80%",
+                "Observed and corrected w(θ), full cross-template correction.")
+    depth = wtheta_depth(d)
+    L += csv_table(["method", "at 30′", "smallest ratio", "at θ"],
+                   [[m, f"{ratio_at(d, m, THETA_REF):.3f}", f"{depth[m][0]:.3f}",
+                     f"{depth[m][1]:.0f}′"] for m in METHODS],
+                   caption="Corrected over observed w(θ).")
+
+    if lrt:
+        L += title("Likelihood ratio", "-")
+        rows = [[str(n), f"{l['lambda_lr']:.1f}", f"{l['p_value']:.3f}",
+                 f"{l['null_lambda_mean']:.1f} / {l['null_lambda_max']:.1f}", str(l["n_null"])]
+                for n, l in sorted(lrt.items())]
+        L += csv_table(["NSIDE", "λ LR", "mock p", "null mean / max", "N"], rows)
+
+    if grid:
+        L += title("Resolution comparison", "-")
+        rows = [[m] + [f"{grid[n]['methods'][m]['sigma_hat']:.4f}" if n in grid else "—"
+                       for n in GRID_NSIDES] for m in METHODS]
+        L += csv_table(["method"] + [f"NSIDE {n}" for n in GRID_NSIDES], rows,
+                       caption=r"Residual scatter :math:`\hat\sigma`.")
+    return "\n".join(L)
+
+
+def main() -> None:
+    issued = load_issued()
+    if len(issued) != 9:
+        raise SystemExit(f"expected 9 issued products under {ISSUED}, found {len(issued)}")
+    lrts = {d["sample_id"]: load_lrt(d["sample_id"]) for d in issued}
+    grids = {d["sample_id"]: load_grid(d["sample_id"]) for d in issued}
+
+    FIG.mkdir(parents=True, exist_ok=True)
+    for d in issued:
+        for kind in ("weight_map", "weight_hist", "wtheta"):
+            src = ISSUED / f"{d['_stem']}_{kind}.png"
+            if src.exists():
+                shutil.copy2(src, FIG / src.name)
+
+    (DOCS / "results_ls10.rst").write_text(summary_page(issued, lrts, grids))
+    (DOCS / "results_ls10_recommendations.rst").write_text(recommendations_page(issued, lrts))
+    for d in issued:
+        anchor = _anchor(_mstar(d["sample_id"]))
+        (DOCS / f"results_ls10_{anchor}.rst").write_text(
+            sample_page(d, lrts[d["sample_id"]], grids[d["sample_id"]]))
+    print(f"wrote results_ls10.rst, results_ls10_recommendations.rst and {len(issued)} sample pages")
+
+
+if __name__ == "__main__":
+    main()

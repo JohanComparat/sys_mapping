@@ -56,8 +56,8 @@ Rules of thumb
   the correlation of the clustered field between pixels. Against 400
   uncontaminated GLASS realisations carrying each sample's own matched spectrum,
   the scatter of the amplitude divided by the iid error has a median over
-  templates of 1.8 to 3.1 per sample, rising with resolution
-  (NSIDE 16: 1.9; NSIDE 32: 1.8; NSIDE 64: 1.8 to 2.4; NSIDE 128: 2.9 to 3.1). Single templates span 0.9 to 7.7. No single
+  templates of 1.3 to 2.9 per sample, rising with resolution
+  (NSIDE 16: 1.3; NSIDE 32: 1.8; NSIDE 64: 1.8 to 2.4; NSIDE 128: 2.5 to 2.9). Single templates span 0.9 to 5.6. No single
   factor converts an iid SNR; ``sys_mapping.calibrated_template_significance``
   measures it per template.
 * **The maximum over templates needs its own null.** A search over
@@ -81,7 +81,7 @@ is **LS10_GALDEPTH_R** at iid SNR 6.8.
 
 Occupancy puts this sample at NSIDE 128 (mean 32.5 galaxies per
 pixel against a floor of 25). There the leading template is **GAIA_phot_rp_mean_flux** at a
-calibrated 4.48\ :math:`\sigma` (iid 4.2, inflation 0.93),
+calibrated 4.19\ :math:`\sigma` (iid 4.2, inflation 0.99),
 family-wise :math:`p` ≤ 0.0025 from 400 realisations. It traces the Gaia
 stellar density, the known LS10 BGS systematic.
 

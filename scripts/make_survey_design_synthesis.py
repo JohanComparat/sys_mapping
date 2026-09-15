@@ -487,8 +487,8 @@ Generalised rules of thumb
    collinear templates (cond :math:`\sim10^8` for the LS10 basis) are not
    identifiable. Calibrate per-template significance on matched mocks
    (``sys_mapping.calibrated_template_significance``): on LS10 the iid error is
-   short by a median factor of 1.8 to 3.1 per sample, rising with resolution,
-   and by 0.9 to 7.7 for single templates.
+   short by a median factor of 1.3 to 2.9 per sample, rising with resolution,
+   and by 0.9 to 5.6 for single templates.
 #. **Use the field regression, not** :math:`w(\theta)`, **to detect:** the
    :math:`w(\theta)` contamination signal grows as :math:`A^2` while the linear
    field regression grows as :math:`A`, so the field regression detects far

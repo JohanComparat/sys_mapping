@@ -17,7 +17,7 @@ tutorial see :doc:`quickstart`.  Results are documented in :doc:`results_ls10`.
    ``--template-dir`` is omitted.  Always pass ``--template-dir`` pointing to
    the real GAIA + LS10 FITS maps to get scientifically meaningful results::
 
-      --template-dir ~/data/legacysurvey/dr10/systematics
+      --template-dir ~/data/legacysurvey/dr10/systematics/0128
 
 ----
 
@@ -79,101 +79,87 @@ Nine volume-limited stellar-mass threshold samples spanning
 Systematic templates
 ~~~~~~~~~~~~~~~~~~~~
 
-44 HEALPix maps at NSIDE ∈ {32, 64, 128, 256} from Legacy Survey imaging
-metadata and GAIA DR3 stellar catalogues.  Templates are standardised to
-zero mean and unit variance over the survey footprint before fitting.
+Eleven HEALPix maps from Legacy Survey imaging metadata and Gaia DR3, stored once per
+resolution under ``systematics/<NSIDE>/`` (NSIDE 32, 64, 128 and 256).  Pass the
+NSIDE 128 directory; the script downgrades the maps to each sample's resolution and
+standardises them to zero mean and unit variance over that sample's footprint.
 
 .. list-table::
    :header-rows: 1
-   :widths: 22 16 62
+   :widths: 30 16 54
 
-   * - Template family
+   * - Template
      - Source
      - Physical quantity
-   * - ``LS10:EBV``
+   * - ``LS10_EBV``
      - SFD98
      - Galactic dust extinction :math:`E(B-V)`
-   * - ``LS10:GALDEPTH_{G,R,Z}``
+   * - ``LS10_GALDEPTH_{G,R,Z}``
      - LS10 imaging
-     - 5σ galaxy detection depth (per band)
-   * - ``LS10:PSFSIZE_{G,R,Z}``
+     - 5σ galaxy detection depth per band
+   * - ``LS10_NOBS_R``
      - LS10 imaging
-     - PSF FWHM (per band)
-   * - ``LS10:NOBS_{G,R,Z}``
+     - Number of :math:`r`-band exposures
+   * - ``LS10_PSFSIZE_R``
      - LS10 imaging
-     - Number of exposures (per band)
-   * - ``GAIA:nstar_faint/medium``
-     - GAIA DR3
-     - Surface density of faint / medium stars
-   * - ``GAIA:phot_{g,bp,rp}_mean_flux``
-     - GAIA DR3
-     - Mean stellar flux (per photometric band)
-
-Each family appears at all four NSIDE values, giving 44 maps in total.
-The dominant systematic in LS10 BGS is stellar density
-(``GAIA:nstar_faint``), which correlates with galaxy counts at the
-5–70 % per-pixel level depending on mass threshold.
-
-Representative figures for all nine samples are in :doc:`results_ls10`.
+     - :math:`r`-band PSF FWHM
+   * - ``GAIA_nstar_{faint,medium}``
+     - Gaia DR3
+     - Surface density of faint and medium stars
+   * - ``GAIA_phot_{g,bp,rp}_mean_flux``
+     - Gaia DR3
+     - Mean stellar flux per band
 
 ----
 
 Running the pipeline
 --------------------
 
-Full run with real templates (recommended)
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The issued products
+~~~~~~~~~~~~~~~~~~~
 
-.. code-block:: bash
-
-   conda activate sys_map
-   python scripts/run_ls10_analysis.py \
-       --catalog-dir ~/data/legacysurvey/dr10/sweep/BGS_VLIM_Mstar \
-       --template-dir ~/data/legacysurvey/dr10/systematics \
-       --nside 64 \
-       --n-walkers 210 --n-steps 1500 --n-burn 300 \
-       --output-dir data/sys_weights/ \
-       --force \
-       2>&1 | tee logs/ls10_run.log
-
-**Runtime**: OLS/ElasticNet/ISD run in seconds–minutes per sample. The MCMC
-stage depends on ``--sampler`` (default ``auto``, since v1.1.0):
-
-- ``auto`` / ``analytic`` / ``nuts`` — ``MCMC-add`` uses an exact analytic
-  Normal-Inverse-Gamma posterior: **milliseconds** after JIT warmup (vs tens of
-  seconds for emcee), and exact rather than Monte-Carlo. ``MCMC-comb`` uses
-  gradient-based BlackJAX NUTS (whole chain under ``lax.scan``, multi-chain via
-  ``vmap``): the samples are near-independent (``ess`` ≈ ``n_samples``), so far
-  fewer are needed than emcee for equivalent precision. At large ``N_pix`` each
-  gradient step is costly, so NUTS wall-time is *competitive* with emcee while
-  delivering much higher effective sample size and ``rhat`` / ``ess`` /
-  ``num_divergences`` diagnostics. Tune with ``--n-chains`` / ``--nuts-samples``.
-- ``emcee`` — the legacy gradient-free sampler; ``MCMC-add`` and ``MCMC-comb``
-  take 30–90 minutes per sample on CPU. Retained as the validation baseline.
-
-Use ``--only-methods MCMC-comb`` to run only the combined model, and
-``--n-chains`` / ``--nuts-warmup`` / ``--nuts-samples`` to tune NUTS.
-
-Regenerate figures without re-running MCMC
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Each sample is analysed at the finest NSIDE, up to 128, at which its mean footprint
+occupancy reaches 25 galaxies per pixel.  Every calibrated statistic draws its null
+from the sample's matched GLASS spectrum; the script refuses to build a null without
+one unless ``--allow-parametric-null`` is given.
 
 .. code-block:: bash
 
    python scripts/run_ls10_analysis.py \
        --catalog-dir ~/data/legacysurvey/dr10/sweep/BGS_VLIM_Mstar \
-       --template-dir ~/data/legacysurvey/dr10/systematics \
-       --figures-only \
-       --output-dir data/sys_weights/
+       --sample LS10_VLIM_ANY_10.0_Mstar_12.0_0.05_z_0.18_N_2759238 \
+       --template-dir ~/data/legacysurvey/dr10/systematics/0128 \
+       --nside 128 --min-per-pixel 25 \
+       --null-cl-file <sys_mapping_benchmark>/matched_spectra \
+       --isd-n-mocks 30 --significance-n-mocks 400 \
+       --sampler auto --no-rst \
+       --output-dir data/sys_weights_auto/
 
-This reloads the saved ``*_params.json`` files, redraws all figures, and copies
-them to ``docs/_static/results_ls10/``.
+``--nside`` is the finest resolution tried; ``--min-per-pixel`` halves it until the
+occupancy floor is met, and the chosen NSIDE is written into every output file name.
+Without ``--min-per-pixel`` the sample is analysed at ``--nside`` as given.
+
+The matched spectra are produced and validated by
+``characterisation/match_glass_to_data.py`` in the ``sys_mapping_benchmark``
+repository, one ``*_match.json`` per sample and resolution.  ``load_matched_cl`` uses
+the file at the requested resolution when it passed validation, otherwise the validated
+file nearest at or above it, otherwise the finest below.
+
+The additive-versus-combined likelihood ratio is calibrated with ``--lrt-null-mocks``
+(50 in the published grid); each realisation is a full additive and combined fit, so
+this is a cluster job.
+
+**Runtime.** OLS, ElasticNet and ISD take seconds to minutes per sample.  With
+``--sampler auto``, ``MCMC-add`` uses the exact Normal-Inverse-Gamma posterior
+(milliseconds) and ``MCMC-comb`` uses BlackJAX NUTS, about six hours at NSIDE 128 on
+eight cores.  The 400 significance realisations take about ten minutes at NSIDE 128.
 
 Key command-line options
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. list-table::
    :header-rows: 1
-   :widths: 28 18 54
+   :widths: 30 18 52
 
    * - Flag
      - Default
@@ -181,54 +167,66 @@ Key command-line options
    * - ``--catalog-dir``
      - *(required)*
      - Directory containing ``*_DATA.fits`` / ``*_RAND.fits`` pairs
+   * - ``--sample``
+     - all
+     - One sample, named without the ``_DATA.fits`` suffix
    * - ``--template-dir``
-     - *(none — synthetic)*
-     - Directory of real HEALPix FITS maps; **required for real results**
+     - *(none: synthetic)*
+     - Directory of HEALPix FITS maps; required for real results
    * - ``--nside``
      - 64
-     - HEALPix resolution
-   * - ``--n-walkers``
-     - 210
-     - emcee walkers per MCMC run
-   * - ``--n-steps``
-     - 1500
-     - MCMC steps after burn-in
-   * - ``--n-burn``
-     - 300
-     - MCMC burn-in steps
+     - Resolution, or the finest tried with ``--min-per-pixel``
+   * - ``--min-per-pixel``
+     - off
+     - Occupancy floor that chooses the resolution per sample
+   * - ``--null-cl-file``
+     - *(none)*
+     - Matched spectrum file or directory for every GLASS null
+   * - ``--significance-n-mocks``
+     - 0
+     - Realisations for the calibrated template significance
+   * - ``--isd-n-mocks``
+     - 30
+     - Realisations calibrating the ISD threshold
+   * - ``--lrt-null-mocks``
+     - 0
+     - Realisations for the mock-calibrated likelihood ratio
+   * - ``--sampler``
+     - ``auto``
+     - ``analytic`` for MCMC-add, ``nuts`` for MCMC-comb
    * - ``--only-methods``
      - all
      - Restrict to a subset, e.g. ``OLS ElasticNet``
+   * - ``--ct-auto-only``
+     - off
+     - Drop the cross-template terms of the two-point correction
+   * - ``--figures-only``
+     - off
+     - Redraw figures from saved JSON without refitting
    * - ``--force``
      - off
      - Re-run even if output JSON already exists
-   * - ``--figures-only``
-     - off
-     - Regenerate figures from saved JSON without MCMC
    * - ``--output-dir``
      - ``data/sys_weights/``
-     - Root output directory
+     - Output directory
 
 ----
 
 Output files
 ------------
 
-All results are written to ``--output-dir`` (default ``data/sys_weights/``).
-Figures are copied to ``docs/_static/results_ls10/``.
-
 ::
 
-   data/sys_weights/
-   ├── <sample_id>_NSIDE0064_WEIGHTS.fits          # per-galaxy weights, all methods
-   ├── <sample_id>_NSIDE0064_params.json           # MCMC amplitudes, LRT, σ_hat
-   ├── <sample_id>_NSIDE0064_partial_OLS.json      # partial results per method
-   ├── <sample_id>_NSIDE0064_weight_map.png        # 2×3 Mollweide weight maps
-   ├── <sample_id>_NSIDE0064_weight_hist.png       # log-scale weight distributions
-   ├── <sample_id>_NSIDE0064_wtheta.png            # w(θ) before/after correction
-   └── summary_NSIDE0064.yaml                      # cross-sample YAML summary
+   data/sys_weights_auto/
+   ├── <sample_id>_NSIDE<nside>_WEIGHTS.fits       # per-galaxy weights, all methods
+   ├── <sample_id>_NSIDE<nside>_params.json        # amplitudes, significance, LRT, σ̂
+   ├── <sample_id>_NSIDE<nside>_wtheta_data.json   # observed and corrected w(θ)
+   ├── <sample_id>_NSIDE<nside>_weight_map.png     # Mollweide weight maps
+   ├── <sample_id>_NSIDE<nside>_weight_hist.png    # weight distributions
+   └── <sample_id>_NSIDE<nside>_wtheta.png         # w(θ) before and after correction
 
-The FITS weight table contains one column per method plus ``WEIGHT_SYS``:
+The FITS header records ``WEIGHTVER`` (3), ``TPLBASIS`` (``footprint``), ``WEIGHTCON``
+and ``WMAXCLIP``.  The table holds one column per method plus ``WEIGHT_SYS``:
 
 .. list-table::
    :header-rows: 1
@@ -237,34 +235,31 @@ The FITS weight table contains one column per method plus ``WEIGHT_SYS``:
    * - Column
      - Description
    * - ``WEIGHT_OLS``
-     - OLS additive correction weights
+     - OLS additive correction
    * - ``WEIGHT_ENET``
-     - ElasticNet additive correction weights
+     - ElasticNet additive correction
    * - ``WEIGHT_ISD1``
-     - ISD (order 1) additive correction weights
+     - ISD, degree 1
    * - ``WEIGHT_ISD3``
-     - ISD (order 3) additive correction weights
+     - ISD, degree 3
    * - ``WEIGHT_ADD``
-     - MCMC-additive correction weights
+     - MCMC additive model
    * - ``WEIGHT_COMB``
-     - MCMC-combined (additive + multiplicative) weights
+     - MCMC combined (additive and multiplicative) model
    * - ``WEIGHT_SYS``
-     - Alias for ``WEIGHT_COMB`` — **recommended default**
+     - Alias for ``WEIGHT_COMB``
 
-After the run, rebuild the HTML documentation::
+Documentation pages
+~~~~~~~~~~~~~~~~~~~
 
+.. code-block:: bash
+
+   python scripts/generate_results_ls10_summary.py     # results pages
+   python scripts/plot_ls10_occupancy_products.py      # corrected w(θ) figure
+   python scripts/analyze_detectability_law.py         # detectability page
    make -C docs html
-
-.. note::
-
-   **:math:`w(\theta)` figure** — ``wtheta_corrected_nside64.png`` is produced by
-   ``scripts/plot_ls10_wtheta_corrected.py`` using the analytical correction
-   (Eq. 15–16) from ``data/sys_weights/*_wtheta_data.json``.  It shows all 6
-   decontamination methods across all 9 samples.  To regenerate after a new run::
-
-      python scripts/plot_ls10_wtheta_corrected.py
 
 .. seealso::
 
-   :doc:`results_ls10` — per-sample results tables, LRT statistics, and
-   fractional systematic uncertainty on :math:`w(\theta)`.
+   :doc:`results_ls10` for the issued products and
+   :doc:`results_ls10_recommendations` for the column to use per sample.

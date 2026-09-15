@@ -7,8 +7,8 @@ The pixel Gaussian likelihood (:mod:`sys_mapping.likelihood`) assumes **independ
 (:math:`\sigma^2 I`). On a spatially-correlated galaxy field that underestimates the parameter
 errors, because smooth systematic templates project onto the correlated field with far more
 variance than white noise predicts. On the nine LS10 samples, against realisations carrying each
-sample's matched spectrum, the OLS σ is short by a median factor of 1.8 to 3.1 per sample, rising
-with resolution, and by up to 7.7 for a single template. This module supplies the calibrated alternatives.
+sample's matched spectrum, the OLS σ is short by a median factor of 1.3 to 2.9 per sample, rising
+with resolution, and by up to 5.6 for a single template. This module supplies the calibrated alternatives.
 
 * :func:`~sys_mapping.covariance.mock_sandwich_covariance` — the **additive** parameter covariance
   :math:`(TT^\top)^{-1}(TCT^\top)(TT^\top)^{-1}`, with :math:`C` estimated from an ensemble of
