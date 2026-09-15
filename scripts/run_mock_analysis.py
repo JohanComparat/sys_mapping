@@ -9,6 +9,12 @@ compute_sys_weights.py and measures:
 Each mock is expected to be a FITS file with columns RA, DEC, and optionally
 A_TRUE_i / B_TRUE_i (injected contamination parameters) for recovery tests.
 
+All six methods run through ``sm.run_decontamination``: MCMC-add is the exact
+analytic posterior and MCMC-comb BlackJAX NUTS (``sampler="auto"``).  The
+likelihood ratio is taken between the additive and combined maxima.  In
+synthetic mode the ISD stopping rule is calibrated per template and polynomial
+order on uncontaminated mocks from the same generator.
+
 Usage
 -----
 # Single mock (quick test)
@@ -28,6 +34,10 @@ python scripts/run_mock_analysis.py \\
 # Self-contained synthetic test (no external files needed)
 python scripts/run_mock_analysis.py --synthetic --n-mocks 5 --nside 32 \\
     --output-dir /tmp/mock_synth
+
+# The documented run
+python scripts/run_mock_analysis.py --synthetic --n-mocks 100 --n-sys 3 \\
+    --nside 64 --output-dir results/mock_analysis_100
 """
 import argparse
 import json
@@ -93,9 +103,33 @@ def make_synthetic_mock(nside, templates, a_true, b_true, n_mean=30, seed=0):
 _MOCK_METHODS = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
 
 
+def calibrate_isd(nside, templates, n_mean, n_mocks, orders=(1, 3)):
+    """68th percentile per template of the ISD Delta chi^2 on uncontaminated mocks.
+
+    The mocks are ``make_synthetic_mock`` with every amplitude zero, seeds distinct
+    from the contaminated mocks.  The statistic is the first-step marginal fit of
+    ``iterative_systematics_decontamination`` (10 quantile bins) at each order.
+    """
+    from sys_mapping.diagnostics import isd_marginal_fit
+
+    n_sys = templates.shape[0]
+    dchi2 = {order: [] for order in orders}
+    for k in range(n_mocks):
+        ra_g, dec_g, ra_r, dec_r, _, _ = make_synthetic_mock(
+            nside, templates, np.zeros(n_sys), np.zeros(n_sys), n_mean=n_mean,
+            seed=100_000 + k)
+        delta_g, good = sm.compute_overdensity(sm.pixelize_catalog(ra_g, dec_g, nside),
+                                               sm.pixelize_catalog(ra_r, dec_r, nside))
+        delta_t = sm.assign_template_values(templates, good)
+        for order in orders:
+            dchi2[order].append(isd_marginal_fit(delta_g, delta_t, poly_order=order)[0])
+    return {f"ISD-{order}": np.percentile(np.array(v), 68, axis=0)
+            for order, v in dchi2.items()}
+
+
 def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
-                 templates, nside, n_walkers, n_steps, n_burn,
-                 a_true=None, b_true=None):
+                 templates, nside, a_true=None, b_true=None, *,
+                 isd_chi2_68=None, mcmc_kw=None):
     """Run the full sys_mapping pipeline on one mock."""
     n_sys = templates.shape[0]
     n_pix = hp.nside2npix(nside)
@@ -108,12 +142,13 @@ def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
     # Run all methods via the unified interface (fastest first)
     method_results = {}
     for meth in _MOCK_METHODS:
+        kw = {"seed": mock_id, "progress": False}
+        if meth.startswith("ISD") and isd_chi2_68 is not None:
+            kw["isd_chi2_68"] = isd_chi2_68[meth]
+        if meth.startswith("MCMC"):
+            kw.update(mcmc_kw or {})
         try:
-            method_results[meth] = sm.run_decontamination(
-                meth, delta_g, delta_t,
-                n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-                seed=mock_id, progress=False,
-            )
+            method_results[meth] = sm.run_decontamination(meth, delta_g, delta_t, **kw)
         except Exception as exc:
             warnings.warn(f"Mock {mock_id}: {meth} failed: {exc}")
 
@@ -131,18 +166,27 @@ def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
     flat_add  = res_add.get("flat_chain")
     flat_comb = res_comb.get("flat_chain")
     if flat_add is not None and flat_comb is not None:
-        theta_add  = sm.posterior_median_params(flat_add)
-        theta_comb = sm.posterior_median_params(flat_comb)
         R = res_comb["R"]
         delta_t_rot = R @ delta_t
+        # the likelihood ratio is taken between the two maxima
+        mx = sm.lrt_from_maxima(delta_g, delta_t_rot)
+        theta_add, theta_comb = mx["theta_null"][0], mx["theta_alt"][0]
         lrt = likelihood_ratio_test(delta_g, delta_t_rot, theta_add, theta_comb,
                                      null_model="additive", alt_model="combined",
                                      significance=0.05)
         lrt_lambda = float(lrt.lambda_lr)
         lrt_p      = float(lrt.p_value)
         lrt_reject = bool(lrt.reject_null)
+        # A maximum the optimiser did not reach gives a meaningless lambda (e.g. 0 when
+        # the combined fit never leaves b = 0); record it so it can be excluded.
+        lrt_converged = bool(mx["converged"][0])
+        lrt_max_grad = float(mx["max_grad"][0])
+        if not lrt_converged:
+            print(f"  !! mock {mock_id}: LRT maxima not converged "
+                  f"(largest gradient {lrt_max_grad:.3g}); lambda={lrt_lambda:.3g}")
     else:
         lrt_lambda, lrt_p, lrt_reject = float("nan"), float("nan"), False
+        lrt_converged, lrt_max_grad = False, float("nan")
 
     # Per-method results for all 6 methods
     per_method = {}
@@ -155,6 +199,16 @@ def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
             "sigma_hat": mres.get("sigma_hat"),
             "elapsed_s": mres.get("elapsed_s"),
         }
+        if meth.startswith("ISD"):
+            per_method[meth]["n_steps"] = mres.get("n_iterations")
+            per_method[meth]["stopped_on"] = mres.get("isd_stopped_on")
+        if meth.startswith("MCMC") and mres.get("cov_a") is not None:
+            per_method[meth]["sd_a"] = np.sqrt(np.diag(mres["cov_a"])).tolist()
+            smp = mres.get("sampler")
+            if getattr(smp, "rhat", None) is not None:
+                per_method[meth]["nuts_rhat"] = float(smp.rhat)
+                per_method[meth]["nuts_ess"] = float(smp.ess)
+                per_method[meth]["nuts_divergences"] = int(smp.num_divergences)
         if a_true is not None and a_m is not None:
             per_method[meth]["a_bias"] = (np.asarray(a_m) - np.asarray(a_true)).tolist()
         if b_true is not None and b_m is not None:
@@ -171,6 +225,8 @@ def analyse_mock(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
         "lrt_lambda": lrt_lambda,
         "lrt_p": lrt_p,
         "lrt_reject": lrt_reject,
+        "lrt_converged": lrt_converged,
+        "lrt_max_grad": lrt_max_grad,
         "per_method": per_method,
     }
     if a_true is not None:
@@ -195,7 +251,7 @@ _METHOD_COLORS = {
 }
 
 
-def write_summary(results, n_sys, template_names, outdir):
+def write_summary(results, n_sys, template_names, outdir, nside=64):
     import matplotlib.pyplot as plt
 
     df = pd.DataFrame(results)
@@ -262,7 +318,7 @@ def write_summary(results, n_sys, template_names, outdir):
             ax.tick_params(labelsize=7)
 
         fig.suptitle(
-            f"Parameter recovery — {n_mocks} mock realisations, NSIDE=64",
+            f"Parameter recovery — {n_mocks} mock realisations, NSIDE={nside}",
             fontsize=11, y=1.01,
         )
         plt.tight_layout()
@@ -331,7 +387,9 @@ def write_summary(results, n_sys, template_names, outdir):
         reject_frac = df["lrt_reject"].mean()
         lrt_vals = df["lrt_lambda"].dropna().values
         fig, ax = plt.subplots(figsize=(6, 4))
-        log_bins = np.logspace(np.log10(max(lrt_vals.min(), 1)), np.log10(lrt_vals.max()), 21)
+        lo = max(float(np.min(lrt_vals[lrt_vals > 0], initial=1e-2)), 1e-2)
+        hi = max(float(lrt_vals.max()), 10 * lo)
+        log_bins = np.logspace(np.log10(lo), np.log10(hi), 21)
         ax.hist(lrt_vals, bins=log_bins, color="steelblue", alpha=0.7, edgecolor="white", lw=0.4)
         ax.set_xscale("log")
         ax.set_xlabel(r"$\lambda_{\rm LR}$")
@@ -388,7 +446,7 @@ def write_summary(results, n_sys, template_names, outdir):
             ax.tick_params(labelsize=8)
             ax.set_title(
                 f"Multiplicative parameter recovery — MCMC-comb\n"
-                f"{n_mocks} mock realisations, NSIDE=64   MAD={mad_b:.4f}",
+                f"{n_mocks} mock realisations, NSIDE={nside}   MAD={mad_b:.4f}",
                 fontsize=9,
             )
             plt.tight_layout()
@@ -430,12 +488,26 @@ def main():
                         help="Maximum number of mocks to process.")
     parser.add_argument("--n-sys", type=int, default=5,
                         help="Number of systematic templates (synthetic mode).")
-    parser.add_argument("--n-walkers", type=int, default=110, help="MCMC walkers.")
-    parser.add_argument("--n-steps", type=int, default=500, help="MCMC steps.")
-    parser.add_argument("--n-burn", type=int, default=100, help="MCMC burn-in.")
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend of run_decontamination: auto is the analytic "
+                             "posterior for MCMC-add and NUTS for MCMC-comb.")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps (MCMC-comb).")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS draws per chain (MCMC-comb).")
+    parser.add_argument("--n-walkers", type=int, default=110, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-steps", type=int, default=500, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-burn", type=int, default=100, help="emcee only (--sampler emcee).")
+    parser.add_argument("--isd-n-mocks", type=int, default=50,
+                        help="Uncontaminated mocks calibrating the ISD stopping rule in "
+                             "synthetic mode (0 leaves it uncalibrated).")
     parser.add_argument("--n-mean", type=int, default=30,
                         help="Mean galaxies per pixel (synthetic mode).")
     parser.add_argument("--output-dir", default="results/mock_analysis/")
+    parser.add_argument("--resume", action="store_true",
+                        help="Synthetic mode: reuse the per-mock JSON already in --output-dir "
+                             "and fit only the mocks without one.")
     args = parser.parse_args()
 
     outdir = Path(args.output_dir)
@@ -472,20 +544,37 @@ def main():
 
     n_sys = templates.shape[0]
     print(f"Templates: {n_sys} ({template_names})")
+    mcmc_kw = dict(sampler=args.sampler, nuts_n_warmup=args.nuts_warmup,
+                   nuts_n_samples=args.nuts_samples, n_walkers=args.n_walkers,
+                   n_steps=args.n_steps, n_burn=args.n_burn)
 
     if args.synthetic:
+        isd_chi2_68 = None
+        if args.isd_n_mocks > 0:
+            print(f"Calibrating the ISD stopping rule on {args.isd_n_mocks} uncontaminated mocks ...")
+            isd_chi2_68 = calibrate_isd(args.nside, templates, args.n_mean, args.isd_n_mocks)
+            for name, c68 in isd_chi2_68.items():
+                print(f"  {name} chi2_68 = {np.array2string(c68, precision=2)}")
+            (outdir / "isd_chi2_68.json").write_text(json.dumps(
+                {"template_names": template_names, "n_mocks": args.isd_n_mocks,
+                 **{k: v.tolist() for k, v in isd_chi2_68.items()}}, indent=2))
         rng = np.random.default_rng(42)
         results = []
         for im in range(args.n_mocks):
             a_true = rng.normal(0, 0.10, n_sys)
             b_true = rng.normal(0, 0.10, n_sys)
+            cached = outdir / f"mock_{im:04d}_results.json"
+            if args.resume and cached.exists():
+                results.append(json.loads(cached.read_text()))
+                print(f"Mock {im+1}/{args.n_mocks}: reused {cached.name}")
+                continue
             ra_g, dec_g, ra_r, dec_r, at, bt = make_synthetic_mock(
                 args.nside, templates, a_true, b_true, n_mean=args.n_mean, seed=im
             )
             print(f"Mock {im+1}/{args.n_mocks}: {len(ra_g):,} galaxies, {len(ra_r):,} randoms")
             res = analyse_mock(im, ra_g, dec_g, ra_r, dec_r, templates,
-                               args.nside, args.n_walkers, args.n_steps, args.n_burn,
-                               a_true=at, b_true=bt)
+                               args.nside, a_true=at, b_true=bt,
+                               isd_chi2_68=isd_chi2_68, mcmc_kw=mcmc_kw)
             results.append(res)
             (outdir / f"mock_{im:04d}_results.json").write_text(json.dumps(res, indent=2))
 
@@ -526,14 +615,14 @@ def main():
                     b_true = np.array([cat[c][0] for c in sorted(b_cols)])
 
             res = analyse_mock(im, ra_g, dec_g, ra_rand, dec_rand, templates,
-                               args.nside, args.n_walkers, args.n_steps, args.n_burn,
-                               a_true=a_true, b_true=b_true)
+                               args.nside, a_true=a_true, b_true=b_true,
+                               mcmc_kw=mcmc_kw)
             results.append(res)
             (outdir / f"mock_{im:04d}_{mock_file.stem}_results.json").write_text(
                 json.dumps(res, indent=2)
             )
 
-    write_summary(results, n_sys, template_names, outdir)
+    write_summary(results, n_sys, template_names, outdir, nside=args.nside)
     print(f"\nAll outputs written to {outdir}")
 
 

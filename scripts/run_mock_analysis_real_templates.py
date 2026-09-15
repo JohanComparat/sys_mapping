@@ -19,15 +19,20 @@ The survey footprint is the LS10 depth footprint (pixels where depth > 0),
 restricted to the South Galactic Cap (declination < 30°, as in LS10 south).
 This gives a realistic ~22 000 pixel footprint at NSIDE=64.
 
+All six methods run through ``sm.run_decontamination``: MCMC-add is the exact
+analytic posterior and MCMC-comb BlackJAX NUTS.  The ISD stopping rule is
+calibrated on uncontaminated mocks from the same generator.
+
 Usage
 -----
 python scripts/run_mock_analysis_real_templates.py \\
-    --syst-dir ~/data/legacysurvey/dr10/systematics \\
-    --n-mocks 10 --nside 64 --output-dir results/mock_real_templates/
+    --syst-dir ~/data/legacysurvey/dr10/systematics/0064 \\
+    --n-mocks 5 --nside 64 \\
+    --output-dir docs/_static/results_real_template_validation/
 
-# Faster test run (3 mocks, MCMC only, no ElasticNet):
+# Faster test run (3 mocks, OLS and MCMC only):
 python scripts/run_mock_analysis_real_templates.py \\
-    --syst-dir ~/data/legacysurvey/dr10/systematics \\
+    --syst-dir ~/data/legacysurvey/dr10/systematics/0064 \\
     --n-mocks 3 --nside 64 --no-regression \\
     --output-dir /tmp/mock_real_test/
 """
@@ -42,12 +47,8 @@ import numpy as np
 import pandas as pd
 
 import sys_mapping as sm
-from sys_mapping.contamination import apply_contamination, unpack_params
-from sys_mapping.correction import (
-    correct_two_point_function,
-    rotate_templates,
-    transform_params_from_rotated,
-)
+from sys_mapping.contamination import apply_contamination
+from sys_mapping.correction import rotate_templates
 from sys_mapping.model_selection import likelihood_ratio_test
 from sys_mapping.maps import load_real_templates
 
@@ -111,17 +112,18 @@ def make_mock_real_templates(nside, templates, footprint_mask, a_true, b_true,
 # ── Per-mock analysis — ALL methods ────────────────────────────────────────
 
 def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
-                              templates, nside, n_walkers, n_steps, n_burn,
-                              a_true, b_true, *, run_regression=True,
-                              isd_chi2_68=None):
-    """Run all implemented methods on one mock and return a flat result dict."""
-    n_sys = templates.shape[0]
+                              templates, nside, a_true, b_true, *,
+                              run_regression=True, isd_chi2_68=None, mcmc_kw=None):
+    """Run all implemented methods on one mock and return a flat result dict.
 
+    Every method goes through ``sm.run_decontamination``, the production entry
+    point: MCMC-add is the exact analytic posterior and MCMC-comb BlackJAX NUTS
+    (``sampler="auto"``) unless ``mcmc_kw`` names another sampler.
+    """
     gal_counts = sm.pixelize_catalog(ra_gal, dec_gal, nside)
     rand_counts = sm.pixelize_catalog(ra_rand, dec_rand, nside)
     delta_g, good_pix = sm.compute_overdensity(gal_counts, rand_counts)
     delta_t = sm.assign_template_values(templates, good_pix)
-    delta_t_rot, R, eigenvalues = rotate_templates(delta_t)
 
     result = {
         "mock_id": mock_id,
@@ -130,103 +132,95 @@ def analyse_mock_all_methods(mock_id, ra_gal, dec_gal, ra_rand, dec_rand,
         "a_true": list(float(x) for x in a_true),
         "b_true": list(float(x) for x in b_true),
     }
+    a_true = np.asarray(a_true)
+    b_true = np.asarray(b_true)
 
-    # ── OLS (linear regression) ────────────────────────────────────────────
-    try:
-        X = delta_t.T  # (n_good, n_sys) design matrix
-        XtX = X.T @ X
-        Xty = X.T @ delta_g
-        a_ols = np.linalg.lstsq(XtX, Xty, rcond=None)[0]
-        result["a_ols"] = a_ols.tolist()
-        result["a_ols_bias"] = (a_ols - np.asarray(a_true)).tolist()
-    except Exception as e:
-        result["a_ols_error"] = str(e)
-
-    # ── ElasticNet ─────────────────────────────────────────────────────────
+    methods = [("OLS", "ols"), ("MCMC-add", "mcmc_add"), ("MCMC-comb", "mcmc_comb")]
     if run_regression:
+        methods[1:1] = [("ElasticNet", "elasticnet"), ("ISD-1", "isd1"), ("ISD-3", "isd3")]
+
+    fits = {}
+    for method, key in methods:
+        kw = {"seed": mock_id, "progress": False}
+        if method == "ElasticNet":
+            kw["cv_folds"] = 3
+        if method.startswith("ISD") and isd_chi2_68 is not None:
+            kw["isd_chi2_68"] = isd_chi2_68[method]
+        if method.startswith("MCMC"):
+            kw.update(mcmc_kw or {})
         try:
-            a_en, _, cv_info = sm.elasticnet_contamination_fit(
-                delta_g, delta_t, cv_folds=3   # delta_t: (n_sys, n_good)
-            )
-            result["a_elasticnet"] = a_en.tolist()
-            result["a_elasticnet_bias"] = (a_en - np.asarray(a_true)).tolist()
-        except Exception as e:
-            result["a_elasticnet_error"] = str(e)
+            res = sm.run_decontamination(method, delta_g, delta_t, **kw)
+        except Exception as exc:          # a failed method must not lose the mock
+            result[f"a_{key}_error"] = str(exc)
+            continue
+        fits[method] = res
+        a_hat = np.asarray(res["a_hat"])
+        result[f"a_{key}"] = a_hat.tolist()
+        result[f"a_{key}_bias"] = (a_hat - a_true).tolist()
+        result[f"time_{key}_s"] = float(res["elapsed_s"])
+        if method.startswith("ISD"):
+            result[f"{key}_n_steps"] = int(res["n_iterations"])
+            result[f"{key}_stopped_on"] = res["isd_stopped_on"]
 
-        # ── ISD poly_order=1 ───────────────────────────────────────────────
-        try:
-            a_isd1_final = sm.iterative_systematics_decontamination(
-                delta_g, delta_t, poly_order=1,  # delta_t: (n_sys, n_good)
-                chi2_68=isd_chi2_68,
-            ).a_hat
-            result["a_isd1"] = a_isd1_final.tolist()
-            result["a_isd1_bias"] = (a_isd1_final - np.asarray(a_true)).tolist()
-        except Exception as e:
-            result["a_isd1_error"] = str(e)
-
-        # ── ISD poly_order=3 ───────────────────────────────────────────────
-        try:
-            a_isd3_final = sm.iterative_systematics_decontamination(
-                delta_g, delta_t, poly_order=3,  # delta_t: (n_sys, n_good)
-                chi2_68=isd_chi2_68,
-            ).a_hat
-            result["a_isd3"] = a_isd3_final.tolist()
-            result["a_isd3_bias"] = (a_isd3_final - np.asarray(a_true)).tolist()
-        except Exception as e:
-            result["a_isd3_error"] = str(e)
-
-    # ── MCMC additive ──────────────────────────────────────────────────────
-    n_dim_add = n_sys + 1          # n_sys a_i + sigma
-    nw_add = max(n_walkers, 2 * n_dim_add + 2)
-    flat_add, _ = sm.run_mcmc(
-        n_sys=n_sys, model="additive",
-        delta_g_obs=delta_g, delta_t=delta_t_rot,
-        n_walkers=nw_add, n_steps=n_steps, n_burn=n_burn,
-        seed=mock_id, progress=False,
-    )
-    theta_add = sm.posterior_median_params(flat_add)
-    a_rot_add, _, _, _ = unpack_params(theta_add, n_sys, "additive")
-    a_hat_add, _ = transform_params_from_rotated(
-        np.asarray(a_rot_add), np.zeros(n_sys), R
-    )
-    result["a_mcmc_add"] = a_hat_add.tolist()
-    result["a_mcmc_add_bias"] = (a_hat_add - np.asarray(a_true)).tolist()
-
-    # ── MCMC combined (Berlfein+2024) ──────────────────────────────────────
-    n_dim_comb = 2 * n_sys + 1     # n_sys a_i + n_sys b_i + sigma
-    nw_comb = max(n_walkers, 2 * n_dim_comb + 2)
-    flat_comb, _ = sm.run_mcmc(
-        n_sys=n_sys, model="combined",
-        delta_g_obs=delta_g, delta_t=delta_t_rot,
-        n_walkers=nw_comb, n_steps=n_steps, n_burn=n_burn,
-        seed=mock_id, progress=False,
-    )
-    theta_comb = sm.posterior_median_params(flat_comb)
-    a_rot_comb, b_rot_comb, _, _ = unpack_params(theta_comb, n_sys, "combined")
-    a_hat_comb, b_hat_comb = transform_params_from_rotated(
-        np.asarray(a_rot_comb), np.asarray(b_rot_comb), R
-    )
-    cov_a_comb, cov_b_comb = sm.get_param_covariance_from_chain(
-        flat_comb, n_sys, "combined"
-    )
-    var_a = np.diag(R.T @ cov_a_comb @ R)
-    var_b = np.diag(R.T @ cov_b_comb @ R)
-
-    result["a_mcmc_comb"] = a_hat_comb.tolist()
-    result["b_mcmc_comb"] = b_hat_comb.tolist()
-    result["a_mcmc_comb_bias"] = (a_hat_comb - np.asarray(a_true)).tolist()
-    result["b_mcmc_comb_bias"] = (b_hat_comb - np.asarray(b_true)).tolist()
+    comb = fits.get("MCMC-comb")
+    if comb is not None:
+        b_hat_comb = np.asarray(comb["b_hat"])
+        result["b_mcmc_comb"] = b_hat_comb.tolist()
+        result["b_mcmc_comb_bias"] = (b_hat_comb - b_true).tolist()
+        result["sd_a_mcmc_comb"] = np.sqrt(np.diag(comb["cov_a"])).tolist()
+        result["sd_b_mcmc_comb"] = np.sqrt(np.diag(comb["cov_b"])).tolist()
+        smp = comb.get("sampler")
+        if getattr(smp, "num_divergences", None) is not None:
+            result["nuts_num_divergences"] = int(smp.num_divergences)
+        if getattr(smp, "rhat", None) is not None:
+            result["nuts_max_rhat"] = float(smp.rhat)
+            result["nuts_min_ess"] = float(smp.ess)
+    add = fits.get("MCMC-add")
+    if add is not None:
+        result["sd_a_mcmc_add"] = np.sqrt(np.diag(add["cov_a"])).tolist()
 
     # ── Likelihood ratio test ──────────────────────────────────────────────
+    # Between the additive and combined maxima, in the PCA-rotated basis the
+    # MCMC fits use.
+    delta_t_rot, _, _ = rotate_templates(delta_t)
+    mx = sm.lrt_from_maxima(delta_g, delta_t_rot)
     lrt = likelihood_ratio_test(
-        delta_g, delta_t_rot, theta_add, theta_comb,
+        delta_g, delta_t_rot, mx["theta_null"][0], mx["theta_alt"][0],
         null_model="additive", alt_model="combined", significance=0.05,
     )
     result["lrt_lambda"] = float(lrt.lambda_lr)
     result["lrt_p"] = float(lrt.p_value)
     result["lrt_reject"] = bool(lrt.reject_null)
+    result["lrt_converged"] = bool(mx["converged"][0])
+    result["lrt_max_grad"] = float(mx["max_grad"][0])
 
     return result
+
+
+def calibrate_isd(nside, templates, footprint_mask, n_mean, n_mocks, orders=(1, 3)):
+    """68th percentile per template of the ISD Delta chi^2 on uncontaminated mocks.
+
+    The mocks come from ``make_mock_real_templates`` with every amplitude zero, so
+    the null has the clustering, shot noise and footprint of the contaminated mocks.
+    The statistic is the first-step marginal fit of
+    ``iterative_systematics_decontamination`` (10 quantile bins) at each order.
+    """
+    from sys_mapping.diagnostics import isd_marginal_fit
+
+    n_sys = templates.shape[0]
+    dchi2 = {order: [] for order in orders}
+    for k in range(n_mocks):
+        ra_g, dec_g, ra_r, dec_r, _, _ = make_mock_real_templates(
+            nside, templates, footprint_mask, np.zeros(n_sys), np.zeros(n_sys),
+            n_mean=n_mean, seed=100_000 + k,
+        )
+        delta_g, good = sm.compute_overdensity(sm.pixelize_catalog(ra_g, dec_g, nside),
+                                               sm.pixelize_catalog(ra_r, dec_r, nside))
+        delta_t = sm.assign_template_values(templates, good)
+        for order in orders:
+            dchi2[order].append(isd_marginal_fit(delta_g, delta_t, poly_order=order)[0])
+    return {f"ISD-{order}": np.percentile(np.array(v), 68, axis=0)
+            for order, v in dchi2.items()}
 
 
 # ── Summary and plots ──────────────────────────────────────────────────────
@@ -361,10 +355,20 @@ def main():
     )
     parser.add_argument("--nside", type=int, default=64)
     parser.add_argument("--n-mocks", type=int, default=10)
-    parser.add_argument("--n-walkers", type=int, default=None,
-                        help="MCMC walkers (default: auto from n_sys).")
-    parser.add_argument("--n-steps", type=int, default=500)
-    parser.add_argument("--n-burn", type=int, default=100)
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend of run_decontamination: auto is the analytic "
+                             "posterior for MCMC-add and NUTS for MCMC-comb.")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps (MCMC-comb).")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS draws per chain (MCMC-comb).")
+    parser.add_argument("--n-walkers", type=int, default=100, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-steps", type=int, default=500, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-burn", type=int, default=100, help="emcee only (--sampler emcee).")
+    parser.add_argument("--isd-n-mocks", type=int, default=50,
+                        help="Uncontaminated mocks calibrating the ISD stopping rule "
+                             "(0 leaves it uncalibrated).")
     parser.add_argument("--n-mean", type=int, default=30,
                         help="Mean galaxies per pixel.")
     parser.add_argument("--n-synth", type=int, default=3,
@@ -400,10 +404,21 @@ def main():
     print(f"Survey footprint: {footprint_mask.sum():,} pixels "
           f"({footprint_mask.mean()*100:.1f}% of sky at NSIDE={args.nside})")
 
-    n_walkers = args.n_walkers if args.n_walkers else max(
-        2 * (2 * n_sys + 2) + 2, 50
-    )
+    mcmc_kw = dict(sampler=args.sampler, nuts_n_warmup=args.nuts_warmup,
+                   nuts_n_samples=args.nuts_samples, n_walkers=args.n_walkers,
+                   n_steps=args.n_steps, n_burn=args.n_burn)
     run_regression = not args.no_regression
+
+    isd_chi2_68 = None
+    if run_regression and args.isd_n_mocks > 0:
+        print(f"Calibrating the ISD stopping rule on {args.isd_n_mocks} uncontaminated mocks ...")
+        isd_chi2_68 = calibrate_isd(args.nside, templates, footprint_mask, args.n_mean,
+                                    args.isd_n_mocks)
+        for name, c68 in isd_chi2_68.items():
+            print(f"  {name} chi2_68 = {np.array2string(c68, precision=2)}")
+        (outdir / "isd_chi2_68.json").write_text(json.dumps(
+            {"template_names": template_names, "n_mocks": args.isd_n_mocks,
+             **{k: v.tolist() for k, v in isd_chi2_68.items()}}, indent=2))
 
     rng = np.random.default_rng(42)
     results = []
@@ -421,9 +436,10 @@ def main():
 
         res = analyse_mock_all_methods(
             im, ra_g, dec_g, ra_r, dec_r,
-            templates, args.nside, n_walkers, args.n_steps, args.n_burn,
+            templates, args.nside,
             a_true=at, b_true=bt,
             run_regression=run_regression,
+            isd_chi2_68=isd_chi2_68, mcmc_kw=mcmc_kw,
         )
         results.append(res)
         (outdir / f"mock_{im:04d}_results.json").write_text(

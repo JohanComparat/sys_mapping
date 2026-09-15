@@ -14,6 +14,11 @@ Phases
 5. Save results summary to JSON.
 6. Plot w(θ) recovery curves.
 
+The GLASS universe is a parametric field of amplitude ``--cl-amplitude``.  The
+ISD stopping rule is calibrated per mock source on uncontaminated GLASS
+realisations: at ``--cl-amplitude`` by default, or from a matched spectrum
+(``--isd-null-cl-file`` for GLASS, ``--uchuu-null-cl-file`` for Uchuu).
+
 Usage
 -----
 python scripts/run_simulation_tests.py \\
@@ -22,7 +27,7 @@ python scripts/run_simulation_tests.py \\
     [--methods OLS ISD-1 ElasticNet] \\
     [--output-dir data/simulations] \\
     [--syst-dir ~/data/legacysurvey/dr10/systematics/] \\
-    [--uchuu-data ~/data/Uchuu/FullSky/mock_catalogues/.../..._DATA.fits] \\
+    [--uchuu-data ~/data/Uchuu/FullSky/mock_catalogues/.../..._DATA.fits.gz] \\
     [--uchuu-only | --glass-only] \\
     [--dry-run]
 """
@@ -59,9 +64,14 @@ def _parse_args() -> argparse.Namespace:
                         "there so the degree can be swept.")
     p.add_argument("--output-dir", default="data/simulations", help="Output directory")
     p.add_argument("--syst-dir", default=_DEFAULT_SYST_DIR)
-    p.add_argument("--uchuu-data", default=_DEFAULT_UCHUU_BASE + "_DATA.fits")
+    p.add_argument("--uchuu-data", default=_DEFAULT_UCHUU_BASE + "_DATA.fits.gz",
+                   help="Uchuu galaxy catalogue; the randoms are the same name with _RAND.")
     p.add_argument("--uchuu-only", action="store_true", help="Skip GLASS mock generation")
-    p.add_argument("--glass-only", action="store_true", help="Skip Uchuu loading")
+    p.add_argument("--glass-only", action="store_true",
+                   help="Skip Uchuu.  Without it a missing Uchuu catalogue is an error.")
+    p.add_argument("--cl-amplitude", type=float, default=5e-4,
+                   help="Amplitude of the parametric GLASS spectrum, for the universe and "
+                        "for the ISD null unless a matched spectrum is given.")
     p.add_argument("--min-sep", type=float, default=0.1, help="Min angular separation (degrees)")
     p.add_argument("--max-sep", type=float, default=10.0, help="Max angular separation (degrees)")
     p.add_argument("--nbins", type=int, default=10, help="Number of angular bins")
@@ -83,10 +93,17 @@ def _parse_args() -> argparse.Namespace:
     p.add_argument("--isd-kwargs", type=str, default=None,
                    help='JSON dict of extra ISD arguments, e.g. \'{"isd_n_bins": 20}\'.')
     p.add_argument("--isd-null-cl-file", type=str, default=None,
-                   help="Matched C_l (a *_match.json or a directory of them) for the "
-                        "ISD calibration null.  Without it the null is the parametric "
-                        "power law at cl_amplitude=5e-4, which under-clusters LS10 by "
-                        "~25x and leaves the calibration anticonservative.")
+                   help="Matched C_l (a *_match.json) for the ISD calibration null of the "
+                        "GLASS source.  Without it the null is the parametric power law at "
+                        "--cl-amplitude, the spectrum the GLASS universe is drawn from.")
+    p.add_argument("--uchuu-null-cl-file", type=str, default=None,
+                   help="Matched C_l (a *_match.json) for the ISD calibration null of the "
+                        "Uchuu source.  Without it that null is the parametric power law "
+                        "at --cl-amplitude.")
+    p.add_argument("--nuts-warmup", type=int, default=1000,
+                   help="NUTS window-adaptation steps (MCMC-comb).")
+    p.add_argument("--nuts-samples", type=int, default=1000,
+                   help="NUTS draws per chain (MCMC-comb).")
     p.add_argument("--dry-run", action="store_true", help="Validate setup only, no computation")
     return p.parse_args()
 
@@ -189,7 +206,8 @@ def _plot_recovery(results: list[dict], output_dir: Path, methods: list[str]) ->
     print(f"  Plots saved to {plots_dir}/")
 
 
-def _calibrate_isd(catalog, templates, args, *, n_mocks: int = 30):
+def _calibrate_isd(catalog, templates, args, *, n_mocks: int = 30, cl_file=None,
+                   orders=(1, 3), n_bins: int = 10, binning: str = "quantile"):
     """68th percentile of the ISD Delta chi^2 on contamination-free GLASS mocks.
 
     Returns ``None`` when ``n_mocks <= 0``, in which case the ISD threshold stays
@@ -222,23 +240,30 @@ def _calibrate_isd(catalog, templates, args, *, n_mocks: int = 30):
         z_edges, nz = np.array([0.0, 1.0]), np.array([float(len(z))])
 
     cl_input = None
-    if getattr(args, "isd_null_cl_file", None):
+    if cl_file:
         from sys_mapping import load_matched_cl
-        cl_input = load_matched_cl(args.isd_null_cl_file, nside=args.nside)
-        print(f"    ISD null: matched spectrum from {args.isd_null_cl_file}"
-              if cl_input is not None else
-              "    !! no matched spectrum; falling back to the parametric null")
+        cl_input = load_matched_cl(cl_file, nside=args.nside)
+        if cl_input is None:
+            raise FileNotFoundError(f"no matched spectrum in {cl_file}")
+        print(f"    ISD null: matched spectrum from {cl_file}")
+    else:
+        print(f"    ISD null: parametric spectrum, cl_amplitude={args.cl_amplitude:g}")
 
-    out = isd_template_significance(
-        delta_clean, delta_t, good, args.nside,
-        n_total=0, z_edges=z_edges, nz=nz,
-        n_total_footprint=len(catalog["ra"]),
-        n_mocks=n_mocks, poly_order=3, binning="quantile",
-        seed=args.seed, rand_factor=2, cl_input=cl_input,
-    )
-    chi2_68 = np.percentile(out["delta_chi2_mocks"], 68, axis=0)
-    print(f"    ISD chi2_68 = {np.array2string(chi2_68, precision=1)} "
-          f"({time.perf_counter() - t0:.1f}s)")
+    # The same seeds draw the same realisations for every order, and the binning
+    # is the one the ISD step uses.
+    chi2_68 = {}
+    for order in orders:
+        out = isd_template_significance(
+            delta_clean, delta_t, good, args.nside,
+            n_total=0, z_edges=z_edges, nz=nz,
+            n_total_footprint=len(catalog["ra"]),
+            n_mocks=n_mocks, n_bins=n_bins, poly_order=order, binning=binning,
+            seed=args.seed, rand_factor=2, cl_input=cl_input,
+            cl_amplitude=None if cl_input is not None else args.cl_amplitude,
+        )
+        chi2_68[order] = np.percentile(out["delta_chi2_mocks"], 68, axis=0)
+        print(f"    ISD-{order} chi2_68 = {np.array2string(chi2_68[order], precision=1)} "
+              f"({time.perf_counter() - t0:.1f}s)")
     return chi2_68
 
 
@@ -271,14 +296,10 @@ def main() -> int:
     # ── Step 1: Load Uchuu ────────────────────────────────────────────────────
     if not args.glass_only:
         _print_step(1, "Loading Uchuu mock catalog")
-        if not os.path.exists(args.uchuu_data):
-            print(f"  ERROR: Uchuu data not found at {args.uchuu_data}")
-            if not args.uchuu_only:
-                print("  Continuing with GLASS only.")
-                args.glass_only = False
-                args.uchuu_only = False
-            else:
-                return 1
+        if not os.path.exists(args.uchuu_data) or not os.path.exists(uchuu_rand):
+            print(f"  ERROR: Uchuu catalogue not found ({args.uchuu_data} / {uchuu_rand}); "
+                  "pass --glass-only to run without it.")
+            return 1
         else:
             t0 = time.perf_counter()
             uchuu = load_uchuu_mock(args.uchuu_data, uchuu_rand)
@@ -302,6 +323,7 @@ def main() -> int:
             z_edges=z_edges,
             nz=nz,
             seed=args.seed,
+            cl_amplitude=args.cl_amplitude,
         )
         print(f"  Generated {glass_cat['n_total']:,} galaxies in {time.perf_counter()-t0:.1f}s")
         catalogs["glass"] = glass_cat
@@ -352,9 +374,31 @@ def main() -> int:
         # null depends on the footprint, resolution and surface density but not on
         # the injected contamination, so it is computed once per mock source and
         # reused across all 9 configurations.
-        isd_chi2_68 = _calibrate_isd(catalog, templates, args, n_mocks=args.isd_n_mocks)
+        cl_file = args.uchuu_null_cl_file if source_name == "uchuu" else args.isd_null_cl_file
+        isd_orders = sorted({int(m.split("-")[1]) for m in args.methods if m.startswith("ISD-")})
+        isd_chi2_68 = (_calibrate_isd(catalog, templates, args, n_mocks=args.isd_n_mocks,
+                                      cl_file=cl_file, orders=isd_orders,
+                                      n_bins=isd_kwargs.get("isd_n_bins", 10),
+                                      binning=isd_kwargs.get("isd_binning", "quantile"))
+                       if isd_orders else None)
+        if isd_chi2_68 is not None:
+            (source_dir / "isd_chi2_68.json").write_text(json.dumps(
+                {"template_names": list(template_names), "n_mocks": args.isd_n_mocks,
+                 "null_spectrum": cl_file or f"cl_amplitude={args.cl_amplitude:g}",
+                 **{f"ISD-{d}": v.tolist() for d, v in isd_chi2_68.items()}}, indent=2))
 
         for cfg_idx, config in enumerate(configs):
+            method_kwargs = {}
+            for m in args.methods:
+                if m.startswith("ISD-"):
+                    method_kwargs[m] = {**isd_kwargs, "isd_chi2_68":
+                                        None if isd_chi2_68 is None
+                                        else isd_chi2_68[int(m.split("-")[1])]}
+                elif m.startswith("MCMC"):
+                    method_kwargs[m] = {"nuts_n_warmup": args.nuts_warmup,
+                                        "nuts_n_samples": args.nuts_samples}
+                else:
+                    method_kwargs[m] = {}
             label = (f"{config.level}_{config.scenario}_{config.shape}"
                      if config.responses else f"{config.level}_{config.scenario}")
             print(f"\n  [{cfg_idx+1:02d}/{len(configs)}] {source_name} | {label}")
@@ -386,7 +430,7 @@ def main() -> int:
                 min_sep=args.min_sep,
                 max_sep=args.max_sep,
                 nbins=args.nbins,
-                method_kwargs={"isd_chi2_68": isd_chi2_68, **isd_kwargs},
+                method_kwargs=method_kwargs,
             )
             result["source"] = source_name
             elapsed = time.perf_counter() - t0

@@ -13,13 +13,21 @@ mode ∈ {additive, multiplicative, combined}
   combined      : a_true[0:k] ~ N(0, σ_a), b_true[0:k] ~ N(0, σ_b)
   templates k..n_sys-1 always have a_true = b_true = 0
 
+MCMC-add is the exact analytic posterior and MCMC-comb BlackJAX NUTS
+(``sampler="auto"`` of ``run_decontamination``).  The detection S/N of a
+template is its posterior median over the posterior standard deviation, and the
+likelihood ratio is taken between the additive and combined maxima.
+
 Usage
 -----
 python scripts/run_mock_analysis_progressive.py \
-    --nside 64 --n-sys 5 \
-    --n-mocks-per-case 20 \
-    --snr-threshold 2.0 \
+    --nside 32 --n-sys 4 \
+    --n-mocks-per-case 5 \
+    --snr-threshold 2.0 --sigma 0.15 \
     --output-dir results/mock_analysis_progressive/
+
+``progressive_results.csv`` feeds ``scripts/analyze_detectability_law.py``
+(figure 6); its name and columns are fixed.
 """
 import argparse
 import json
@@ -98,8 +106,7 @@ def make_mock_progressive(nside, templates, k, mode, sigma=0.15, n_mean=30, seed
 
 # ── Per-mock analysis ─────────────────────────────────────────────────────────
 
-def analyse_one(nside, templates, k, mode, mock_id,
-                n_walkers, n_steps, n_burn, snr_threshold, sigma):
+def analyse_one(nside, templates, k, mode, mock_id, snr_threshold, sigma, mcmc_kw=None):
     ra_g, dec_g, ra_r, dec_r, a_true, b_true = make_mock_progressive(
         nside, templates, k, mode, sigma=sigma, seed=mock_id * 100 + k * 10
     )
@@ -111,14 +118,10 @@ def analyse_one(nside, templates, k, mode, mock_id,
     delta_t = sm.assign_template_values(templates, good_pix)
 
     res_add = sm.run_decontamination(
-        "MCMC-add", delta_g, delta_t,
-        n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-        seed=mock_id, progress=False,
+        "MCMC-add", delta_g, delta_t, seed=mock_id, progress=False, **(mcmc_kw or {}),
     )
     res_comb = sm.run_decontamination(
-        "MCMC-comb", delta_g, delta_t,
-        n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-        seed=mock_id, progress=False,
+        "MCMC-comb", delta_g, delta_t, seed=mock_id, progress=False, **(mcmc_kw or {}),
     )
 
     a_hat_add  = res_add["a_hat"]
@@ -130,8 +133,9 @@ def analyse_one(nside, templates, k, mode, mock_id,
     snr_b = np.abs(np.asarray(b_hat_comb)) / np.sqrt(np.maximum(var_b_comb, 1e-12))
 
     delta_t_rot = res_comb["R"] @ delta_t
-    theta_add  = sm.posterior_median_params(res_add["flat_chain"])
-    theta_comb = sm.posterior_median_params(res_comb["flat_chain"])
+    # the likelihood ratio is taken between the two maxima
+    mx = sm.lrt_from_maxima(delta_g, delta_t_rot)
+    theta_add, theta_comb = mx["theta_null"][0], mx["theta_alt"][0]
     lrt = likelihood_ratio_test(delta_g, delta_t_rot, theta_add, theta_comb,
                                  null_model="additive", alt_model="combined")
 
@@ -176,6 +180,14 @@ def analyse_one(nside, templates, k, mode, mock_id,
         "b_hat": np.asarray(res_comb["b_hat"]).tolist(),
         "tp": float(tp),
         "fp": float(fp),
+        "lrt_converged": bool(mx["converged"][0]),
+        "lrt_max_grad": float(mx["max_grad"][0]),
+        "time_add_s": float(res_add["elapsed_s"]),
+        "time_comb_s": float(res_comb["elapsed_s"]),
+        "nuts_rhat": None if getattr(res_comb["sampler"], "rhat", None) is None
+                     else float(res_comb["sampler"].rhat),
+        "nuts_divergences": None if getattr(res_comb["sampler"], "num_divergences", None) is None
+                            else int(res_comb["sampler"].num_divergences),
     }
 
 
@@ -184,10 +196,8 @@ def analyse_one(nside, templates, k, mode, mock_id,
 def plot_snr_grid(df, n_sys, template_names, k_values, modes, snr_threshold, outdir):
     """Figure A: grid of S/N bar charts (rows=k, cols=mode).
 
-    S/N uses the per-fit **MCMC posterior** width (``snr_a = |â_i|/σ_{a_i}``).  Note this is a
-    different error model from the OLS analytic σ of the SNR pre-selection page: for the short
-    emcee chains here the posterior is *wide* (wider than the mock-covariance sandwich, verified),
-    so — unlike the OLS-σ pages — this S/N is **not** overconfident; see the page caveat.
+    S/N uses the per-fit posterior width (``snr_a = |â_i|/σ_{a_i}``): the analytic
+    MCMC-add posterior for ``a`` and the NUTS MCMC-comb posterior for ``b``.
     """
     nrows, ncols = len(k_values), len(modes)
     fig, axes = plt.subplots(nrows, ncols, figsize=(5 * ncols, 3.5 * nrows),
@@ -324,17 +334,28 @@ def main():
     parser.add_argument("--n-sys", type=int, default=5)
     parser.add_argument("--n-mean", type=int, default=30)
     parser.add_argument("--n-mocks-per-case", type=int, default=20)
-    parser.add_argument("--n-walkers", type=int, default=110)
-    parser.add_argument("--n-steps", type=int, default=400)
-    parser.add_argument("--n-burn", type=int, default=80)
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend of run_decontamination: auto is the analytic "
+                             "posterior for MCMC-add and NUTS for MCMC-comb.")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps (MCMC-comb).")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS draws per chain (MCMC-comb).")
+    parser.add_argument("--n-walkers", type=int, default=110, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-steps", type=int, default=400, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-burn", type=int, default=80, help="emcee only (--sampler emcee).")
     parser.add_argument("--snr-threshold", type=float, default=2.0)
     parser.add_argument("--sigma", type=float, default=0.15,
                         help="Injection amplitude std (N(0, sigma))")
     parser.add_argument("--output-dir", default="results/mock_analysis_progressive/")
     parser.add_argument("--from-cache", action="store_true",
-                        help="Reprocess the per-cell JSONs already in --output-dir (no MCMC re-fit) "
-                             "— used to regenerate figures with the calibrated sandwich S/N overlay.")
+                        help="Reprocess the per-cell JSONs already in --output-dir (no MCMC "
+                             "re-fit) to regenerate the figures and summary.")
     args = parser.parse_args()
+    mcmc_kw = dict(sampler=args.sampler, nuts_n_warmup=args.nuts_warmup,
+                   nuts_n_samples=args.nuts_samples, n_walkers=args.n_walkers,
+                   n_steps=args.n_steps, n_burn=args.n_burn)
 
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -362,16 +383,19 @@ def main():
                 print(f"  [{run_no}/{total}] mock {mock_id} ...", flush=True)
                 res = analyse_one(
                     args.nside, templates, k, mode, mock_id,
-                    args.n_walkers, args.n_steps, args.n_burn,
-                    args.snr_threshold, args.sigma,
+                    args.snr_threshold, args.sigma, mcmc_kw=mcmc_kw,
                 )
                 results.append(res)
                 (outdir / f"progressive_k{k}_{mode}_mock{mock_id:03d}.json").write_text(
                     json.dumps(res, indent=2)
                 )
 
-        # Save CSV (list columns as JSON strings)
-        df_csv = pd.DataFrame(results).copy()
+        # Save CSV (list columns as JSON strings).  The column set is fixed: the
+        # detectability-law analysis reads this file.
+        csv_cols = ["k", "mode", "mock_id", "n_galaxies", "lrt_lambda", "lrt_reject",
+                    "lrt_correct", "snr_a", "snr_b", "a_true", "b_true", "a_hat", "b_hat",
+                    "tp", "fp"]
+        df_csv = pd.DataFrame(results)[csv_cols].copy()
         for col in ["snr_a", "snr_b", "a_true", "b_true", "a_hat", "b_hat"]:
             df_csv[col] = df_csv[col].apply(json.dumps)
         df_csv.to_csv(outdir / "progressive_results.csv", index=False)
@@ -386,8 +410,9 @@ def main():
     plot_lrt_summary(df, K_VALUES, MODES, outdir)
     plot_detection_rates(df, K_VALUES, MODES, outdir)
 
-    # Print summary
+    # Summary, printed and written for the documentation page's table
     print("\n=== Summary ===")
+    rows = []
     for k, mode in product(K_VALUES, MODES):
         sub = df[(df["k"] == k) & (df["mode"] == mode)]
         lrt_rate = sub["lrt_correct"].mean()
@@ -396,6 +421,14 @@ def main():
         lam_med = sub["lrt_lambda"].median()
         print(f"  k={k} {mode:14s}: LRT correct={lrt_rate:.0%}  "
               f"TP={tp_mean:.2f}  FP={fp_mean:.2f}  median λ={lam_med:.1f}")
+        rows.append({"k": k, "mode": mode, "n_mocks": len(sub),
+                     "TP rate": f"{tp_mean:.2f}", "FP rate": f"{fp_mean:.2f}",
+                     "LRT correct": f"{lrt_rate:.2f}",
+                     "median lambda_LR": f"{lam_med:.1f}"})
+    pd.DataFrame(rows).to_csv(outdir / "progressive_summary.csv", index=False)
+    if "time_comb_s" in df.columns:
+        print(f"  median time per mock: MCMC-add {df['time_add_s'].median():.2f} s, "
+              f"MCMC-comb {df['time_comb_s'].median():.1f} s")
 
     print(f"\nAll results written to {outdir}")
 

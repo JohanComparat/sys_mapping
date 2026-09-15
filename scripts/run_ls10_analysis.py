@@ -852,16 +852,12 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
 
     # ISD needs a mock-calibrated Delta chi^2_68 for its stopping rule; without
     # one the threshold is in raw Delta chi^2 units and the iteration keeps
-    # re-selecting templates it has already corrected.  Pre-selection, when it ran
-    # with method="isd", already built the GLASS null; otherwise build it here for
-    # the full template set, once, if any ISD method is requested.
+    # re-selecting templates it has already corrected.  It is built here for the
+    # templates ISD fits, with a cubic fit on equal-occupancy bins; the pre-selection
+    # null ranks templates with a linear fit on equal-width bins, a different statistic.
     _isd_chi2_68 = None
     if any(m in _methods_to_run for m in ("ISD-1", "ISD-3")):
-        if _presel_isd is not None and len(_presel_indices or []) == len(delta_t_decontam):
-            _isd_chi2_68 = np.percentile(_presel_isd["delta_chi2_mocks"], 68, axis=0)
-            print(f"  ISD chi2_68 from pre-selection null: "
-                  f"{np.array2string(_isd_chi2_68, precision=1)}")
-        elif args.isd_n_mocks > 0:
+        if args.isd_n_mocks > 0:
             from sys_mapping.diagnostics import isd_template_significance as _isd_sig_fn
             _z_min_i, _z_max_i = _parse_z_range(sample_id)
             print(f"  Calibrating ISD threshold on {args.isd_n_mocks} "
@@ -944,8 +940,9 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             if cov_a is not None:
                 sub["var_a"] = np.diag(cov_a).tolist()
             if meth == "ElasticNet":
-                sub["cv_alpha"]    = res.get("alpha")
-                sub["cv_l1_ratio"] = res.get("l1_ratio")
+                _cv = res.get("cv_info") or {}
+                sub["cv_alpha"]    = _cv.get("alpha_reg")
+                sub["cv_l1_ratio"] = _cv.get("l1_ratio")
             sub["sigma_hat"] = res.get("sigma_hat")
             if meth in ("MCMC-add", "MCMC-comb"):
                 sub["acceptance_fraction"] = res.get("acceptance_fraction")
@@ -1122,7 +1119,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     # matrix, measured on the GALAXIES.  Auto terms alone assume the rotated
     # templates are uncorrelated at every separation, but the PCA rotation
     # diagonalises their covariance at zero lag only, and on LS10 the neglected
-    # cross terms are 14.7 % of the correction at NSIDE 64.  The galaxies rather than
+    # cross terms are a median 22.5 % of the correction at NSIDE 64.  The galaxies rather than
     # the pixel centres, because no two centres are closer than the pixel scale, so a
     # pixel-grid correlation has no support below it while a template is constant
     # within a pixel and its correct correlation there is its covariance.
@@ -1825,7 +1822,7 @@ def main():
     parser.add_argument("--sampler", default="auto",
                         choices=["auto", "analytic", "nuts", "emcee"],
                         help="MCMC backend: auto (analytic additive + NUTS combined), "
-                             "analytic, nuts, or emcee (legacy baseline).")
+                             "analytic, nuts, or emcee.")
     parser.add_argument("--n-chains", type=int, default=None,
                         help="Parallel NUTS chains (default: 4 on CPU, 8 on GPU).")
     parser.add_argument("--significance-n-mocks", type=int, default=0,
@@ -1857,7 +1854,7 @@ def main():
                              "well before the whole catalogue is used.")
     parser.add_argument("--ct-auto-only", action="store_true",
                         help="Neglect the cross-template terms of the two-point correction. "
-                             "On LS10 they are 14.7 %% of the correction at NSIDE 64.")
+                             "On LS10 they are a median 22.5 %% of the correction at NSIDE 64.")
     parser.add_argument("--ct-from-pixels", action="store_true",
                         help="Measure the template 2PCFs on the pixel centres "
                              "rather than on the galaxies. Reproduces "
@@ -1872,18 +1869,18 @@ def main():
                              "standard deviation on the pixels fitted.")
     parser.add_argument("--skewed", action="store_true",
                         help="Skew-normal likelihood for the combined model "
-                             "(default: Gaussian).  Matches compute_sys_weights.py's "
-                             "flag of the same name; opt-in because it also moves the "
-                             "additive model off its exact analytic posterior onto NUTS.")
+                             "(default: Gaussian).  MCMC-add stays Gaussian; the "
+                             "likelihood-ratio test then compares additive and combined "
+                             "maxima that both carry the skewness.")
     parser.add_argument("--nuts-warmup", type=int, default=1000,
                         help="NUTS window-adaptation steps.")
     parser.add_argument("--nuts-samples", type=int, default=1000,
                         help="NUTS post-warmup draws per chain.")
     parser.add_argument("--lrt-null-mocks", type=int, default=0,
-                        help="If >0, calibrate the LRT p-value on this many uncontaminated GLASS "
-                             "mocks (fit additive+combined per mock) instead of the Wilks chi^2 — "
-                             "the correlated field inflates the chi^2 statistic, so the default "
-                             "p-value is overconfident. HEAVY (a full fit per mock): remote job.")
+                        help="If >0, read the LRT p-value from this many uncontaminated GLASS "
+                             "realisations, each fitted with the additive and combined models, "
+                             "instead of the Wilks chi^2, which the correlated field makes "
+                             "overconfident.  0 uses the Wilks chi^2.")
     parser.add_argument("--null-cl-file", "--lrt-null-cl-file", dest="lrt_null_cl_file",
                         default=None,
                         help="A *_match.json from match_glass_to_data.py, or a directory of "

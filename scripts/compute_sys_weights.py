@@ -4,17 +4,19 @@ Systematic weight computation for LS10 BGS volume-limited samples.
 
 For every DATA/RAND pair found in CATALOG_DIR, this script:
   1. Loads galaxy and random catalogs.
-  2. Loads and normalises HEALPix systematic templates.
+  2. Loads HEALPix systematic templates and standardises them over the footprint.
   3. Pixelises both catalogs and computes the galaxy overdensity δ_g.
-  4. Runs MCMC for the **additive** model  (b_i = 0).
-  5. Runs MCMC for the **combined** model  (a_i, b_i free).
-  6. Back-transforms inferred parameters from the PCA-rotated basis to the
-     original template basis.
-  7. Computes per-pixel systematic weights for each model and assigns them to
-     individual galaxies by pixel look-up.
-  8. Writes a FITS weight file (same row order as DATA, one column per model).
-  9. Writes a JSON metadata file with MAP parameters and chain diagnostics.
- 10. Appends the sample to a YAML summary catalogue consumed by sum_stat.
+  4. Fits OLS, the additive model (MCMC-add) and the combined model (MCMC-comb),
+     with the sampler chosen by ``--sampler``.
+  5. Back-transforms the parameters from the PCA-rotated basis to the template basis.
+  6. Computes per-pixel weights and assigns them to galaxies by pixel look-up.
+  7. Writes a FITS weight file (same row order as DATA) with ``WEIGHT_OLS``,
+     ``WEIGHT_ADD``, ``WEIGHT_COMB`` and ``WEIGHT_SYS`` (an alias of ``WEIGHT_COMB``).
+  8. Writes a JSON metadata file with point estimates and chain diagnostics.
+  9. Appends the sample to a YAML summary catalogue read by sum_stat.
+
+``collect_all_weights_from_jsons`` assembles the six-method weight file from the
+JSON outputs of ``run_ls10_analysis.py`` instead.
 
 Weighting scheme
 ----------------
@@ -22,15 +24,14 @@ Contamination model (Berlfein et al. 2024, Eq. 11-13):
 
     δ_g_obs(p) = δ_g_true(p) · (1 + Σ_i b_i t_i(p)) + Σ_i a_i t_i(p)
 
-Per-pixel weights that approximately invert the contamination:
+The per-sample path writes the first-order inverse of the contamination,
 
-    WEIGHT_ADD(p)  = 1 / max(1 + Σ_i a_i_add  · t_i(p), ε)   [additive model]
-    WEIGHT_COMB(p) = 1 / max(1 + Σ_i b_i_comb · t_i(p), ε)   [combined model]
+    WEIGHT_OLS(p)  = 1 / max(1 + Σ_i a_i_ols  · t_i(p), ε)
+    WEIGHT_ADD(p)  = 1 / max(1 + Σ_i a_i_add  · t_i(p), ε)
+    WEIGHT_COMB(p) = 1 / max(1 + Σ_i b_i_comb · t_i(p), ε)
 
-where a_i_add are the MAP additive parameters (additive MCMC) and b_i_comb are
-the MAP multiplicative parameters (combined MCMC), both in the original
-(un-rotated) template basis.  Galaxies whose pixel has no valid template
-coverage receive weight 1.0.
+with ε = 1/20, and records it as ``WEIGHTCON = linear-from-a_hat``.  Galaxies whose
+pixel has no valid template coverage receive weight 1.0.
 
 Output naming convention
 ------------------------
@@ -42,9 +43,8 @@ GPU usage
 ---------
 Use --device gpu  (or set JAX_DEVICE=gpu in the environment).  The JAX
 log-likelihood is JIT-compiled and runs on whatever device JAX targets.
-Combined with --vectorize (the default on GPU), all emcee walkers are
-evaluated in a single jax.vmap kernel per step instead of n_walkers
-sequential dispatches — this is the dominant source of GPU speedup.
+With ``--sampler emcee``, ``--vectorize`` (the default on GPU) evaluates all
+walkers in one jax.vmap kernel per step.
 
 Device selection notes
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -111,8 +111,7 @@ _NSIDE_ZFILL: dict[str, int] = {
 
 # ── Minimum weight denominator to avoid division by ≈0 ───────────────────────
 # Denominator floor, matching the library's _ISD_MAX_WEIGHT = 20.
-# It was 0.01 here (a cap of 100 against the library's 20), so the two
-# paths clipped the same weight differently in the tails.
+# The library's clip, so both paths clip the same weight identically in the tails.
 _WEIGHT_EPSILON = 1.0 / 20.0
 
 
@@ -216,9 +215,8 @@ def weight_map_from_result(result, templates, params, nside, *,
     ``result["weights"]``, and it is not always ``1/(1 + a_hat . t)``: for ISD it
     is the cumulative product of the per-step corrections, and for MCMC-comb the
     exact inverse using ``b_hat`` *and* ``a_hat``.  Recomputing a linear form from
-    the amplitudes alone discards both.  ``compute_pixel_weights`` remains as the
-    fallback for a result that carries no weights, and is what the deprecated
-    linear reconstruction looked like.
+    the amplitudes alone discards both.  ``compute_pixel_weights`` is the fallback
+    for a result that carries no weights.
     """
     w = result.get("weights") if isinstance(result, dict) else None
     good = good_pixels
@@ -290,9 +288,9 @@ def write_all_method_weights(
     good_pixels : boolean footprint mask, required to use the library's own
         per-pixel weights.  Without it (e.g. when results are re-read from JSON,
         which cannot hold a pixel array) the weights are reconstructed as
-        ``1/(1 + a_hat . t)``.  That is the correct weight for OLS, ElasticNet and
-        MCMC-add, but **not** for ISD (a cumulative product over steps) or
-        MCMC-comb (an exact inverse using both amplitudes), and the header records
+        ``1/(1 + a_hat . t)``, the weight of OLS and ElasticNet and the first-order
+        weight of MCMC-add; ISD (a cumulative product over steps) and MCMC-comb (an
+        exact inverse using both amplitudes) differ from it, and the header records
         which was used.
     header_extras      : additional key/value pairs written into the FITS primary header
     """
@@ -833,12 +831,11 @@ def process_sample(
     hdr["LRT_LAM"] = float(lrt.lambda_lr)
     hdr["LRT_PVL"] = float(lrt.p_value)
     hdr["LRT_REJ"] = bool(lrt.reject_null)
-    # Weight scheme documentation.  The weights come from the library, so the
-    # formula depends on the method; recording one expression for all of them
-    # would be wrong for ISD and MCMC-comb.
+    # Weight scheme documentation.  run_model returns no per-pixel weights, so
+    # weight_map_from_result falls back to the linear form for all three models.
     hdr["WEIGHTVER"] = (2 if no_footprint_standardise else 3,
                         "weight convention version")
-    hdr["WEIGHTCON"] = ("library", "weights taken from run_decontamination")
+    hdr["WEIGHTCON"] = ("linear-from-a_hat", "weights 1/(1 + params . t) per model")
     hdr["WMAXCLIP"]  = (1.0 / _WEIGHT_EPSILON, "max weight; floor 1/WMAXCLIP")
     hdr["TPLBASIS"]  = ("load-time" if no_footprint_standardise else "footprint",
                         "where the template basis was standardised")

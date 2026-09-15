@@ -1,9 +1,9 @@
 #!/usr/bin/env python
-"""Survey-design synthesis of the systematic-detectability law (Stage 2).
+"""Survey-design synthesis of the systematic-detectability law.
 
-Turns the LS10 scorecard (``detectability_law`` page, this repo) into generalised
-rules of thumb and a design-space figure, and validates the scaling laws against
-the Stage-2 GLASS-mock sweep. Interpretive only -- no new fit.
+Turns the LS10 scorecard (``detectability_law`` page) into rules of thumb and a
+design-space figure, and compares the scaling laws with the GLASS-mock sweep of
+``run_detectability_sweep.py``. No fit is run.
 
 LS10 only, deliberately. This repo is public; cross-survey comparisons that
 involve collaborations with internal data-release policies live in their own
@@ -30,7 +30,7 @@ REPO = Path(__file__).resolve().parent.parent
 STATIC = REPO / "docs" / "_static" / "survey_design_synthesis"
 RST = REPO / "docs" / "survey_design_synthesis.rst"
 LS10_SC = REPO / "docs" / "_static" / "detectability_law" / "ls10_detectability_scorecard.csv"
-# Stage-2 sweep outputs. The remote wrapper (bash/run_remote_full.sh) writes the
+# Sweep outputs. The remote wrapper (bash/run_remote_full.sh) writes the
 # _ls10/_euclid pair over the full grid; the reduced 2026-07-25 laptop run wrote
 # the _nside/_axes pair. Prefer the remote grid, fall back to the laptop one.
 SWEEP_LS10 = REPO / "results" / "detectability_sweep_ls10.csv"
@@ -112,16 +112,18 @@ def fig_amin_vs_fsky(ls10):
 def fig_design_space(ls10):
     """N_eff/N_gal vs n̄_pix: the clustering penalty across the design space."""
     fig, ax = plt.subplots(figsize=(6.8, 4.8))
-    ls = [r for r in ls10 if "10.0" in r["sample"]]  # fiducial across nside
+    # fiducial across nside; the scorecard lists NSIDE 64 twice (per-sample and per-NSIDE)
+    ls = {r["nside"]: r for r in ls10 if "10.0" in r["sample"]}
+    ls = sorted(ls.values(), key=lambda r: _f(r, "nbar"))
+    nsides = sorted(int(r["nside"]) for r in ls)
     ax.plot([_f(r, "nbar") for r in ls], [_f(r, "neff_over_ngal") for r in ls],
-            "o-", c="C0", label="LS10 log$M_*\\geq$10.0 (NSIDE 32→256)")
+            "o-", c="C0", label=f"LS10 log$M_*\\geq$10.0 (NSIDE {nsides[0]}–{nsides[-1]})")
     ax.axhline(1.0, ls=":", c="k", label=r"$N_{\rm eff}=N_{\rm gal}$ (pure shot)")
     ax.set_xscale("log"); ax.set_yscale("log")
     ax.set_xlabel(r"$\bar n_{\rm pix}$ (galaxies / pixel)")
     ax.set_ylabel(r"$N_{\rm eff}/N_{\rm gal}$ (usable fraction)")
     ax.set_title("Clustering penalty across the design space")
     ax.legend(fontsize=8); ax.grid(alpha=.3, which="both")
-    ax.annotate("shot-limited\n(finer / sparser)", (8, 0.3), fontsize=7.5, color="grey", ha="center")
     ax.annotate("clustering-limited\n(coarser / denser)", (300, 0.02), fontsize=7.5, color="grey", ha="center")
     fig.savefig(STATIC / "fig3_design_space.png", dpi=130, bbox_inches="tight")
     plt.close(fig)
@@ -132,7 +134,7 @@ def fig_design_space(ls10):
 # ---------------------------------------------------------------------------
 
 def load_sweep():
-    """Stage-2 sweep rows, if run: ``(nside_rows, axes_rows, euclid_rows)``.
+    """Sweep rows, if present: ``(nside_rows, axes_rows, euclid_rows)``.
 
     Returns ``(None, None, [])`` when no sweep has been run.
 
@@ -195,7 +197,7 @@ def _agg(rows, xkey, sel):
 
 
 # ---------------------------------------------------------------------------
-# Stage-2 sweep figure
+# Sweep figure
 #
 # Panels are read at amp = READ_AMP, NOT at the lowest injected amplitude. The
 # fitted exponents are amplitude-dependent: field_snr = ||T a_hat||/std(resid)
@@ -234,7 +236,7 @@ def _panel(ax, x, y, colour, marker, label, ref=True, ref_label=None):
 
 
 def fig_sweep_validation(ns_rows, ax_rows, eu_rows=()):
-    """What the Stage-2 sweep actually shows, exponents included.
+    """Sweep figure with fitted exponents.
 
     Three levers plus the degeneracy-breaking one. Panel (a) holds the density
     fixed, so N_gal rises with N_pix and the two are perfectly degenerate along
@@ -319,7 +321,7 @@ def fig_sweep_validation(ns_rows, ax_rows, eu_rows=()):
     axes[1].set_xticks([0.1, 0.2, 0.3, 0.4])
     axes[1].xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:g}"))
     axes[1].xaxis.set_minor_formatter(plt.NullFormatter())
-    fig.suptitle(f"Stage 2 — GLASS-mock sweep: fitted exponents at injected $A$={READ_AMP} "
+    fig.suptitle(f"GLASS-mock sweep: fitted exponents at injected $A$={READ_AMP} "
                  "(mock diagnostic, not a survey forecast)", y=1.03)
     fig.tight_layout()
     fig.savefig(STATIC / "fig4_sweep_validation.png", dpi=130, bbox_inches="tight")
@@ -327,76 +329,58 @@ def fig_sweep_validation(ns_rows, ax_rows, eu_rows=()):
     return slopes
 
 
-_SWEEP_RUN = r"""Empirical validation (Stage 2 — RUN, full remote grid)
---------------------------------------------------------
+_SWEEP_RUN = r"""GLASS-mock sweep
+----------------
 
-The sweep (``run_detectability_sweep.py``, OLS/ISD-1 on GLASS mocks) has now been
-run over the **full** ``nside × density × f_sky × amplitude`` grid on the compute
-host: 14 400 LS10-geometry fits, 8 100 Euclid-geometry fits and 240 MCMC-add
-anchor fits, 30 simulations per cell. Exponents below are fitted in log-log,
-read at injected amplitude :math:`A=0.05`.
+We ran ``run_detectability_sweep.py`` (OLS and ISD-1 on GLASS mocks) over the
+``nside × density × f_sky × amplitude`` grid: 14 400 LS10-geometry fits, 8 100
+Euclid-geometry fits and 240 MCMC-add anchor fits, with 30 simulations per cell.
+The exponents are fitted in log-log at injected amplitude :math:`A=0.05`.
 
-**Two of the three levers reproduce the analytic law.** Pixel refinement gives
-:math:`-0.469` (LS10) and :math:`-0.479` (Euclid), and sky area gives
-:math:`-0.493` — both consistent with :math:`-1/2`.
+Pixel refinement gives :math:`-0.469` (LS10 geometry) and :math:`-0.479` (Euclid
+geometry), and sky area :math:`-0.493`, against the analytic :math:`-1/2`.
+Density gives :math:`-0.375` over the full range. Fitting
+:math:`A_{\min}\propto\sqrt{1/\bar n_{\rm pix}+\sigma_{\rm clus}^{2}}` to the density
+lever gives :math:`\sigma_{\rm clus}=0.063`, against 0.064 measured on the GLASS
+map at NSIDE 256; clustering supplies 34 % of the pixel variance at
+:math:`\bar n_{\rm pix}=127` and 67 % at 490.
 
-**The density lever does not, and that is the interesting part.** Over the full
-range it fits :math:`-0.375`, not :math:`-1/2`, because the mock is *not*
-shot-limited at high density: fitting
-:math:`A_{\min}\propto\sqrt{1/\bar n_{\rm pix}+\sigma_{\rm clus}^{2}}` recovers
-:math:`\sigma_{\rm clus}=0.063`, which matches the toy GLASS spectrum's own
-per-pixel clustering scatter at NSIDE 256 (0.064 measured directly from the map).
-Clustering supplies 34 % of the pixel variance at :math:`\bar n_{\rm pix}=127`
-and 67 % at 490, so the lever flattens exactly where it should. The sweep
-therefore *measures* the clustering floor rather than merely assuming it.
-
-**Pixelisation on its own buys nothing.** Panel (a) holds
-:math:`\bar n_{\rm pix}` fixed, so :math:`N_{\rm gal}\propto N_{\rm pix}` and the
-two are degenerate along it. Breaking the degeneracy — raising NSIDE while
-lowering the density so :math:`N_{\rm gal}` stays at :math:`2.7\times10^{6}` —
-gives a slope of :math:`-0.055`, i.e. flat, sitting on the shot floor
-:math:`3/\sqrt{N_{\rm gal}}=1.8\times10^{-3}`. In the shot regime
-:math:`A_{\min}` is set by the galaxy count alone.
+Panel (a) holds :math:`\bar n_{\rm pix}` fixed, so :math:`N_{\rm gal}\propto N_{\rm pix}`
+along it. Raising NSIDE while lowering the density so that :math:`N_{\rm gal}` stays
+at :math:`2.7\times10^{6}` gives a slope of :math:`-0.055`, on the shot floor
+:math:`3/\sqrt{N_{\rm gal}}=1.8\times10^{-3}`.
 
 .. figure:: /_static/survey_design_synthesis/fig4_sweep_validation.png
    :width: 98%
 
-   Stage-2 sweep with **fitted** exponents. (a) and (b) follow the analytic
-   :math:`\propto x^{-1/2}` reference (dashed); (c) departs from pure shot noise
-   (dashed) and is tracked instead by the shot+clustering curve (green); (d) is
-   flat at the shot floor. GLASS mocks — a scaling diagnostic, not a survey
-   forecast.
+   Fitted exponents from the sweep. (a) and (b) with the analytic
+   :math:`\propto x^{-1/2}` reference (dashed); (c) with pure shot noise (dashed) and
+   the shot-plus-clustering curve (green); (d) at fixed :math:`N_{\rm gal}`, with the
+   shot floor.
 
 .. caution::
 
-   Two caveats a reader should carry away from this figure.
+   The fitted exponents depend on the injected amplitude. ``field_snr`` is built
+   from :math:`\lVert T\hat a\rVert`, which is biased high at low signal, so the
+   same :math:`f_{\rm sky}` slice fits :math:`-0.388` at :math:`A=0.005` and
+   :math:`-0.493` at :math:`A=0.05`.
 
-   *The fitted exponents depend on the injected amplitude.* ``field_snr`` is
-   built from :math:`\lVert T\hat a\rVert`, which is biased upward at low signal,
-   so the same :math:`f_{\rm sky}` slice fits :math:`-0.388` at :math:`A=0.005`
-   and :math:`-0.493` at :math:`A=0.05`. The panels are read at :math:`A=0.05`,
-   where the bias has died away; quoting the law at the detection threshold
-   itself would understate every exponent.
+   The mock per-pixel scatter at :math:`\bar n_{\rm pix}=127`, NSIDE 64 is
+   :math:`\hat\sigma\approx0.10`, against 0.397 measured on LS10, so mock
+   :math:`A_{\min}` values are about four times lower than the survey reaches. The
+   survey numbers are the scorecard values above.
 
-   *These are mock numbers, not forecasts.* At matched
-   :math:`\bar n_{\rm pix}=127`, NSIDE 64 the mock's per-pixel scatter is
-   :math:`\hat\sigma\approx0.10` against the measured LS10 :math:`0.397`, so its
-   :math:`A_{\min}` is a factor :math:`\sim4` lower than anything the real survey
-   can reach. The real-survey numbers are the scorecard values above.
-
-The MCMC-add anchors ran (240 fits) and agree with OLS to better than %%MCMCAGREE%%
-in every one of the %%MCMCCELLS%% shared cells. That is a consistency check rather than an independent measurement:
-for the additive Gaussian model the posterior mean *is* the OLS solution, so
-``MCMC-add`` cannot pin the floor any more tightly than ``OLS`` already does."""
+The MCMC-add anchors agree with OLS to better than %%MCMCAGREE%% in all
+%%MCMCCELLS%% shared cells. For the additive Gaussian model the posterior mean is
+the OLS solution, so this is a consistency check."""
 
 
-_SWEEP_PREP = r"""Empirical validation (Stage 2 — prepared, not yet run)
-------------------------------------------------------
+_SWEEP_PREP = r"""GLASS-mock sweep
+----------------
 
-Tracing the analytic curves across the full ``nside × density × f_sky × amplitude``
-grid (and pinning the clustering floor with MCMC) is prepared as a sweep but not
-executed; run ``python scripts/run_detectability_sweep.py --check`` then
-``bash bash/run_remote_full.sh sweep_ls10 sweep_euclid``."""
+The sweep outputs are not on disk. ``python scripts/run_detectability_sweep.py --check``
+validates the inputs and ``bash bash/run_remote_full.sh sweep_ls10 sweep_euclid``
+runs the grid."""
 
 
 def _table_rows(ls10):
@@ -411,22 +395,21 @@ def _table_rows(ls10):
     return out
 
 
-_RST = r"""Survey design & the detectability law
-=====================================
+_RST = r"""Survey design and the detectability law
+=======================================
 
-.. note::
-   Takes the LS10 worked example (:doc:`detectability_law`) into generalised
-   rules of thumb and a design-space picture, then checks the scaling laws
-   against the Stage-2 GLASS-mock sweep. Interpretive; no new fit.
+This page turns the LS10 worked example of :doc:`detectability_law` into rules of
+thumb for dimensioning a survey, and compares the scaling laws with a GLASS-mock
+sweep.
 
 Where LS10 sits in the design space
 -----------------------------------
 
-The law :math:`A_{\min}(\nu\sigma)=\nu\hat\sigma/\sqrt{N_{\rm pix}}`
-(:math:`N_{\rm eff}=N_{\rm pix}/\hat\sigma^2`) places a survey by its measured
-per-pixel scatter and its pixel count:
+The law :math:`A_{\min}(\nu\sigma)=\nu\hat\sigma/\sqrt{N_{\rm pix}}`, with
+:math:`N_{\rm eff}=N_{\rm pix}/\hat\sigma^2`, places a survey by its measured
+per-pixel scatter and its pixel count.
 
-.. list-table:: Design-space scorecard (fiducial configurations)
+.. list-table:: Design-space scorecard (fiducial configuration)
    :header-rows: 1
    :widths: 26 8 8 8 16 20 12
 
@@ -439,78 +422,66 @@ per-pixel scatter and its pixel count:
      - :math:`A_{\min}(3\sigma)`
 %%TABLE%%
 
-LS10 is **clustering- (cosmic-variance-) limited** on the real sky: the measured
-per-pixel scatter :math:`\hat\sigma\sim0.4\text{–}0.8` exceeds the shot term
-:math:`1/\sqrt{\bar n_{\rm pix}}` by :math:`4.5\times` in RMS at the fiducial
-NSIDE 64, so only a small fraction :math:`N_{\rm eff}/N_{\rm gal}` of the
-galaxies count toward detection. It sits **deep in the clustering regime** —
-wide, dense, coarse pixels — at every NSIDE in the scorecard.
+LS10 is clustering-limited at every NSIDE in the scorecard. At NSIDE 64 the
+per-pixel scatter :math:`\hat\sigma=0.397` of the fiducial sample is 4.5 times the
+shot term :math:`1/\sqrt{\bar n_{\rm pix}}`, so :math:`N_{\rm eff}/N_{\rm gal}=0.05`.
 
 .. figure:: /_static/survey_design_synthesis/fig1_master_Amin_vs_Ngal.png
    :width: 90%
 
-   Smallest detectable systematic vs galaxy count across the LS10 samples
-   (:math:`4.5\text{–}13.8\times10^{-3}`). Scatter at fixed
-   :math:`N_{\rm gal}` is driven by :math:`\hat\sigma`, not by counts:
-   :math:`\log M_*\geq11.0` reaches :math:`6.1\times10^{-3}` on 1.6 M galaxies
-   thanks to an unusually low :math:`\hat\sigma=0.297`, better than samples
-   twice its size.
+   Smallest detectable systematic against galaxy count for the LS10 samples at
+   NSIDE 64 (:math:`4.5\text{–}13.8\times10^{-3}`). At fixed :math:`N_{\rm gal}` the
+   scatter follows :math:`\hat\sigma`: :math:`\log M_*\geq11.0` reaches
+   :math:`6.1\times10^{-3}` on 1.6 M galaxies with :math:`\hat\sigma=0.297`.
 
 .. figure:: /_static/survey_design_synthesis/fig2_Amin_vs_fsky.png
    :width: 90%
 
-   In the clustering regime :math:`A_{\min}\propto f_{\rm sky}^{-1/2}`: **more
-   area, not more depth, lowers the floor.** LS10 already exploits most of the
-   available sky, so its remaining gain from area is modest.
+   In the clustering regime :math:`A_{\min}\propto f_{\rm sky}^{-1/2}`. LS10 covers
+   :math:`f_{\rm sky}=0.44`.
 
 .. figure:: /_static/survey_design_synthesis/fig3_design_space.png
    :width: 90%
 
-   The usable fraction :math:`N_{\rm eff}/N_{\rm gal}` across pixel size and
-   density; 1 is the pure-shot ceiling.
+   :math:`N_{\rm eff}/N_{\rm gal}` across pixel size and density; 1 is pure shot
+   noise.
 
-Generalised rules of thumb
---------------------------
+Rules of thumb
+--------------
 
-#. **Sensitivity is set by** :math:`N_{\rm eff}=N_{\rm pix}/\hat\sigma^2`, not
-   :math:`N_{\rm gal}`. Measure :math:`\hat\sigma` (the fit residual scatter);
-   then :math:`A_{\min}(\nu\sigma)=\nu\hat\sigma/\sqrt{N_{\rm pix}}`.
-#. **Shot regime** (:math:`\bar n_{\rm pix}\lesssim1/\sigma_{\rm clus}^{2}`, which is
-   :math:`\approx7` for LS10 at NSIDE 64 — not "a few tens"):
-   :math:`A_{\min}\propto1/\sqrt{N_{\rm gal}}` — add galaxies/depth.
-   **Clustering regime** (denser): :math:`A_{\min}` saturates at a floor
-   :math:`\propto1/\sqrt{f_{\rm sky}}` — add area.
-#. **Pixel size:** refine until the shot floor or the systematic's coherence
-   scale, whichever comes first; finer resolves more modes but buys nothing once
-   shot-limited, and coarser than the systematic washes out its signal.
-#. **Detect the field, not the map:** the field statistic is VIF-free; individual
-   collinear templates (cond :math:`\sim10^8` for the LS10 basis) are not
-   identifiable. Calibrate per-template significance on matched mocks
-   (``sys_mapping.calibrated_template_significance``): on LS10 the iid error is
-   short by a median factor of 1.3 to 2.9 per sample, rising with resolution,
-   and by 0.9 to 5.6 for single templates.
-#. **Use the field regression, not** :math:`w(\theta)`, **to detect:** the
-   :math:`w(\theta)` contamination signal grows as :math:`A^2` while the linear
-   field regression grows as :math:`A`, so the field regression detects far
-   fainter systematics at the amplitudes actually present.
+#. Sensitivity is set by :math:`N_{\rm eff}=N_{\rm pix}/\hat\sigma^2`. Measure
+   :math:`\hat\sigma` as the residual scatter of the fit; then
+   :math:`A_{\min}(\nu\sigma)=\nu\hat\sigma/\sqrt{N_{\rm pix}}`.
+#. In the shot regime, :math:`\bar n_{\rm pix}\lesssim1/\sigma_{\rm clus}^{2}`
+   (about 7 for LS10 at NSIDE 64), :math:`A_{\min}\propto1/\sqrt{N_{\rm gal}}` and
+   depth helps. At higher density :math:`A_{\min}` saturates at a floor
+   :math:`\propto1/\sqrt{f_{\rm sky}}` and area helps.
+#. Refine pixels down to the shot floor or the coherence scale of the systematic,
+   whichever is reached first. Pixels coarser than the systematic average its
+   signal away.
+#. Detect the field rather than individual templates. The field statistic is
+   insensitive to collinearity, while individual templates are poorly identified
+   (condition number :math:`1.4\times10^{3}` for the standardised LS10 basis at
+   NSIDE 64). Calibrate per-template significance on matched mocks with
+   ``sys_mapping.calibrated_template_significance``: on LS10 the independent-pixel
+   error is short by a median factor of 1.3 to 2.9 per sample, rising with
+   resolution, and by 0.9 to 5.6 for single templates.
+#. The contamination of :math:`w(\theta)` grows as :math:`A^2` and the field
+   regression signal as :math:`A`, so the field regression detects fainter
+   systematics.
 
-Bottom line for dimensioning a run
-----------------------------------
+Dimensioning a run
+------------------
 
-* **A wide shallow survey (LS10-like)** detects the *smallest amplitudes* because
-  area buys modes; it is already area-limited, so deeper imaging barely helps —
-  push :math:`f_{\rm sky}`.
-* **A deep narrow survey** is limited by area; at fixed depth its
-  :math:`A_{\min}` floor drops fastest by enlarging the footprint. Its fine
-  pixels already extract the available modes, so coarser pixelisation would not
-  hurt and finer would not help.
-* At its fiducial configuration LS10 reaches
-  :math:`A_{\min}(3\sigma)=8.1\times10^{-3}` field RMS; across all samples and
-  resolutions the range is :math:`4.3\times10^{-3}` to :math:`1.5\times10^{-2}`,
-  so it is not uniformly sub-percent. That comfortably detects the real
-  systematics present in the data, whose amplitude is 3.2 % RMS for the
-  additive/OLS weights and 4.9 % for the combined model (measured from the
-  NSIDE-64 fiducial weight map) — about :math:`12\sigma`.
+* A wide, shallow survey such as LS10 is area-limited: it reaches the smallest
+  amplitudes because area adds modes, and more depth adds little.
+* A deep, narrow survey lowers its :math:`A_{\min}` floor fastest by enlarging the
+  footprint. Its fine pixels already sample the available modes.
+* At NSIDE 64 the fiducial LS10 sample reaches :math:`A_{\min}(3\sigma)=8.1\times10^{-3}`
+  field rms; across all samples and resolutions the range is :math:`4.3\times10^{-3}`
+  to :math:`1.5\times10^{-2}`. The systematics in the NSIDE-64 fiducial weight map
+  have rms 3.2 % for the OLS weights and 4.9 % for the combined model, about
+  :math:`12\sigma`.
 
 %%SWEEP%%
 

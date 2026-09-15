@@ -16,12 +16,16 @@ Produces 9 PNG files in docs/_static/results_snr_preselection/:
 
 Usage::
 
-    python scripts/run_snr_preselection_demo.py
+    python scripts/run_snr_preselection_demo.py [--output-dir DIR] [--n-total N] [--n-mocks N]
+
+It also writes ``summary.json`` there, holding every number the page quotes.
 
 Requires: glass, healpy, matplotlib (all in the sys_map conda environment).
-Runtime: ~15–30 min (dominated by GLASS mock generation at 15 M galaxies).
+The GLASS universe and every calibration null use the parametric spectrum
+``CL_AMPLITUDE`` below; the demo has no data to match.
 """
 
+import json
 import os
 import sys
 import time
@@ -103,8 +107,8 @@ def _bar_colors(n):
 def _calibrated_template_snr(dg, delta_t, good, mean_count, n_mock=60, seed=SEED + 500):
     """Correlated-field-calibrated OLS |t|-stat SNR per template.
 
-    The nominal ``template`` SNR ``|α̂_i|/σ_iid`` uses an **independent-pixel** σ, which is ~2× too
-    tight on the correlated GLASS field.  Here σ is the univariate correlated-noise error
+    The nominal ``template`` SNR ``|α̂_i|/σ_iid`` uses an independent-pixel σ.  Here σ is the
+    univariate correlated-noise error
     ``Var(α̂_i)=Var(⟨t_i,ε⟩)/⟨t_i,t_i⟩²`` (the per-template sandwich), with the noise covariance
     estimated from a cheap ensemble of **uncontaminated** GLASS reconstructions (field-only +
     Poisson shot — no 15 M catalogue). Returns ``snr_cal`` (n_templates,).
@@ -136,6 +140,18 @@ def _savefig(fig, name):
 # ---------------------------------------------------------------------------
 
 def main():
+    import argparse
+    global OUT_DIR, N_TOTAL, NZ, N_MOCKS, MOCK_SWEEP
+    ap = argparse.ArgumentParser(description="Figures for the SNR pre-selection page.")
+    ap.add_argument("--output-dir", default=OUT_DIR)
+    ap.add_argument("--n-total", type=int, default=N_TOTAL, help="Galaxies in the universe.")
+    ap.add_argument("--n-mocks", type=int, default=N_MOCKS, help="GLASS null realisations.")
+    args = ap.parse_args()
+    OUT_DIR = args.output_dir
+    NZ = NZ * args.n_total / N_TOTAL
+    N_TOTAL = args.n_total
+    N_MOCKS = args.n_mocks
+    MOCK_SWEEP = [n for n in MOCK_SWEEP if n < N_MOCKS] + [N_MOCKS]
     os.makedirs(OUT_DIR, exist_ok=True)
 
     # ------------------------------------------------------------------
@@ -200,6 +216,7 @@ def main():
         isd_results[level] = isd_template_significance(
             dg, delta_t, good, NSIDE, N_TOTAL, Z_EDGES, NZ,
             n_mocks=N_MOCKS, seed=SEED + 10, rand_factor=RAND_FACTOR,
+            cl_amplitude=CL_AMPLITUDE,
         )
         print(f" {time.perf_counter()-t0:.0f} s")
 
@@ -245,8 +262,8 @@ def main():
             dg = _contaminate(delta_g_clean, delta_t, amp)
             snr = snr_template_ranking(dg, delta_t, method=method)
             ax.bar(range(N_TEMPLATES), snr, color=bar_colors, edgecolor="white", linewidth=0.4)
-            # For the OLS t-stat, overlay the correlated-field-CALIBRATED SNR (sandwich σ): the
-            # nominal bars use an independent-pixel σ and are ~2× overconfident on this field.
+            # For the OLS t-stat, overlay the SNR with the correlated-field (sandwich) σ; the
+            # bars use the independent-pixel σ.
             if method == "template":
                 snr_cal = _calibrated_template_snr(dg, delta_t, good, mean_count)
                 ax.plot(range(N_TEMPLATES), snr_cal, "k_", markersize=11, markeredgewidth=2.0,
@@ -355,11 +372,16 @@ def main():
     }
     levels = ["low", "medium", "high"]
     detected = np.zeros((len(methods), len(levels)), dtype=bool)
+    snr_levels = {m: {} for m in methods}
     for mi, method in enumerate(methods):
         for li, level in enumerate(levels):
             dg = _contaminate(delta_g_clean, delta_t, LEVELS[level])
             result = snr_preselect(dg, delta_t, method=method, n_top=3)
             top3 = set(result.selected_indices[:3])
+            snr_levels[method][level] = {
+                "top3": [int(i) for i in result.selected_indices[:3]],
+                "snr": [float(x) for x in snr_template_ranking(dg, delta_t, method=method)],
+            }
             detected[mi, li] = all(ci in top3 for ci in CONTAM_IDX)
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
@@ -469,22 +491,12 @@ def main():
     ax2.axvline(rot_n, color="green", linestyle="--", lw=1.5,
                 label=f"Convergence at N = {rot_n}")
     ax2.set_xlabel("N_mocks")
-    ax2.set_ylabel(r"max$\,|\Delta p|$ (noise templates vs N=100)")
+    ax2.set_ylabel(r"max$\,|\Delta p|$ (noise templates vs N=" + f"{MOCK_SWEEP[-1]})")
     ax2.set_title("Convergence of noise-template p-values")
     ax2.legend(fontsize=9)
 
-    # Rule-of-thumb annotation
-    rule_text = (
-        "Rule of thumb:\n"
-        r"$N_\mathrm{mocks} \geq \max\!\left(20,\,\lceil 5/\alpha \rceil\right)$"
-        "\n"
-        r"For $\alpha=0.05$: $N_\mathrm{mocks} \geq 100$"
-    )
-    fig.text(0.99, 0.01, rule_text, ha="right", va="bottom", fontsize=9,
-             bbox=dict(boxstyle="round", facecolor="lightyellow", alpha=0.85))
-
     fig.suptitle("ISD mock convergence analysis", fontsize=12)
-    fig.tight_layout(rect=[0, 0.06, 1, 1])
+    fig.tight_layout()
     _savefig(fig, "07_mock_convergence.png")
 
     # ------------------------------------------------------------------
@@ -499,6 +511,32 @@ def main():
     for m, t in timing.items():
         print(f"  {m:12s}: {t*1000:.2f} ms")
     print(f"\nRule-of-thumb N_mocks: {rot_n}  (convergence threshold |Δp| < 0.05)")
+
+    snr_cal_levels = {lv: [float(x) for x in _calibrated_template_snr(
+        _contaminate(delta_g_clean, delta_t, LEVELS[lv]), delta_t, good, mean_count)]
+        for lv in levels}
+    summary = {
+        "nside": NSIDE, "n_total": N_TOTAL, "n_templates": N_TEMPLATES,
+        "contam_idx": CONTAM_IDX, "cl_amplitude": CL_AMPLITUDE, "n_mocks": N_MOCKS,
+        "n_good_pix": int(good.sum()), "mean_count_per_pixel": mean_count,
+        "levels": {k: float(v) for k, v in LEVELS.items()},
+        "timing_ms": {m: t * 1000 for m, t in timing.items()},
+        "isd_delta_chi2": {lv: isd_results[lv]["delta_chi2"].tolist() for lv in levels},
+        "isd_p_values": {lv: isd_results[lv]["p_values"].tolist() for lv in levels},
+        "isd_null_chi2_68": np.percentile(isd_results["high"]["delta_chi2_mocks"], 68,
+                                          axis=0).tolist(),
+        "snr": snr_levels,
+        "snr_template_calibrated": snr_cal_levels,
+        "detected_top3": {m: {lv: bool(detected[mi, li]) for li, lv in enumerate(levels)}
+                          for mi, m in enumerate(methods)},
+        "amplitude_scan": {"amplitudes": amplitudes.tolist(),
+                           **{m: [float(x) for x in v] for m, v in snr_vs_amp.items()},
+                           "template_calibrated": [float(x) for x in snr_vs_amp_cal]},
+        "convergence_max_dp": conv_metric, "convergence_n": rot_n,
+        "runtime_min": total / 60,
+    }
+    with open(os.path.join(OUT_DIR, "summary.json"), "w") as fh:
+        json.dump(summary, fh, indent=2)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,8 @@ python scripts/plot_simulation_tests.py \\
     [--nside 64] \\
     [--results-json data/simulations/nside0064/results_summary.json] \\
     [--syst-dir ~/data/legacysurvey/dr10/systematics/] \\
-    [--uchuu-data ~/data/Uchuu/.../_DATA.fits] \\
+    [--uchuu-data ~/data/Uchuu/.../_DATA.fits.gz] \\
+    [--cl-amplitude 5e-4] \\
     [--output-dir docs/_static/results_simulation_tests/nside0064]
 """
 
@@ -60,7 +61,7 @@ _DEFAULT_SYST_DIR = os.path.expanduser("~/data/legacysurvey/dr10/systematics/")
 _DEFAULT_UCHUU_DATA = os.path.expanduser(
     "~/data/Uchuu/FullSky/mock_catalogues/"
     "MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373/"
-    "MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373_DATA.fits"
+    "MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373_DATA.fits.gz"
 )
 
 # ── Shared style ───────────────────────────────────────────────────────────────
@@ -90,6 +91,7 @@ plt.rcParams.update(
 METHOD_STYLES = {
     "OLS":        {"color": "C0", "ls": "-",   "marker": "o"},
     "ISD-1":      {"color": "C1", "ls": "--",  "marker": "s"},
+    "ISD-3":      {"color": "C5", "ls": "--",  "marker": "P"},
     "ElasticNet": {"color": "C2", "ls": "-.",  "marker": "^"},
     "MCMC-add":   {"color": "C3", "ls": ":",   "marker": "D"},
     "MCMC-comb":  {"color": "C4", "ls": "--",  "marker": "v"},
@@ -117,7 +119,8 @@ def _savefig(fig: plt.Figure, output_dir: Path, name: str) -> Path:
 # ── 1. n(z) comparison ────────────────────────────────────────────────────────
 
 
-def plot_nz_comparison(output_dir: Path, uchuu_z_path: str | None) -> None:
+def plot_nz_comparison(output_dir: Path, uchuu_z_path: str | None,
+                       cl_amplitude: float = 5e-4) -> None:
     """Plot n(z) from Uchuu and GLASS alongside each other."""
     from sys_mapping.glass_mocks import generate_glass_fullsky_mock, measure_nz
 
@@ -142,12 +145,13 @@ def plot_nz_comparison(output_dir: Path, uchuu_z_path: str | None) -> None:
         dz = np.diff(z_edges)
         z_cen = 0.5 * (z_edges[:-1] + z_edges[1:])
         ax.bar(z_cen, nz_uchuu / nz_uchuu.sum() / dz, width=dz * 0.9,
-               alpha=0.6, color="C3", label="Uchuu lightcone (simulated n(z))")
+               alpha=0.6, color="C3", label="uniform reference n(z) (no Uchuu file)")
         n_total = 923_373
 
     # GLASS n(z)
     glass_cat = generate_glass_fullsky_mock(
-        nside=16, n_total=n_total, z_edges=z_edges, nz=nz_uchuu, seed=0
+        nside=16, n_total=n_total, z_edges=z_edges, nz=nz_uchuu, seed=0,
+        cl_amplitude=cl_amplitude,
     )
     _, nz_glass = measure_nz(glass_cat["z"], 0.05, 0.26, n_bins=20)
     ax.step(z_edges[:-1], nz_glass / nz_glass.sum() / dz,
@@ -681,6 +685,8 @@ def _parse_args() -> argparse.Namespace:
                    help="Path to results_summary.json (default: data/simulations/nside{NSIDE:04d}/results_summary.json)")
     p.add_argument("--syst-dir", default=_DEFAULT_SYST_DIR)
     p.add_argument("--uchuu-data", default=_DEFAULT_UCHUU_DATA)
+    p.add_argument("--cl-amplitude", type=float, default=5e-4,
+                   help="Parametric GLASS spectrum amplitude, as in run_simulation_tests.py.")
     p.add_argument("--nside", type=int, default=64)
     p.add_argument("--output-dir", default=None,
                    help="Output directory (default: docs/_static/results_simulation_tests/nside{NSIDE:04d}/)")
@@ -717,7 +723,7 @@ def main() -> int:
 
     # 1. n(z) comparison
     print("\n[1/6] n(z) comparison")
-    plot_nz_comparison(output_dir, args.uchuu_data)
+    plot_nz_comparison(output_dir, args.uchuu_data, cl_amplitude=args.cl_amplitude)
 
     # 2. Template overview
     if not args.no_templates:

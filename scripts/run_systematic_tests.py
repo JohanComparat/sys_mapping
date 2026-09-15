@@ -35,6 +35,11 @@ Methods
 -------
   OLS, ElasticNet, ISD-1, ISD-3, MCMC-additive, MCMC-combined
 
+All six run through ``sm.run_decontamination``.  MCMC-add is the exact analytic
+posterior and MCMC-comb BlackJAX NUTS (``sampler="auto"``).  The ISD stopping
+rule is calibrated per template and polynomial order on uncontaminated mocks
+drawn by ``make_mock`` with every amplitude zero.
+
 Output per configuration
 ------------------------
   * PNG histogram of (1+δ_corr)/(1+δ_true) per method
@@ -47,7 +52,7 @@ Usage
     python scripts/run_systematic_tests.py --output-dir results/systematic_tests/
 
     # Fast smoke-test (OLS + MCMC-comb only, NSIDE=16):
-    python scripts/run_systematic_tests.py --nside 16 --fast \\
+    python scripts/run_systematic_tests.py --nside 16 --fast --isd-n-mocks 0 \\
         --output-dir /tmp/sys_test/
 """
 
@@ -164,23 +169,52 @@ def make_mock(nside: int, templates: np.ndarray, footprint: np.ndarray,
     return gal_counts, rand_counts, delta_true
 
 
+# ── ISD calibration ──────────────────────────────────────────────────────
+
+def calibrate_isd(nside: int, templates: np.ndarray, footprint: np.ndarray,
+                  n_mocks: int, seed: int, orders=(1, 3)) -> dict:
+    """68th percentile per template of the ISD Delta chi^2 on uncontaminated mocks.
+
+    The mocks are ``make_mock`` with every amplitude zero, seeds distinct from the
+    contaminated run.  The statistic is the first-step marginal fit of
+    ``iterative_systematics_decontamination`` (10 quantile bins).  A marginal fit
+    involves one template at a time, so one calibration over all seven templates
+    serves every configuration.  Returns ``{"ISD-1": (7,), "ISD-3": (7,)}``.
+    """
+    from sys_mapping.diagnostics import isd_marginal_fit
+
+    n_sys = templates.shape[0]
+    dchi2 = {order: [] for order in orders}
+    for k in range(n_mocks):
+        gal, ran, _ = make_mock(nside, templates, footprint, np.zeros(n_sys),
+                                np.zeros(n_sys), seed=seed + 10_000 + k)
+        delta_g, good = sm.compute_overdensity(gal, ran)
+        delta_t = sm.assign_template_values(templates, good)
+        for order in orders:
+            dchi2[order].append(isd_marginal_fit(delta_g, delta_t, poly_order=order)[0])
+    return {f"ISD-{order}": np.percentile(np.array(v), 68, axis=0)
+            for order, v in dchi2.items()}
+
+
 # ── Corrected overdensity per method ─────────────────────────────────────
 
 def _run_methods_for_config(
     delta_g: np.ndarray,
     delta_t: np.ndarray,
-    n_walkers: int, n_steps: int, n_burn: int,
     seed: int, methods: list[str],
+    isd_chi2_68: dict | None = None,
+    mcmc_kw: dict | None = None,
 ) -> dict:
     """Run all requested methods via run_decontamination(); return result dict."""
     results = {}
     for method in methods:
+        kw = {"seed": seed}
+        if method.startswith("ISD") and isd_chi2_68 is not None:
+            kw["isd_chi2_68"] = isd_chi2_68[method]
+        if method.startswith("MCMC"):
+            kw.update(mcmc_kw or {})
         try:
-            results[method] = sm.run_decontamination(
-                method, delta_g, delta_t,
-                n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-                seed=seed,
-            )
+            results[method] = sm.run_decontamination(method, delta_g, delta_t, **kw)
         except Exception as exc:
             warnings.warn(f"Method {method} failed: {exc}")
     return results
@@ -227,9 +261,9 @@ def run_config(config_id: str, active_templates: np.ndarray,
                active_indices: list[int], all_templates: np.ndarray,
                nside: int, footprint: np.ndarray,
                contamination_type: str,
-               n_walkers: int, n_steps: int, n_burn: int,
                methods: list[str], seed: int,
-               outdir: Path) -> list[dict]:
+               outdir: Path, isd_chi2_68: dict | None = None,
+               mcmc_kw: dict | None = None) -> list[dict]:
     """Run a single test configuration; return a list of CSV rows."""
     n_sys = active_templates.shape[0]
     active_names = [TEMPLATE_NAMES[i] for i in active_indices]
@@ -261,8 +295,10 @@ def run_config(config_id: str, active_templates: np.ndarray,
     delta_true_good = delta_true[good_pix]
 
     # Run all requested methods via the unified interface
+    active_c68 = (None if isd_chi2_68 is None else
+                  {k: v[active_indices] for k, v in isd_chi2_68.items()})
     method_results = _run_methods_for_config(
-        delta_g, delta_t, n_walkers, n_steps, n_burn, seed, methods
+        delta_g, delta_t, seed, methods, isd_chi2_68=active_c68, mcmc_kw=mcmc_kw,
     )
 
     # Compute ratios and stats
@@ -270,10 +306,8 @@ def run_config(config_id: str, active_templates: np.ndarray,
     ratios_for_plot = {}
 
     for method, res in method_results.items():
-        if method in ("ISD-1", "ISD-3"):
-            n_it = res.get("n_iterations") or "?"
-            if isinstance(n_it, int) and n_it >= 50:
-                warnings.warn(f"{method} did not converge (hit max_iter=50)")
+        if method in ("ISD-1", "ISD-3") and res.get("isd_stopped_on") == "max_steps":
+            warnings.warn(f"{method} stopped on its step cap ({res['n_iterations']} steps)")
 
         w = res["weights"]
         if method == "MCMC-comb" and res.get("a_hat") is not None:
@@ -301,7 +335,9 @@ def run_config(config_id: str, active_templates: np.ndarray,
             "median_ratio":       stats["median"],
             "iqr_ratio":          stats["iqr"],
             "time_s":             res["elapsed_s"],
-            "n_iter":             res.get("n_iterations") or "",
+            "n_iter":             "" if res.get("n_iterations") is None else res["n_iterations"],
+            "isd_stopped_on":     res.get("isd_stopped_on") or "",
+            "rms_a_bias":         float(np.sqrt(np.mean((np.asarray(res["a_hat"]) - a_true) ** 2))),
         })
 
     # Plot
@@ -344,7 +380,7 @@ def plot_summary_table(rows: list[dict], methods: list[str], outdir: Path):
 
 # ── Timing summary plot ───────────────────────────────────────────────────
 
-def plot_timing_table(rows: list[dict], methods: list[str], outdir: Path):
+def plot_timing_table(rows: list[dict], methods: list[str], outdir: Path, nside: int = 32):
     """Wall-clock time per method as a function of n_templates."""
     import pandas as pd
     df = pd.DataFrame(rows)
@@ -360,7 +396,7 @@ def plot_timing_table(rows: list[dict], methods: list[str], outdir: Path):
                 color=METHOD_COLORS.get(method, "gray"))
     ax.set_xlabel("Number of templates", fontsize=10)
     ax.set_ylabel("Wall-clock time (s)", fontsize=10)
-    ax.set_title("Compute time per method vs. number of templates (NSIDE=32)", fontsize=11)
+    ax.set_title(f"Compute time per method vs. number of templates (NSIDE={nside})", fontsize=11)
     ax.legend(fontsize=8)
     ax.set_yscale("log")
     ax.set_xticks(range(1, 8))
@@ -374,7 +410,7 @@ def plot_timing_table(rows: list[dict], methods: list[str], outdir: Path):
     colors = [METHOD_COLORS.get(m, "gray") for m in mean_time.index]
     ax.barh(mean_time.index, mean_time.values, color=colors)
     ax.set_xlabel("Mean wall-clock time (s)", fontsize=10)
-    ax.set_title("Mean compute time per method (all configs, NSIDE=32)", fontsize=11)
+    ax.set_title(f"Mean compute time per method (all configs, NSIDE={nside})", fontsize=11)
     ax.set_xscale("log")
     plt.tight_layout()
     plt.savefig(outdir / "timing_mean_per_method.png", dpi=120, bbox_inches="tight")
@@ -389,9 +425,20 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument("--nside", type=int, default=32)
-    parser.add_argument("--n-walkers", type=int, default=64)
-    parser.add_argument("--n-steps",   type=int, default=200)
-    parser.add_argument("--n-burn",    type=int, default=50)
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend of run_decontamination: auto is the analytic "
+                             "posterior for MCMC-add and NUTS for MCMC-comb.")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps (MCMC-comb).")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS draws per chain (MCMC-comb).")
+    parser.add_argument("--n-walkers", type=int, default=64, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-steps",   type=int, default=200, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-burn",    type=int, default=50, help="emcee only (--sampler emcee).")
+    parser.add_argument("--isd-n-mocks", type=int, default=50,
+                        help="Uncontaminated mocks calibrating the ISD stopping rule "
+                             "(0 leaves it uncalibrated).")
     parser.add_argument("--seed",      type=int, default=42)
     parser.add_argument("--fast", action="store_true",
                         help="Run only OLS and MCMC-comb (skips ElasticNet/ISD).")
@@ -415,6 +462,21 @@ def main():
     print(f"Footprint: {footprint.sum():,} pixels "
           f"({footprint.mean()*100:.1f}% of sky)")
 
+    mcmc_kw = dict(sampler=args.sampler, nuts_n_warmup=args.nuts_warmup,
+                   nuts_n_samples=args.nuts_samples, n_walkers=args.n_walkers,
+                   n_steps=args.n_steps, n_burn=args.n_burn)
+    isd_chi2_68 = None
+    if args.isd_n_mocks > 0 and any(m.startswith("ISD") for m in methods):
+        print(f"Calibrating the ISD stopping rule on {args.isd_n_mocks} uncontaminated mocks ...")
+        isd_chi2_68 = calibrate_isd(nside, templates_all, footprint,
+                                    args.isd_n_mocks, args.seed)
+        for name, c68 in isd_chi2_68.items():
+            print(f"  {name} chi2_68 = {np.array2string(c68, precision=2)}")
+        import json
+        (outdir / "isd_chi2_68.json").write_text(json.dumps(
+            {"template_names": TEMPLATE_NAMES, "n_mocks": args.isd_n_mocks,
+             **{k: v.tolist() for k, v in isd_chi2_68.items()}}, indent=2))
+
     all_rows = []
 
     # ── Tier 1: single contamination type ─────────────────────────────────
@@ -434,9 +496,8 @@ def main():
                 all_templates=templates_all,
                 nside=nside, footprint=footprint,
                 contamination_type=ctype,
-                n_walkers=args.n_walkers,
-                n_steps=args.n_steps, n_burn=args.n_burn,
                 methods=methods, seed=args.seed, outdir=outdir,
+                isd_chi2_68=isd_chi2_68, mcmc_kw=mcmc_kw,
             )
             all_rows.extend(rows)
             std_vals = {r["method"]: f"{r['std_ratio']:.3f}" for r in rows}
@@ -453,9 +514,8 @@ def main():
                 all_templates=templates_all,
                 nside=nside, footprint=footprint,
                 contamination_type=ctype,
-                n_walkers=args.n_walkers,
-                n_steps=args.n_steps, n_burn=args.n_burn,
                 methods=methods, seed=args.seed, outdir=outdir,
+                isd_chi2_68=isd_chi2_68, mcmc_kw=mcmc_kw,
             )
             all_rows.extend(rows)
             std_vals = {r["method"]: f"{r['std_ratio']:.3f}" for r in rows}
@@ -475,9 +535,8 @@ def main():
             all_templates=templates_all,
             nside=nside, footprint=footprint,
             contamination_type=ctype,
-            n_walkers=args.n_walkers,
-            n_steps=args.n_steps, n_burn=args.n_burn,
             methods=methods, seed=args.seed, outdir=outdir,
+            isd_chi2_68=isd_chi2_68, mcmc_kw=mcmc_kw,
         )
         all_rows.extend(rows)
         std_vals = {r["method"]: f"{r['std_ratio']:.3f}" for r in rows}
@@ -488,7 +547,7 @@ def main():
     fieldnames = [
         "config_id", "n_templates", "active_templates", "contamination_type",
         "method", "mean_ratio", "std_ratio", "median_ratio", "iqr_ratio",
-        "time_s", "n_iter",
+        "time_s", "n_iter", "isd_stopped_on", "rms_a_bias",
     ]
     with open(csv_path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -510,7 +569,7 @@ def main():
     print(timing.sort_values("mean"))
 
     # ── Timing vs n_templates plots ────────────────────────────────────────
-    plot_timing_table(all_rows, methods, outdir)
+    plot_timing_table(all_rows, methods, outdir, nside=nside)
 
     print("\nDone.")
 

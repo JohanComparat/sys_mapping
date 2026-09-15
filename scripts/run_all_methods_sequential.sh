@@ -20,6 +20,8 @@
 #   DEVICE=cpu                   JAX device: cpu | gpu | auto (default: cpu)
 #   CATALOG_DIR=<path>           LS10 BGS catalog directory
 #   TEMPLATE_DIR=<path>          LS10 systematic template directory (optional)
+#   NULL_CL_FILE=<path>          matched spectra (*_match.json or a directory of them),
+#                                required by the ISD phases, which build a GLASS null
 #   LS10_OUTPUT_DIR=data/sys_weights/
 #   LS10_NSIDE=64                HEALPix NSIDE for LS10 (default: 64)
 #   SKIP_LS10=1                  Skip LS10 dataset entirely
@@ -55,6 +57,7 @@ fi
 DEVICE="${DEVICE:-cpu}"
 CATALOG_DIR="${CATALOG_DIR:-$HOME/data/legacysurvey/dr10/sweep/BGS_VLIM_Mstar}"
 TEMPLATE_DIR="${TEMPLATE_DIR:-}"
+NULL_CL_FILE="${NULL_CL_FILE:-}"
 LS10_OUTPUT_DIR="${LS10_OUTPUT_DIR:-data/sys_weights/}"
 LS10_NSIDE="${LS10_NSIDE:-64}"
 SKIP_LS10="${SKIP_LS10:-0}"
@@ -122,6 +125,7 @@ for METHOD in $METHODS; do
         echo "  LS10 BGS  — $METHOD"
         LS10_TMPL_ARGS=()
         [[ -n "$TEMPLATE_DIR" ]] && LS10_TMPL_ARGS=(--template-dir "$TEMPLATE_DIR")
+        [[ -n "$NULL_CL_FILE" ]] && LS10_TMPL_ARGS+=(--null-cl-file "$NULL_CL_FILE")
         "$PYTHON" scripts/run_ls10_analysis.py \
             --catalog-dir "$CATALOG_DIR" \
             "${LS10_TMPL_ARGS[@]}" \

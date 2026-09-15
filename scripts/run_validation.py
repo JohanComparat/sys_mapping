@@ -25,19 +25,17 @@ For each method the following metrics are computed:
   - chi2_resid: mean squared residual in the pixel overdensity
   - corr_with_true: Pearson r between recovered and true δ_g
   - rms_delta_error: RMS of (recovered - true) δ_g
-  - amplitude recovery bias and scatter (MCMC methods, compared to injected truth)
-  - null test: |r(weights, template_i)| after weighting, per template
+  - amplitude recovery bias (MCMC methods, compared to injected truth)
+
+MCMC-add uses the exact analytic posterior and MCMC-comb BlackJAX NUTS
+(``sampler="auto"`` of ``run_decontamination``).  The uncontaminated ensemble
+drawn by the same generator calibrates both the ISD stopping rule
+(Delta chi^2_68 per template and polynomial order) and the error bars on the
+additive amplitudes.
 
 Usage
 -----
-# Quick run (NSIDE=16, small MCMC) — ~3 min
-python scripts/run_validation.py --nside 16 --n-sys 3 --n-mean 50 \\
-    --n-walkers 60 --n-steps 300 --n-burn 60 \\
-    --output-dir docs/_static/results_validation
-
-# Science run (NSIDE=32) — ~15 min
 python scripts/run_validation.py --nside 32 --n-sys 3 --n-mean 50 \\
-    --n-walkers 100 --n-steps 600 --n-burn 100 \\
     --output-dir docs/_static/results_validation
 """
 import argparse
@@ -141,36 +139,33 @@ _METHOD_ORDER = [
 # Per-scenario analysis
 # ---------------------------------------------------------------------------
 
-def calibrate_isd(mock: MockCatalog, delta_t, good_pix, n_mocks: int, seed: int):
-    """Mock-calibrated Delta chi^2_68 for the ISD stopping rule.
+def calibrate_isd(null_fields, ref_good, ref_delta_t, orders=(1, 3)):
+    """68th percentile per template of the ISD Delta chi^2 on uncontaminated fields.
 
-    Without this the threshold ``S < 2`` is in raw Delta chi^2 units and means
-    nothing, so ISD keeps selecting templates it has already corrected.  The null
-    is a systematic-free GLASS ensemble on this footprint, exactly as
-    ``run_simulation_tests.py`` and ``run_ls10_analysis.py`` build it.
+    The ISD stopping rule ``S = Delta chi^2 / Delta chi^2_68 < 2`` is meaningful only
+    with this normalisation.  The fields are the scenario generator's own
+    uncontaminated realisations (``null_ensemble``), restricted to the pixels
+    populated in every one of them, and the statistic is the first-step marginal
+    fit of ``iterative_systematics_decontamination`` (10 quantile bins) at each
+    polynomial order.  Returns ``{"ISD-1": (n_sys,), "ISD-3": (n_sys,)}``.
     """
-    gal = sm.pixelize_catalog(mock.ra_gal, mock.dec_gal, mock.nside)
-    ran = sm.pixelize_catalog(mock.ra_rand, mock.dec_rand, mock.nside)
-    delta_clean, good_clean = sm.compute_overdensity(gal, ran)
-    out = sm.isd_template_significance(
-        delta_clean, sm.assign_template_values(mock.templates, good_clean),
-        good_clean, mock.nside,
-        n_total=0, z_edges=np.array([0.0, 1.0]),
-        nz=np.array([float(len(mock.ra_gal))]),
-        n_total_footprint=len(mock.ra_gal),
-        n_mocks=n_mocks, poly_order=3, binning="quantile",
-        seed=seed, rand_factor=2,
-    )
-    return np.percentile(out["delta_chi2_mocks"], 68, axis=0)
+    from sys_mapping.diagnostics import isd_marginal_fit
+
+    fields = null_fields[:, ref_good]
+    ok = np.all(np.isfinite(fields), axis=0)
+    out = {}
+    for order in orders:
+        dchi2 = np.array([isd_marginal_fit(f[ok], ref_delta_t[:, ok], poly_order=order)[0]
+                          for f in fields])
+        out[f"ISD-{order}"] = np.percentile(dchi2, 68, axis=0)
+    return out
 
 
 def analyse_scenario(
     mock: MockCatalog,
-    n_walkers: int,
-    n_steps: int,
-    n_burn: int,
     seed: int,
     isd_chi2_68=None,
+    mcmc_kw=None,
 ) -> dict:
     """Run all methods on one mock and collect results."""
     nside = mock.nside
@@ -200,12 +195,11 @@ def analyse_scenario(
     for key, sm_method in _METHOD_ORDER:
         seed_kw = seed + 1 if key == "mcmc_comb" else seed
         try:
-            extra = ({"isd_chi2_68": isd_chi2_68}
+            extra = ({"isd_chi2_68": isd_chi2_68[sm_method]}
                      if key in ("isd1", "isd3") and isd_chi2_68 is not None else {})
             res = sm.run_decontamination(
                 sm_method, delta_g_obs, delta_t,
-                n_walkers=n_walkers, n_steps=n_steps, n_burn=n_burn,
-                seed=seed_kw, progress=False, **extra,
+                seed=seed_kw, progress=False, **(mcmc_kw or {}), **extra,
             )
         except ImportError:
             continue  # scikit-learn missing
@@ -221,6 +215,7 @@ def analyse_scenario(
             # orthogonal to the templates it fitted, so that correlation is rounding
             # error for every full-regression method whatever it left behind.
             "n_templates_fitted": int(np.count_nonzero(res["a_hat"])),
+            "elapsed_s": float(res["elapsed_s"]),
         }
         if key in ("mcmc_add", "mcmc_comb"):
             entry.update({
@@ -231,6 +226,8 @@ def analyse_scenario(
             })
         if key in ("isd1", "isd3"):
             entry["n_iterations"] = res["n_iterations"]
+            entry["isd_stopped_on"] = res.get("isd_stopped_on")
+            entry["isd_templates_selected"] = [st["template"] for st in res.get("isd_steps", [])]
         results["methods"][key] = entry
 
     return results
@@ -577,29 +574,36 @@ def main():
                         help="Mean galaxies per pixel.")
     parser.add_argument("--sigma", type=float, default=0.5,
                         help="Log-normal sigma of the true density field.")
-    parser.add_argument("--n-walkers", type=int, default=60)
-    parser.add_argument("--n-steps", type=int, default=300)
-    parser.add_argument("--n-burn", type=int, default=60)
+    parser.add_argument("--sampler", default="auto",
+                        choices=["auto", "analytic", "nuts", "emcee"],
+                        help="MCMC backend of run_decontamination: auto is the analytic "
+                             "posterior for MCMC-add and NUTS for MCMC-comb.")
+    parser.add_argument("--nuts-warmup", type=int, default=1000,
+                        help="NUTS window-adaptation steps (MCMC-comb).")
+    parser.add_argument("--nuts-samples", type=int, default=1000,
+                        help="NUTS draws per chain (MCMC-comb).")
+    parser.add_argument("--n-walkers", type=int, default=60, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-steps", type=int, default=300, help="emcee only (--sampler emcee).")
+    parser.add_argument("--n-burn", type=int, default=60, help="emcee only (--sampler emcee).")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--scenarios", nargs="+", default=SCENARIOS,
                         choices=SCENARIOS)
     parser.add_argument("--output-dir", default="docs/_static/results_validation")
     parser.add_argument("--null-n-mocks", type=int, default=100,
-                        help="Uncontaminated mocks calibrating the sandwich error "
-                             "bars on the fitted amplitudes.")
-    parser.add_argument("--isd-n-mocks", type=int, default=30,
-                        help="Systematic-free mocks for the ISD Delta chi^2_68 "
-                             "calibration.  0 disables it, which leaves the ISD "
-                             "stopping threshold in raw units and meaningless.")
+                        help="Uncontaminated mocks calibrating the ISD stopping rule "
+                             "and the sandwich error bars on the fitted amplitudes.")
     args = parser.parse_args()
+    mcmc_kw = dict(sampler=args.sampler, nuts_n_warmup=args.nuts_warmup,
+                   nuts_n_samples=args.nuts_samples, n_walkers=args.n_walkers,
+                   n_steps=args.n_steps, n_burn=args.n_burn)
 
     outdir = Path(args.output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
 
     print(f"NSIDE={args.nside}  n_sys={args.n_sys}  n_mean={args.n_mean}  "
           f"sigma={args.sigma}")
-    print(f"MCMC: {args.n_walkers} walkers × {args.n_steps} steps "
-          f"({args.n_burn} burn-in)")
+    print(f"MCMC sampler: {args.sampler} (NUTS {args.nuts_warmup} warmup + "
+          f"{args.nuts_samples} draws per chain)")
     print(f"Scenarios: {args.scenarios}")
     print(f"Output: {outdir}\n")
 
@@ -613,34 +617,30 @@ def main():
         sigma=args.sigma,
         seed=args.seed,
     )
-    print(f"  a_true = {suite[args.scenarios[0]].a_true.round(4)}")
-    print(f"  b_true = {suite[args.scenarios[0]].b_true.round(4)}")
+    # The amplitudes are shared across the suite; a scenario without a term zeroes it.
+    a_true = next((m.a_true for m in suite.values() if np.any(m.a_true)), np.zeros(args.n_sys))
+    b_true = next((m.b_true for m in suite.values() if np.any(m.b_true)), np.zeros(args.n_sys))
+    print(f"  a_true = {a_true.round(4)}")
+    print(f"  b_true = {b_true.round(4)}")
     for sc, mock in suite.items():
         print(f"  {sc}: {mock.n_gal:,} galaxies, "
               f"{mock.n_good_pix:,} good pixels")
 
-    # The ISD stopping rule needs a calibrated Delta chi^2_68.  One footprint
-    # serves every scenario: the null is systematic-free by construction, so it
-    # does not depend on what was injected.
-    isd_chi2_68 = None
-    if args.isd_n_mocks > 0:
-        ref = suite[args.scenarios[0]]
-        print(f"\nCalibrating ISD threshold on {args.isd_n_mocks} "
-              f"systematic-free mocks...")
-        gal = sm.pixelize_catalog(ref.ra_gal, ref.dec_gal, ref.nside)
-        ran = sm.pixelize_catalog(ref.ra_rand, ref.dec_rand, ref.nside)
-        _, good_ref = sm.compute_overdensity(gal, ran)
-        isd_chi2_68 = calibrate_isd(
-            ref, sm.assign_template_values(ref.templates, good_ref),
-            good_ref, args.isd_n_mocks, args.seed,
-        )
-        print(f"  chi2_68 = {np.array2string(isd_chi2_68, precision=1)}")
-
-    # The uncontaminated ensemble calibrates the amplitude error bars.  It does not
-    # depend on what was injected, so one serves every scenario.
+    # The uncontaminated ensemble calibrates the ISD stopping rule and the amplitude
+    # error bars.  It does not depend on what was injected, so one serves every
+    # scenario.
     print(f"\nBuilding the uncontaminated null ensemble ({args.null_n_mocks} mocks)...")
     null_fields = null_ensemble(args.nside, args.n_sys, args.n_mean, args.sigma,
                                 args.seed, n_mock=args.null_n_mocks)
+
+    ref = suite[args.scenarios[0]]
+    gal = sm.pixelize_catalog(ref.ra_gal, ref.dec_gal, ref.nside)
+    ran = sm.pixelize_catalog(ref.ra_rand, ref.dec_rand, ref.nside)
+    _, good_ref = sm.compute_overdensity(gal, ran)
+    isd_chi2_68 = calibrate_isd(null_fields, good_ref,
+                                sm.assign_template_values(ref.templates, good_ref))
+    for name, c68 in isd_chi2_68.items():
+        print(f"  {name} chi2_68 = {np.array2string(c68, precision=2)}")
 
     # Analyse each scenario
     all_results = []
@@ -648,9 +648,8 @@ def main():
     for sc in args.scenarios:
         mock = suite[sc]
         print(f"\n=== Scenario: {sc} ===")
-        res = analyse_scenario(mock, args.n_walkers, args.n_steps,
-                               args.n_burn, seed=args.seed,
-                               isd_chi2_68=isd_chi2_68)
+        res = analyse_scenario(mock, seed=args.seed, isd_chi2_68=isd_chi2_68,
+                               mcmc_kw=mcmc_kw)
         all_results.append(res)
         results_by_scenario[sc] = res
 
@@ -680,14 +679,19 @@ def main():
             json.dumps(save_res, indent=2)
         )
 
-    # Mock-covariance sandwich 1σ for the additive parameter (correlated-noise-calibrated error
-    # bars on the amplitude-recovery figure; the iid MCMC posterior std would be ~2× too tight).
+    # Mock-covariance sandwich 1σ for the additive parameter (correlated-noise error bars on
+    # the amplitude-recovery figure).
     sigma_a = None
     ref = next((r for r in all_results if r["scenario"] in ("additive", "combined", "none")), None)
     if ref is not None:
         print("\nBuilding mock-covariance sandwich (uncontaminated ensemble)…")
         sigma_a, npx = sandwich_sigma_a(null_fields, ref["good_pix"], ref["delta_t"])
         print(f"  sandwich σ_a = {np.round(sigma_a, 4)}  ({npx} px)")
+        # The posterior std of MCMC-add on the same data, for comparison with the sandwich.
+        post_sd = np.sqrt(np.diag(sm.run_decontamination(
+            "MCMC-add", ref["delta_g_obs"], ref["delta_t"], seed=args.seed,
+            **mcmc_kw)["cov_a"]))
+        print(f"  MCMC-add posterior σ_a = {np.round(post_sd, 4)}")
 
     # Cross-scenario summary plots
     print("\nGenerating summary plots...")
@@ -697,8 +701,12 @@ def main():
 
     # Save run config
     config = vars(args)
-    config["a_true"] = suite[args.scenarios[0]].a_true.tolist()
-    config["b_true"] = suite[args.scenarios[0]].b_true.tolist()
+    config["a_true"] = a_true.tolist()
+    config["b_true"] = b_true.tolist()
+    config["isd_chi2_68"] = {k: v.tolist() for k, v in isd_chi2_68.items()}
+    if sigma_a is not None:
+        config["sandwich_sigma_a"] = sigma_a.tolist()
+        config["mcmc_add_posterior_sigma_a"] = post_sd.tolist()
     (outdir / "run_config.json").write_text(json.dumps(config, indent=2))
 
     print(f"\nAll outputs written to {outdir}")

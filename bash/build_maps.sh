@@ -39,7 +39,7 @@ echo "Starting build_maps at ${TIMESTAMP}" | tee "$LOGFILE"
 echo "  OUTPUT_DIR=$OUTPUT_DIR" | tee -a "$LOGFILE"
 echo "Log: $LOGFILE"
 
-nohup python scripts/build_systematic_maps.py \
+nohup python scripts/archive/build_systematic_maps.py \
     --output-dir "$OUTPUT_DIR" \
     --nside 32 64 128 256 \
     "$@" \

@@ -1,38 +1,44 @@
 #!/usr/bin/env python3
 """Generate docs/results_benchmark.rst from the committed benchmark snapshot.
 
-The measurements themselves live in the sys_mapping_benchmark repository; this only
-renders the snapshot under ``docs/_static/benchmark/`` so the documentation builds
-with no external checkout.  Re-run after refreshing that snapshot.
+The measurements come from ``benchmark/benchmark_pipeline.py`` in the
+sys_mapping_benchmark repository (family D of its OAR campaign); this only renders
+the snapshot under ``docs/_static/benchmark/`` so the documentation builds with no
+external checkout.  A snapshot is ``benchmarks.csv`` and ``machine.json``, plus the
+campaign's ``machine.txt`` and ``pkg_version.txt`` when it ran on the cluster.
 
-    python docs/generate_benchmark_page.py
+    python docs/generate_benchmark_page.py [--note "one line shown under the provenance"]
 """
 
 from __future__ import annotations
 
+import argparse
 import csv
 import json
 import math
+import re
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 
 DOCS = Path(__file__).resolve().parent
+REPO = DOCS.parent
 SNAP = DOCS / "_static" / "benchmark"
 OUT = DOCS / "results_benchmark.rst"
 
 GROUPS = [
-    ("micro", "Per-function costs",
-     "Numerically hot public API, JIT warm-up excluded."),
-    ("maps", "HEALPix map utilities",
-     "``pixelize_catalog`` uses :math:`10^5` galaxies."),
+    ("micro", "Per-function costs", "Public functions on the hot path."),
+    ("maps", "HEALPix map utilities", "``pixelize_catalog`` bins :math:`10^5` galaxies."),
     ("stage1", "Stage-1 pre-selection",
-     "All four ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking`."),
+     "The ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking`."),
     ("stage2", "Stage-2 decontamination",
-     "End-to-end per call to :func:`~sys_mapping.regression.run_decontamination`."),
+     "One call to :func:`~sys_mapping.regression.run_decontamination` per method."),
 ]
 
 
 def fmt(seconds: float) -> str:
+    if not math.isfinite(seconds):
+        return "--"
     if seconds >= 1.0:
         return f"{seconds:.3g} s"
     if seconds >= 1e-3:
@@ -40,8 +46,44 @@ def fmt(seconds: float) -> str:
     return f"{seconds * 1e6:.3g} µs"
 
 
+def _library(snap: Path, machine: dict) -> tuple[str, str]:
+    """Version and short commit of the sys_mapping that was timed."""
+    commit = None
+    pv = snap / "pkg_version.txt"
+    if pv.exists():
+        text = pv.read_text()
+        m = re.search(r"head:\s*([0-9a-f]{7,40})(?:\s*\((\d+\.\d+\.\d+))?", text)
+        if m:
+            commit = m.group(1)[:7]
+            if m.group(2):          # a staged tree records the version it carries
+                return m.group(2), commit
+    # Snapshots taken inside this repository record its commit in machine.json.
+    commit = commit or machine.get("sys_mapping_commit") or machine.get("git_commit")
+    version = "?"
+    if commit:
+        for path, pattern in (("sys_mapping/__init__.py", r'__version__\s*=\s*"([^"]+)"'),
+                              ("pyproject.toml", r'^version\s*=\s*"([^"]+)"')):
+            try:
+                text = subprocess.run(["git", "-C", str(REPO), "show", f"{commit}:{path}"],
+                                      capture_output=True, text=True, check=True).stdout
+            except (OSError, subprocess.CalledProcessError):
+                continue
+            m = re.search(pattern, text, re.M)
+            if m:
+                version = m.group(1)
+                break
+    return version, commit or "?"
+
+
 def main() -> None:
-    rows = list(csv.DictReader((SNAP / "benchmarks.csv").open()))
+    ap = argparse.ArgumentParser(description="Render docs/results_benchmark.rst.")
+    ap.add_argument("--snapshot", type=Path, default=SNAP)
+    ap.add_argument("--note", default=None, help="One line printed under the provenance.")
+    args = ap.parse_args()
+    snap = args.snapshot
+
+    rows = list(csv.DictReader((snap / "benchmarks.csv").open()))
+
     # The harness records a failed cell as a row with empty timings rather than
     # dropping it, so these must parse to nan instead of raising.
     def _num(value, cast=float, default=float("nan")):
@@ -54,41 +96,44 @@ def main() -> None:
         r["median_s"] = _num(r["median_s"])
         r["nside"] = _num(r["nside"], int, 0)
         r["n_sys"] = _num(r["n_sys"], int, 0)
-    m = json.loads((SNAP / "machine.json").read_text())
+    m = json.loads((snap / "machine.json").read_text())
     v = m.get("versions", {})
     load = m.get("loadavg_at_start", [float("nan")])[0]
     cores = m.get("n_cores_logical", 1)
+    host = ""
+    if (snap / "machine.txt").exists():
+        mt = dict(line.split("=", 1) for line in (snap / "machine.txt").read_text().splitlines()
+                  if "=" in line)
+        host = mt.get("host", "")
+        cores = int(mt.get("ncore", cores))
+    version, commit = _library(snap, m)
+    where = f"dahu node {host}, " if host.startswith("dahu") else (f"{host}, " if host else "")
+    date = str(m.get("timestamp_utc", "?"))[:10]
+    nuts = sorted({int(n) for r in rows for n in re.findall(r"nuts=(\d+)", r.get("note") or "")})
 
     L = []
     add = L.append
-    add("Benchmarks: how long each stage takes")
-    add("=" * 38)
+    add("Benchmarks")
+    add("==========")
     add("")
-    add(".. note::")
-    add("   Generated from ``docs/_static/benchmark/benchmarks.csv`` by")
-    add("   ``docs/generate_benchmark_page.py``.  The measurements are produced by the")
-    add("   `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_")
-    add(f"   repository, which is kept separate so this package's CI does not carry the")
-    add(f"   {len(rows)} timing cases below.")
+    add(f"sys_mapping {version} (commit ``{commit}``), {where}{m.get('cpu', '?')}, {date}.")
+    if args.note:
+        add(args.note)
     add("")
-    add("Provenance")
-    add("----------")
-    add("")
-    add(f"Measured on {m.get('cpu','?')} ({cores} logical cores, "
-        f"{m.get('mem_total_gb','?')} GB RAM), Python {m.get('python','?')}, "
-        f"JAX {v.get('jax','?')} on the ``{m.get('jax_backend','?')}`` backend with "
-        f"64-bit precision {'enabled' if m.get('jax_x64') else 'disabled'}; "
-        f"NumPy {v.get('numpy','?')}, SciPy {v.get('scipy','?')}, healpy "
-        f"{v.get('healpy','?')}, BlackJAX {v.get('blackjax','?')}, emcee "
-        f"{v.get('emcee','?')}.  Commit ``{m.get('git_commit','?')}``, "
-        f"{m.get('timestamp_utc','?')}.")
-    add("")
-    add(f"One-minute load average at the start of the run was {load:.2f} on {cores} "
-        f"cores — {'the machine was effectively idle' if load < 0.5 * cores else '**the machine was contended; these are upper bounds**'}.")
-    add("")
-    add("Each entry is the **median** over repeated calls with JIT warm-up excluded;")
-    add("median rather than mean because JIT stragglers and scheduler noise are")
-    add("one-sided and inflate the mean.")
+    add(f"We time {len(rows)} cases of the pipeline with ``benchmark/benchmark_pipeline.py`` of the")
+    add("`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_")
+    add("repository; ``docs/generate_benchmark_page.py`` renders")
+    add("``docs/_static/benchmark/benchmarks.csv`` into this page.")
+    add("Each entry is the median over repeated calls, with the JIT compilation of the first call")
+    add("excluded.")
+    add(f"The run used {cores} cores, Python {m.get('python', '?')}, JAX {v.get('jax', '?')} "
+        f"(``{m.get('jax_backend', '?')}``, 64-bit "
+        f"{'on' if m.get('jax_x64') else 'off'}), NumPy {v.get('numpy', '?')}, "
+        f"SciPy {v.get('scipy', '?')}, healpy {v.get('healpy', '?')} and "
+        f"BlackJAX {v.get('blackjax', '?')}; the one-minute load average at the start was "
+        f"{load:.2f}.")
+    add("MCMC-add is the analytic posterior and MCMC-comb NUTS with two chains"
+        + (f", {nuts[0]} warmup steps and {nuts[0]} draws per chain." if len(nuts) == 1 else "."))
     add("")
 
     configs = sorted({(r["nside"], r["n_sys"]) for r in rows})
@@ -119,39 +164,24 @@ def main() -> None:
             add(f'   "``{op}``", ' + ", ".join(f'"{c}"' for c in cells))
         add("")
 
-    add("")
-    add("Reading these")
-    add("-------------")
-    add("")
-    add("* The JAX kernels are **dispatch-dominated** at these sizes: the forward and")
-    add("  inverse contamination models differ by one element-wise division yet cost")
-    add("  almost the same, because both are microseconds of arithmetic behind a fixed")
-    add("  dispatch overhead.")
-    add("* ``likelihood_ratio_test`` is far more expensive than two likelihood")
-    add("  evaluations because **each call compiles two new likelihood functions**.")
-    add("  Build them once with :func:`~sys_mapping.likelihood.make_log_likelihood` and")
-    add("  difference them directly if you are testing repeatedly.")
-    # Derive these two from the measurements.  They were previously asserted as
-    # literals ("five orders of magnitude", "sub-millisecond for every
-    # statistic") and the second was already false against the committed CSV.
     def _finite(group):
         return [r["median_s"] for r in rows
-                if r["group"] == group and math.isfinite(r["median_s"])
-                and r["median_s"] > 0]
+                if r["group"] == group and math.isfinite(r["median_s"]) and r["median_s"] > 0]
 
-    s2 = _finite("stage2")
-    if s2:
-        decades = math.log10(max(s2) / min(s2))
-        add(f"* Stage 2 spans **{decades:.1f} orders of magnitude**, from the fastest")
-        add("  method to the slowest.  This is why")
-        add("  :download:`run_ls10_analysis.py <../scripts/run_ls10_analysis.py>` runs")
-        add("  the methods fastest-first and can checkpoint after the fast phase.")
-    s1 = _finite("stage1")
-    if s1:
-        add(f"* Stage 1 ranking costs between {fmt(min(s1))} and {fmt(max(s1))} per")
-        add("  call, so pre-selection cost is dominated by the GLASS mock null, which is")
-        add("  embarrassingly parallel (``preselect_n_jobs``).")
-    add("")
+    s1, s2 = _finite("stage1"), _finite("stage2")
+    if s1 or s2:
+        add("")
+        add("Ranges")
+        add("------")
+        add("")
+        if s2:
+            add(f"Stage-2 calls span {math.log10(max(s2) / min(s2)):.1f} decades, from "
+                f"{fmt(min(s2))} to {fmt(max(s2))}.")
+        if s1:
+            add(f"A Stage-1 ranking call takes {fmt(min(s1))} to {fmt(max(s1))}; the cost of "
+                "pre-selection is the GLASS null, which runs in parallel over "
+                "``preselect_n_jobs``.")
+        add("")
     OUT.write_text("\n".join(L) + "\n")
     print(f"wrote {OUT} ({len(rows)} measurements, {len(configs)} configurations)")
 
