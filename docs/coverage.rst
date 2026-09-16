@@ -92,34 +92,35 @@ Transformability
 Where a pipeline run spends its time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-A profiled run of ``scripts/run_ls10_analysis.py`` (one LS10 sample), own time per library from ``scripts/profile_by_library.py``; 682 s in total. Time spent executing compiled XLA code is counted under JAX.
+A profiled run of ``scripts/run_ls10_analysis.py`` (log M* ≥ 10.0 at NSIDE 32, 40 significance and 10 ISD realisations, NUTS 500+500, cross-template matrix from 10⁶ galaxies, on 8 cores of a GRICAD dahu node, campaign 20260915prof), own time per library from ``scripts/profile_by_library.py``; 760 s in total. Time spent executing compiled XLA code is counted under JAX.
 
 .. csv-table::
    :header: "library", "seconds", "share %"
 
-   "jax", "359", "52.6"
-   "treecorr", "298", "43.7"
-   "other", "19", "2.8"
-   "numpy", "2", "0.3"
-   "healpy", "2", "0.3"
+   "treecorr", "505", "66.4"
+   "jax", "209", "27.5"
+   "other", "27", "3.5"
+   "numpy", "12", "1.6"
+   "healpy", "5", "0.6"
    "sys_mapping", "1", "0.1"
+   "astropy", "1", "0.1"
 
 By stage, cumulative time of the package functions that dominate:
 
 .. csv-table::
    :header: "function", "calls", "seconds", "share %"
 
-   "run_nuts", "1", "346", "50.7"
-   "template_correlation_matrix", "1", "272", "39.9"
-   "measure_two_point_function", "1", "36", "5.3"
-   "correct_two_point_function", "8", "6", "0.9"
-   "run_additive_analytic", "1", "4", "0.5"
+   "template_correlation_matrix", "1", "456", "60.0"
+   "run_nuts", "1", "199", "26.2"
+   "measure_two_point_function", "1", "63", "8.3"
+   "run_additive_analytic", "1", "3", "0.4"
+   "elasticnet_contamination_fit", "1", "3", "0.3"
    "isd_template_significance", "1", "2", "0.3"
-   "elasticnet_contamination_fit", "1", "1", "0.1"
+   "correct_two_point_function", "8", "2", "0.3"
    "iterative_systematics_decontamination", "2", "1", "0.1"
    "calibrated_template_significance", "1", "0", "0.0"
 
-The run compiled 308 XLA programs.
+The run compiled 326 XLA programs.
 
 Outside JAX
 ~~~~~~~~~~~
