@@ -4,6 +4,17 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.4.3] — 2026-09-16
+
+### Fixed
+
+- `generate_glass_delta_map` sets a negative Gaussian power to zero, with a warning, instead of
+  stopping.  A spectrum matched on a small footprint (Euclid TR1 at NSIDE 1024,
+  f_sky = 0.008) can have no lognormal realisation at a few multipoles, and GLASS's default
+  regularisation raises on a negative diagonal.  GLASS's `"clip"` method does not help there: for
+  a single shell it returns NaN.  A spectrum without negative Gaussian power draws the same field
+  as before.
+
 ## [1.4.2] — 2026-09-16
 
 The combined likelihood is unbounded above: at any pixel `a` can cancel the residual while

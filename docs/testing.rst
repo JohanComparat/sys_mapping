@@ -29,7 +29,7 @@ alongside ``tests/``.
 We ran the full suite with
 ``python -m pytest -q -p no:cacheprovider --cov=sys_mapping --cov-branch`` in the ``sys_map``
 environment, with the LS10 and Gaia maps present and the Uchuu mocks absent:
-772 passed, 7 skipped, 19 xfailed in 4 min 12 s, at 98.8 % branch coverage.
+775 passed, 7 skipped, 19 xfailed in 4 min 30 s, at 98.1 % branch coverage.
 Six of the skips are the ``test_glass_mocks.py`` tests that need the Uchuu mocks and one is a
 docstring example marked ``+SKIP``; the 19 expected failures are the transformability
 entries described below.
@@ -86,7 +86,7 @@ Counts are from ``python -m pytest --collect-only -qqq``.
      - Input checks, fallbacks, optional arguments and missing-dependency errors of the
        public API
    * - ``test_glass_mocks.py``
-     - 35
+     - 36
      - :mod:`~sys_mapping.glass_mocks`: :math:`n(z)`, full-sky mocks, Uchuu loading, matched
        spectra, spectrum choice, per-pixel null draws
    * - ``test_inference.py``
@@ -166,8 +166,8 @@ Coverage and CI
 ``[tool.coverage.run]`` in ``pyproject.toml`` measures ``sys_mapping`` with
 ``branch = true``; ``[tool.coverage.report]`` sets ``fail_under = 97`` on the combined line
 and branch figure, which pytest-cov enforces whenever ``--cov`` is given.
-The measured coverage, per module, is in :doc:`coverage`: 98.8% combined, 99.4% of lines and
-96.3% of branches.
+The measured coverage, per module, is in :doc:`coverage`: 98.1% combined, 98.8% of lines and
+94.9% of branches.
 
 ``.github/workflows/tests.yml`` runs on Python 3.11 and 3.12 with ``JAX_PLATFORMS=cpu`` and
 ``XLA_PYTHON_CLIENT_PREALLOCATE=false``, after installing ``.[dev,regression,glass]``.

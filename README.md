@@ -237,7 +237,7 @@ pytest --cov=sys_mapping      # full suite with branch coverage, run on main and
 
 The suite collects the docstring examples, checks JAX kernels against NumPy references,
 and records which public functions survive `jax.jit`, `jax.vmap` and `jax.grad`. Branch
-coverage is 98.8 % and CI fails below 97 %. Per-module coverage, the JAX share and the wall
+coverage is 98.1 % and CI fails below 97 %. Per-module coverage, the JAX share and the wall
 time by library are on the [coverage page](https://sys-mapping.readthedocs.io/en/latest/coverage.html);
 test counts per module are on the [testing page](https://sys-mapping.readthedocs.io/en/latest/testing.html).
 Real-data tests skip when `~/data/legacysurvey/dr10/systematics/` is absent.

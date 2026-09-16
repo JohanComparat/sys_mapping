@@ -309,6 +309,25 @@ class TestSpectrumIsChosenNotDefaulted:
         # A spectrum 100x stronger gives a visibly wider field on the same seed.
         assert b.std() > 3 * a.std()
 
+    def test_delta_map_clips_negative_gaussian_power(self, monkeypatch):
+        # A spectrum whose Gaussian counterpart is negative at some multipoles
+        # made GLASS's default regularisation raise, stopping a spectrum match.
+        glass = pytest.importorskip("glass")
+        from sys_mapping.glass_mocks import generate_glass_delta_map
+
+        solve = glass.solve_gaussian_spectra
+
+        def with_negative(fields, cls):
+            gls = [np.array(g, copy=True) for g in solve(fields, cls)]
+            gls[0][10:14] = -1e-6
+            return gls
+
+        monkeypatch.setattr(glass, "solve_gaussian_spectra", with_negative)
+        with pytest.warns(UserWarning, match="no Gaussian counterpart"):
+            delta = generate_glass_delta_map(8, 0.3, cl_amplitude=5e-4, seed=0)
+        assert delta.shape == (768,)
+        assert np.all(np.isfinite(delta)) and np.all(1.0 + delta >= 0.0)
+
 
 @pytest.mark.filterwarnings("ignore:.*not matched to any sample.*:UserWarning")
 class TestPixelNullDraw:

@@ -10,7 +10,7 @@ How much of the package the test suite exercises, and how much of its numerical 
 Test coverage
 -------------
 
-The suite covers 2386 of 2401 statements (99.4%) and 520 of 540 branches (96.3%), 98.8% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
+The suite covers 2457 of 2486 statements (98.8%) and 539 of 568 branches (94.9%), 98.1% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
 
 .. csv-table::
    :header: "module", "statements", "lines %", "branches", "branches %", "combined %"
@@ -19,16 +19,16 @@ The suite covers 2386 of 2401 statements (99.4%) and 520 of 540 branches (96.3%)
    "_array.py", "6", "100.0", "0", "—", "100.0"
    "bootstrap.py", "55", "100.0", "8", "100.0", "100.0"
    "contamination.py", "119", "98.3", "50", "96.0", "97.6"
-   "correction.py", "109", "99.1", "20", "95.0", "98.4"
+   "correction.py", "111", "99.1", "22", "95.5", "98.5"
    "covariance.py", "97", "99.0", "32", "96.9", "98.4"
    "diagnostics.py", "297", "99.7", "58", "96.6", "99.2"
-   "glass_mocks.py", "173", "98.8", "46", "95.7", "98.2"
-   "inference.py", "155", "98.7", "28", "92.9", "97.8"
-   "likelihood.py", "49", "100.0", "10", "100.0", "100.0"
+   "glass_mocks.py", "177", "98.9", "48", "95.8", "98.2"
+   "inference.py", "189", "91.5", "48", "77.1", "88.6"
+   "likelihood.py", "50", "100.0", "10", "100.0", "100.0"
    "maps.py", "137", "100.0", "46", "95.7", "98.9"
    "mocks.py", "121", "100.0", "24", "100.0", "100.0"
-   "model_selection.py", "212", "99.5", "36", "97.2", "99.2"
-   "nuts.py", "98", "100.0", "18", "100.0", "100.0"
+   "model_selection.py", "250", "99.6", "38", "97.4", "99.3"
+   "nuts.py", "104", "100.0", "20", "100.0", "100.0"
    "plotting.py", "5", "100.0", "0", "—", "100.0"
    "power_spectrum.py", "45", "100.0", "12", "100.0", "100.0"
    "regression.py", "318", "99.4", "82", "95.1", "98.5"
@@ -41,7 +41,7 @@ JAX coverage
 Static share
 ~~~~~~~~~~~~
 
-Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 737 numeric source lines, 216 (29%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 16 mix JAX with other libraries and 68 call none of it.
+Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 767 numeric source lines, 238 (31%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 16 mix JAX with other libraries and 68 call none of it.
 
 .. csv-table::
    :header: "module", "numeric lines", "JAX lines", "JAX %", "functions jax/mixed/other", "other libraries (lines)"
@@ -51,13 +51,13 @@ Every call is attributed to the library providing it (``scripts/jax_coverage.py`
    "correction", "32", "1", "3", "0/1/5", "numpy 31"
    "covariance", "31", "5", "16", "2/1/3", "numpy 26"
    "diagnostics", "144", "70", "49", "10/3/5", "numpy 67, healpy 5, scipy 2"
-   "glass_mocks", "45", "0", "0", "0/0/9", "numpy 33, glass 12"
-   "inference", "60", "29", "48", "1/3/4", "numpy 32, emcee 1, scipy 1"
+   "glass_mocks", "48", "0", "0", "0/0/9", "numpy 35, glass 13"
+   "inference", "68", "34", "50", "1/3/4", "numpy 35, emcee 1, scipy 1"
    "likelihood", "9", "9", "100", "1/0/0", "—"
    "maps", "30", "0", "0", "0/0/9", "numpy 25, healpy 5"
    "mocks", "34", "4", "12", "0/1/5", "numpy 24, healpy 8"
-   "model_selection", "59", "40", "68", "1/3/4", "numpy 17, scipy 2"
-   "nuts", "30", "25", "83", "4/1/0", "numpy 5"
+   "model_selection", "74", "53", "72", "3/3/4", "numpy 19, scipy 2"
+   "nuts", "34", "29", "85", "4/1/0", "numpy 5"
    "power_spectrum", "13", "0", "0", "0/0/4", "numpy 10, healpy 3"
    "regression", "82", "15", "18", "1/3/4", "numpy 64, sklearn 3"
    "simulation", "51", "4", "8", "0/1/9", "numpy 37, healpy 6, treecorr 5"

@@ -471,6 +471,10 @@ def generate_glass_delta_map(
     and once for a contaminated catalog that shares the same underlying
     structure — via :func:`sample_positions_from_delta`.
 
+    Multipoles where the spectrum has no lognormal realisation, i.e. where its
+    Gaussian counterpart is negative, are drawn with zero Gaussian power, and a
+    ``UserWarning`` says so.
+
     Parameters
     ----------
     nside:
@@ -519,7 +523,18 @@ def generate_glass_delta_map(
               else glass.lognormal_fields(shells, shift=lambda _z: float(lognormal_shift)))
     cl = _resolve_spectrum(nside, cl_input, cl_amplitude, cl_slope,
                            caller="generate_glass_delta_map")
-    gls = glass.regularized_spectra(glass.solve_gaussian_spectra(fields, [cl]))
+    gls = glass.solve_gaussian_spectra(fields, [cl])
+    # With one shell the only regularisation is to set a negative Gaussian power
+    # to zero; GLASS's default "nearest" refuses a negative diagonal.  A matched
+    # spectrum measured on a small footprint can ask for one at a few
+    # multipoles, where the measured power has no lognormal realisation.
+    if any(np.any(np.asarray(g) < 0) for g in gls):
+        warnings.warn(
+            "the lognormal spectrum has no Gaussian counterpart at some "
+            "multipoles; their Gaussian power is set to zero",
+            UserWarning, stacklevel=2)
+        gls = [np.maximum(np.asarray(g), 0.0) for g in gls]
+    gls = glass.regularized_spectra(gls)
 
     # Single shell → single delta map
     for delta in glass.generate(fields, gls, nside, rng=rng):
