@@ -273,12 +273,18 @@ Berlfein et al. 2024).  :func:`~sys_mapping.correction.debias_params_matrix` ret
 
 .. math::
 
-   \tilde A = \mathcal{P}_{\ge 0}\left(\hat{\mathbf a}\hat{\mathbf a}^\top - {\rm Cov}[\hat{\mathbf a}]\right),
+   \tilde A = \hat{\mathbf a}\hat{\mathbf a}^\top - {\rm Cov}[\hat{\mathbf a}],
 
-and :math:`\tilde B` analogously, where :math:`\mathcal{P}_{\ge 0}` clips the
-eigenvalues at zero.  :func:`~sys_mapping.correction.debias_params` is the diagonal
-form, :math:`\tilde a_i^2 = \max(\hat a_i^2 - {\rm Var}[\hat a_i], 0)`, to which the
-matrix form reduces for one template.
+and :math:`\tilde B` analogously.  The result is symmetric but not positive semi-definite:
+the subtraction turns the :math:`n_{\rm sys}-1` null directions of the rank-one outer product
+negative, and projecting them back to zero would undo the subtraction itself.
+:func:`~sys_mapping.correction.debias_params` is the diagonal form,
+:math:`\tilde a_i^2 = \max(\hat a_i^2 - {\rm Var}[\hat a_i], 0)`.
+
+The covariance is the sandwich estimator of
+:func:`~sys_mapping.covariance.mock_sandwich_covariance`, measured on the same uncontaminated
+realisations that calibrate the significance: the independent-pixel covariance of a fit is too
+small on a clustered field, and the regression methods carry none of their own.
 
 ----
 

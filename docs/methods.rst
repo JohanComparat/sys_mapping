@@ -265,6 +265,12 @@ one, because the amplitudes are strongly correlated.  On the LS10 combined fit a
 NSIDE 32 we measured half the leapfrog steps per iteration and 2.5 times the minimum
 effective sample size per second.
 
+``positive_efficiency=True`` (default) restricts a model carrying :math:`b` to the region
+where every fitted pixel has :math:`1 + b\cdot t(p) > 0`, the region that holds
+:math:`b = 0`; outside it the log-density is :math:`-\infty`.  The likelihood has a pole
+wherever an efficiency vanishes, and a ridge along :math:`|b|\to\infty` with
+:math:`\sigma\to0` on which the fit degenerates, and the flat prior excludes neither.
+
 emcee
 ~~~~~
 
@@ -326,13 +332,16 @@ amplitudes are biased high by the estimator's covariance.
 
 .. math::
 
-   \tilde A = \sum_k \max(\lambda_k, 0)\, v_k v_k^\top,
-   \qquad
-   \hat{\mathbf a}\hat{\mathbf a}^\top - {\rm Cov}[\hat{\mathbf a}] = \sum_k \lambda_k\, v_k v_k^\top,
+   \tilde A = \hat{\mathbf a}\hat{\mathbf a}^\top - {\rm Cov}[\hat{\mathbf a}],
 
 and :math:`\tilde B` from :math:`\hat{\mathbf b}` and :math:`{\rm Cov}[\hat{\mathbf b}]`.
-Clipping the eigenvalues projects onto positive semi-definite matrices, the constraint
-on an outer product.  :func:`~sys_mapping.correction.debias_params` is the diagonal
+:math:`\hat{\mathbf a}\hat{\mathbf a}^\top` has rank one, so :math:`\tilde A` carries one
+positive eigenvalue and :math:`n_{\rm sys}-1` negative ones; projecting it onto the positive
+semi-definite cone (``project_psd=True``) would discard the covariance subtraction in every
+direction but one and leave a matrix more biased than :math:`\hat{\mathbf a}\hat{\mathbf a}^\top`
+itself.  The unbiased estimator of a squared amplitude matrix is not positive semi-definite;
+what has to stay physical is the corrected :math:`w(\theta)`, which
+:func:`~sys_mapping.correction.correct_two_point_function` checks.  :func:`~sys_mapping.correction.debias_params` is the diagonal
 form,
 
 .. math::
@@ -451,7 +460,9 @@ Batched maxima
 :math:`\lambda_{\rm LR}` for ``(n_field, n_pix)`` fields together.  The additive maximum
 is the least-squares solution in closed form,
 :math:`\hat a = (TT^\top)^{-1}T\hat\delta_g` with :math:`\hat\sigma^2` the mean squared
-residual (refined by L-BFGS when ``use_skewed``).  The combined maximum is found by
+residual (refined by L-BFGS when ``use_skewed``, from :math:`\gamma = \pm1.5`, the better
+maximum kept: :math:`\gamma = 0` is a stationary point of the skew-normal log-likelihood,
+where its information for the skewness vanishes, so a fit started on it stays Gaussian).  The combined maximum is found by
 L-BFGS (optax), stopped when the largest gradient component falls below
 :math:`10^{-9}` or after ``n_iter`` (300) iterations, on :math:`(a, b, \ln\sigma)` started from
 :math:`(\hat a_{\rm OLS}, b = 0)`, a point on the combined model's ridge.  The combined

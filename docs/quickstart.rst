@@ -339,8 +339,8 @@ Step 9 — Two-point correction with cross-template terms
 
 With debiased amplitude matrices
 :math:`\tilde A = \hat a\hat a^\top - {\rm Cov}[\hat a]` and
-:math:`\tilde B = \hat b\hat b^\top - {\rm Cov}[\hat b]`, each projected onto positive
-semi-definite matrices (:func:`~sys_mapping.correction.debias_params_matrix`), the corrected
+:math:`\tilde B = \hat b\hat b^\top - {\rm Cov}[\hat b]`
+(:func:`~sys_mapping.correction.debias_params_matrix`), the corrected
 correlation function is
 
 .. math::

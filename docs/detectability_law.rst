@@ -30,7 +30,7 @@ In the shot-noise limit this reduces to :math:`A_{\min}=\nu/\sqrt{N_{\rm gal}}`.
 The field statistic does not depend on how collinear the templates are, whereas the
 amplitude of template :math:`i` carries the variance-inflation factor
 :math:`{\rm VIF}_i=1/\sqrt{1-R_i^2}`; the standardised LS10 basis at NSIDE 64 has
-condition number :math:`1.4\times10^{3}`.
+condition number 108.
 
 Rules of thumb
 --------------
