@@ -1,33 +1,33 @@
 {
-  "timestamp_utc": "2026-09-04T12:31:21+00:00",
+  "timestamp_utc": "2026-09-15T13:23:30+00:00",
   "loadavg_at_start": [
-    1.32,
-    2.9,
-    8.31
+    24.23,
+    24.05,
+    24.02
   ],
-  "git_commit": "cf6b12a",
-  "cpu": "11th Gen Intel(R) Core(TM) i9-11900H @ 2.50GHz",
-  "n_cores_logical": 16,
-  "mem_total_gb": 62.5,
-  "platform": "Linux-6.17.9-76061709-generic-x86_64-with-glibc2.35",
-  "python": "3.11.15",
+  "git_commit": "unknown",
+  "cpu": "Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz",
+  "n_cores_logical": 32,
+  "mem_total_gb": 187.0,
+  "platform": "Linux-6.12.107+deb13-amd64-x86_64-with-glibc2.41",
+  "python": "3.11.16",
   "jax_backend": "cpu",
   "jax_devices": [
     "cpu:0"
   ],
   "jax_x64": true,
   "versions": {
-    "numpy": "2.4.3",
+    "numpy": "2.4.6",
     "scipy": "1.17.1",
-    "jax": "0.10.0",
-    "healpy": "1.19.0",
+    "jax": "0.10.2",
+    "healpy": "1.20.0",
     "blackjax": "1.5",
     "emcee": "3.1.6",
-    "sklearn": "1.8.0",
-    "treecorr": "5.1.3"
+    "sklearn": "1.9.0",
+    "treecorr": "5.1.4"
   },
   "env": {
-    "OMP_NUM_THREADS": "2",
+    "OMP_NUM_THREADS": "",
     "OPENBLAS_NUM_THREADS": "",
     "MKL_NUM_THREADS": "",
     "XLA_FLAGS": ""

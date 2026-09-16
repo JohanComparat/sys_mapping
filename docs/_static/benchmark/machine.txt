@@ -1,0 +1,4 @@
+host=dahu122
+ncore=8
+date=2026-09-15T15:23:26+02:00
+model name	: Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz
