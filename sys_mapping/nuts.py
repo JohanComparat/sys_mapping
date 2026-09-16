@@ -25,6 +25,7 @@ count from the detected backend.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass
 
 import numpy as np
@@ -284,6 +285,14 @@ def run_nuts(
     u0[:, idx_sigma] = np.log(sigma0) + rng.normal(0.0, 0.1, n_chains)
     if use_skewed:
         u0[:, idx_sigma + 1] = rng.normal(0.0, 0.1, n_chains)
+    if positive_efficiency and model in ("combined", "multiplicative"):
+        # A start below the efficiency floor has log-density -inf, and NUTS never leaves
+        # it.  Templates with long tails put one there at this scale, so each chain's b is
+        # shrunk until every pixel efficiency is at least 1/2.
+        i_b0 = n_sys if model == "combined" else 0
+        lowest = (u0[:, i_b0:i_b0 + n_sys] @ np.asarray(delta_t, dtype=float)).min(axis=1)
+        u0[:, i_b0:i_b0 + n_sys] *= np.where(lowest < -0.5, 0.5 / -np.minimum(lowest, -0.5),
+                                             1.0)[:, None]
     u0 = jnp.asarray(u0, dtype=jnp.float64)
 
     chain_keys = jax.random.split(jax.random.PRNGKey(seed + 1), n_chains)
@@ -308,6 +317,10 @@ def run_nuts(
     # Map sigma back to the constrained space, then flatten chains.
     positions = positions.at[:, :, idx_sigma].set(jnp.exp(positions[:, :, idx_sigma]))
     flat_chain = np.asarray(positions.reshape(-1, n_dim))
+
+    if not bool(jnp.any(accept > 0)):
+        warnings.warn("NUTS accepted no proposal: the chains stayed at their starting points",
+                      RuntimeWarning, stacklevel=2)
 
     sampler = _NutsSampler(
         acceptance_fraction=float(jnp.mean(accept)),

@@ -268,7 +268,9 @@ effective sample size per second.
 ``positive_efficiency=True`` (default) restricts a model carrying :math:`b` to the region
 where every fitted pixel has :math:`1 + b\cdot t(p) \ge 1/20`
 (``sys_mapping.likelihood.MIN_EFFICIENCY``), the region that holds :math:`b = 0`; outside it
-the log-density is :math:`-\infty`.  The combined likelihood is unbounded above: at any pixel
+the log-density is :math:`-\infty`.  A chain whose drawn :math:`b` puts a pixel below the
+floor would never move, so each chain's :math:`b` is scaled down until every efficiency is
+at least 1/2 before sampling starts.  The combined likelihood is unbounded above: at any pixel
 :math:`a` can cancel the residual while that pixel's efficiency goes to zero, and
 :math:`-\ln|1 + b\cdot t|` then diverges.  Its maximum is therefore defined on the region
 above the floor, and 1/20 is the floor the weight clip already imposes.

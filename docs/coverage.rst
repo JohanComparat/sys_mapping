@@ -10,7 +10,7 @@ How much of the package the test suite exercises, and how much of its numerical 
 Test coverage
 -------------
 
-The suite covers 2457 of 2486 statements (98.8%) and 539 of 568 branches (94.9%), 98.1% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
+The suite covers 2463 of 2493 statements (98.8%) and 542 of 572 branches (94.8%), 98.0% combined. Docstring examples run as part of the suite. CI measures the same with branch coverage on every push and fails below the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and Gaia maps or the Uchuu mocks skip there.
 
 .. csv-table::
    :header: "module", "statements", "lines %", "branches", "branches %", "combined %"
@@ -28,7 +28,7 @@ The suite covers 2457 of 2486 statements (98.8%) and 539 of 568 branches (94.9%)
    "maps.py", "137", "100.0", "46", "95.7", "98.9"
    "mocks.py", "121", "100.0", "24", "100.0", "100.0"
    "model_selection.py", "250", "99.6", "38", "97.4", "99.3"
-   "nuts.py", "104", "100.0", "20", "100.0", "100.0"
+   "nuts.py", "111", "99.1", "24", "95.8", "98.5"
    "plotting.py", "5", "100.0", "0", "—", "100.0"
    "power_spectrum.py", "45", "100.0", "12", "100.0", "100.0"
    "regression.py", "318", "99.4", "82", "95.1", "98.5"
@@ -41,7 +41,7 @@ JAX coverage
 Static share
 ~~~~~~~~~~~~
 
-Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 767 numeric source lines, 238 (31%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 16 mix JAX with other libraries and 68 call none of it.
+Every call is attributed to the library providing it (``scripts/jax_coverage.py``). Of 770 numeric source lines, 239 (31%) call JAX. Of the 92 public functions that make numeric calls, 8 call JAX only, 16 mix JAX with other libraries and 68 call none of it.
 
 .. csv-table::
    :header: "module", "numeric lines", "JAX lines", "JAX %", "functions jax/mixed/other", "other libraries (lines)"
@@ -57,7 +57,7 @@ Every call is attributed to the library providing it (``scripts/jax_coverage.py`
    "maps", "30", "0", "0", "0/0/9", "numpy 25, healpy 5"
    "mocks", "34", "4", "12", "0/1/5", "numpy 24, healpy 8"
    "model_selection", "74", "53", "72", "3/3/4", "numpy 19, scipy 2"
-   "nuts", "34", "29", "85", "4/1/0", "numpy 5"
+   "nuts", "37", "30", "81", "4/1/0", "numpy 7"
    "power_spectrum", "13", "0", "0", "0/0/4", "numpy 10, healpy 3"
    "regression", "82", "15", "18", "1/3/4", "numpy 64, sklearn 3"
    "simulation", "51", "4", "8", "0/1/9", "numpy 37, healpy 6, treecorr 5"

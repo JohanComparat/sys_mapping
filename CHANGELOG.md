@@ -4,6 +4,17 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.4.4] — 2026-09-16
+
+### Fixed
+
+- `run_nuts` starts every chain inside the region where each pixel efficiency is at least
+  `MIN_EFFICIENCY`.  Its random start draws `b` at scale 0.05, and on templates with long tails
+  (Euclid TR1, six rotated templates) that start lay below the floor, where the log-density is
+  −∞: the chains never moved, every draw was divergent and the acceptance was 0.  Each chain's
+  `b` is now shrunk until every efficiency is at least 1/2.  `run_nuts` warns when no proposal
+  is accepted.
+
 ## [1.4.3] — 2026-09-16
 
 ### Fixed

@@ -17,6 +17,7 @@ from sys_mapping.inference import (
     get_param_covariance_from_chain,
 )
 from sys_mapping.nuts import run_nuts, default_n_chains
+from sys_mapping.likelihood import MIN_EFFICIENCY
 from sys_mapping.contamination import apply_contamination
 import sys_mapping as sm
 from sys_mapping import run_decontamination
@@ -123,6 +124,23 @@ class TestNuts:
         assert sampler.rhat < 1.1
         assert sampler.num_divergences == 0
         assert 0.5 < sampler.acceptance_fraction <= 1.0
+
+    def test_moves_from_a_start_the_tails_put_below_the_floor(self, combined_data):
+        # One pixel in the templates' tail, set against the b that run_nuts draws for the
+        # first chain, puts that chain's start below the efficiency floor; the chains then
+        # stayed where they started.
+        dg, dt, _, _ = combined_data
+        n_sys = dt.shape[0]
+        seed = 4
+        b0 = np.random.default_rng(seed).normal(0.0, 0.05, (2, 2 * n_sys))[:, n_sys:]
+        dt = dt.copy()
+        dt[:, 0] = -60.0 * np.sign(b0[0])
+        assert (b0 @ dt).min(axis=1)[0] < MIN_EFFICIENCY - 1.0
+        chain, sampler = run_nuts(n_sys, model="combined", delta_g_obs=dg, delta_t=dt,
+                                  n_chains=2, n_warmup=200, n_samples=200, seed=seed)
+        assert sampler.acceptance_fraction > 0.5
+        assert len(np.unique(chain, axis=0)) > 100
+        assert np.all(1.0 + chain[:, n_sys:2 * n_sys] @ dt >= MIN_EFFICIENCY)
 
     @pytest.mark.slow
     def test_matches_emcee(self, combined_data):
