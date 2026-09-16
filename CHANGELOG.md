@@ -4,6 +4,32 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.4.2] — 2026-09-16
+
+The combined likelihood is unbounded above: at any pixel `a` can cancel the residual while
+the efficiency `1 + b·t` goes to zero, and `−ln|1 + b·t|` then diverges.  Its maximum is only
+meaningful away from that limit, and the 400-realisation likelihood-ratio grid of 1.4.1 showed
+what happens otherwise: one null draw in six climbed the pole, and 1–3 in 400 returned −∞.
+
+### Fixed
+
+- **Every fit of a model carrying `b` stays where each pixel's efficiency is at least
+  `MIN_EFFICIENCY` = 1/20**, the floor that matches the weight clip (`likelihood.MIN_EFFICIENCY`):
+  `lrt_from_maxima`, `refine_to_mle` and `run_nuts`.  On 64 LS10 null fields at NSIDE 32, ten
+  combined maxima sit on the floor, and their λ falls from 76–153 to 22–85.
+- `lrt_from_maxima` chose its best point from the value the L-BFGS line search leaves in its
+  state, which after a failed search can belong to another point; it evaluates each point
+  itself, and a combined maximum that is not finite is replaced by its feasible start.
+- `refine_to_mle` searches a model carrying `b` with the same JAX L-BFGS, whose line search
+  backtracks from the infeasible region; SciPy's stopped at its starting point.
+
+### Changed
+
+- `lrt_from_maxima` fits in the whitened template basis (unit second moment) and maps the
+  amplitudes back; λ is unchanged and the search is shorter on a collinear basis.  It returns
+  `min_efficiency` and `at_efficiency_floor`, and counts a maximum on the floor as converged.
+
+
 ## [1.4.1] — 2026-09-16
 
 A referee reading of the pipeline paper found four defects in 1.4.0: an estimator that

@@ -24,6 +24,13 @@ from jax.scipy.special import log_ndtr
 
 from .contamination import unpack_params
 
+#: Smallest selection efficiency ``1 + b.t`` a fit may reach in any pixel.  The combined
+#: likelihood carries ``-ln|1 + b.t|``, which diverges as an efficiency vanishes while ``a``
+#: cancels that pixel's residual, so it is unbounded above for every data set and its
+#: maximum is only meaningful away from that limit.  1/20 matches the weight clip: an
+#: efficiency below it is a weight above 20, which the products refuse.
+MIN_EFFICIENCY: float = 1.0 / 20.0
+
 
 def make_log_likelihood(
     n_sys: int,

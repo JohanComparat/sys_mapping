@@ -33,7 +33,7 @@ import jax.numpy as jnp
 
 import blackjax
 
-from .likelihood import make_log_likelihood
+from .likelihood import MIN_EFFICIENCY, make_log_likelihood
 from .contamination import n_free_params
 
 
@@ -83,8 +83,8 @@ def build_logdensity(
     ``None`` keeps the white :math:`\\sigma^2 I` likelihood.
 
     ``positive_efficiency`` (default ``True``) restricts a model carrying ``b`` to the
-    region where every fitted pixel has :math:`1 + b\\cdot t(p) > 0`, the region that holds
-    ``b = 0``.  The likelihood has a pole wherever an efficiency vanishes and a ridge along
+    region where every fitted pixel has :math:`1 + b\\cdot t(p) \\ge` ``MIN_EFFICIENCY``
+    (1/20), the region that holds ``b = 0``.  The likelihood has a pole wherever an efficiency vanishes and a ridge along
     :math:`|b|\\to\\infty` with :math:`\\sigma\\to0`, neither of which the flat prior excludes;
     outside the region the log-density is :math:`-\\infty`, so a trajectory that leaves it is
     rejected.
@@ -121,7 +121,7 @@ def _logdensity_with_data(n_sys, model, use_skewed, prior_scale_a, prior_scale_b
             # Outside the region every efficiency is positive in, the likelihood has a pole
             # and an unbounded ridge; evaluate it at b = 0 there so the gradient stays finite,
             # and return -inf.
-            feasible = jnp.min(1.0 + theta[i_b0:i_b0 + n_sys] @ delta_t) > 0.0
+            feasible = jnp.min(1.0 + theta[i_b0:i_b0 + n_sys] @ delta_t) >= MIN_EFFICIENCY
             theta = jnp.where(feasible, theta,
                               theta.at[i_b0:i_b0 + n_sys].set(0.0))
         lp = log_likelihood(theta, delta_g, delta_t)
@@ -254,7 +254,7 @@ def run_nuts(
         fit (23 parameters) the dense matrix halves the leapfrog steps per iteration and
         gives 2.5 times the effective samples per second, with the same posterior.
     positive_efficiency : bool  restrict a model carrying ``b`` to the region where every
-        fitted pixel has ``1 + b.t(p) > 0`` (default).  Outside it the likelihood has a
+        fitted pixel has ``1 + b.t(p) >= MIN_EFFICIENCY`` (1/20; default).  Outside it the likelihood has a
         pole and an unbounded ridge, which the flat prior does not exclude.
     progress : bool  accepted for signature parity with :func:`run_mcmc` (unused)
 

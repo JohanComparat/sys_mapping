@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 from jax import Array
 
-from .likelihood import make_log_likelihood
+from .likelihood import MIN_EFFICIENCY, make_log_likelihood
 from .contamination import n_free_params, pack_params
 
 
@@ -358,6 +358,7 @@ def posterior_median_params(flat_chain: np.ndarray) -> np.ndarray:
     return np.median(flat_chain, axis=0)
 
 
+_INFEASIBLE_VALUE = 1e30
 _REFINE_CACHE: dict = {}
 
 
@@ -372,9 +373,18 @@ def _neg_log_lik_value_and_grad(n_sys: int, model: str, use_skewed: bool, precis
         return _REFINE_CACHE[key]
     log_lik = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
     i_sigma = n_free_params(n_sys, model)
+    i_b = {"combined": n_sys, "multiplicative": 0}.get(model)
 
     def neg(u, dg, dt):
-        return -log_lik(u.at[i_sigma].set(jnp.exp(u[i_sigma])), dg, dt)
+        if i_b is None:
+            return -log_lik(u.at[i_sigma].set(jnp.exp(u[i_sigma])), dg, dt)
+        # The likelihood is unbounded above as an efficiency 1 + b.t vanishes; outside the
+        # region where every efficiency is at least MIN_EFFICIENCY the objective is a large
+        # constant.  SciPy's line search needs finite values to backtrack from.
+        feasible = jnp.min(1.0 + u[i_b:i_b + n_sys] @ dt) >= MIN_EFFICIENCY
+        u_safe = jnp.where(feasible, u, u.at[i_b:i_b + n_sys].set(0.0))
+        value = -log_lik(u_safe.at[i_sigma].set(jnp.exp(u_safe[i_sigma])), dg, dt)
+        return jnp.where(feasible, value, _INFEASIBLE_VALUE)
 
     fn = jax.jit(jax.value_and_grad(neg))
     if precision is None:
@@ -518,12 +528,38 @@ def refine_to_mle(
 
     ll0 = float(log_lik(jnp.asarray(theta0), _dg, _dt))
     best_theta, best_ll, messages = theta0, ll0, []
+    i_b = {"combined": n_sys, "multiplicative": 0}.get(model)
+
+    def _feasible(theta):
+        if i_b is None:
+            return True
+        return float(np.min(1.0 + np.asarray(theta[i_b:i_b + n_sys]) @ np.asarray(delta_t))) \
+            >= MIN_EFFICIENCY
+
+    # A model carrying b has an unbounded likelihood as an efficiency vanishes; its search
+    # runs in JAX, whose line search backtracks from the +inf outside the region where every
+    # efficiency is at least MIN_EFFICIENCY.  SciPy's cannot.
+    floored = None
+    if i_b is not None and precision is None:
+        from .model_selection import _refine_with_floor
+        floored = _refine_with_floor(n_sys, model, use_skewed, int(max_iter))
+
     for start in starts:
-        res = minimize(_fun, _to_u(start), jac=True, method="L-BFGS-B",
-                       options={"maxiter": int(max_iter)})
-        cand = np.asarray(_to_theta(jnp.asarray(res.x)), dtype=float)
+        if not _feasible(start):
+            continue
+        if floored is not None:
+            u_opt, _ = floored(jnp.asarray(_to_u(start)), _dg, _dt)
+            cand = np.asarray(_to_theta(u_opt), dtype=float)
+            messages.append("jax L-BFGS with the efficiency floor")
+        else:
+            res = minimize(_fun, _to_u(start), jac=True, method="L-BFGS-B",
+                           options={"maxiter": int(max_iter)})
+            cand = np.asarray(_to_theta(jnp.asarray(res.x)), dtype=float)
+            messages.append(res.message)
+        if not _feasible(cand):
+            messages.append("left the efficiency floor")
+            continue
         ll = float(log_lik(jnp.asarray(cand), _dg, _dt))
-        messages.append(res.message)
         if np.isfinite(ll) and ll > best_ll:
             best_theta, best_ll = cand, ll
 

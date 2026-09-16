@@ -436,6 +436,27 @@ class TestLrtFromMaxima:
         assert float(ll(th, g, T)) >= float(ll(th1, g, T)) - 1e-6
         assert out["lambda"][0] > 1000
 
+    def test_combined_maximum_respects_the_efficiency_floor(self):
+        # The combined likelihood is unbounded as a pixel's efficiency 1 + b.t vanishes, so
+        # on heavy-tailed templates some maxima sit on MIN_EFFICIENCY.  They are constrained
+        # maxima: finite, converged, and the same point refine_to_mle reaches from there.
+        import sys_mapping as sm
+        from sys_mapping.likelihood import MIN_EFFICIENCY
+        rng = np.random.default_rng(3)
+        T = rng.standard_t(3, size=(3, 2000))
+        T = (T - T.mean(1, keepdims=True)) / T.std(1, keepdims=True)
+        G = np.exp(rng.standard_normal((8, 2000)) * 0.5 - 0.125) - 1
+        out = sm.lrt_from_maxima(G, T)
+        assert out["at_efficiency_floor"].any()
+        assert out["converged"].all()
+        assert np.all(np.isfinite(out["lambda"])) and np.all(out["lambda"] >= -1e-6)
+        assert np.all(out["min_efficiency"] >= MIN_EFFICIENCY * (1 - 1e-9))
+        k = int(np.argmax(out["at_efficiency_floor"]))
+        th = sm.refine_to_mle(out["theta_alt"][k], G[k], T, model="combined")
+        assert float(np.min(1 + th[3:6] @ T)) >= MIN_EFFICIENCY * (1 - 1e-9)
+        ll = sm.make_log_likelihood(3, "combined")
+        assert float(ll(th, G[k], T)) >= float(ll(out["theta_alt"][k], G[k], T)) - 1e-6
+
     def test_non_negative_and_batch_independent(self):
         import sys_mapping as sm
         G, T = self._fields(n_field=5)

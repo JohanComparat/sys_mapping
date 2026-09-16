@@ -237,12 +237,15 @@ def build_lrt_null(n_mocks, nside, good_pix, delta_t, z_edges, nz, n_total_footp
                    seed, sampler, nuts_warmup, nuts_samples, n_chains, rand_factor=2,
                    k_start=0, cl_amplitude=None, cl_input=None, use_skewed=False,
                    draw="pixel", method="maxima"):
-    """Empirical λ_LR null from uncontaminated GLASS mocks (additive-vs-combined), matched to the
-    sample — for a mock-calibrated LRT p-value (the Wilks χ² is overconfident on a correlated field).
+    """Empirical λ_LR null from uncontaminated GLASS mocks (additive against combined), matched to
+    the sample, for a mock-calibrated LRT p-value; the Wilks χ² is overconfident on a correlated
+    field.  Returns an ``(n_mocks,)`` array.
 
-    **HEAVY / remote job:** runs a full additive *and* combined fit per mock via
-    :func:`~sys_mapping.regression.run_decontamination`, then differences the log-likelihoods with
-    the tested primitive :func:`sys_mapping.lrt_null_distribution`. Returns an ``(n_mocks,)`` array.
+    ``method="maxima"`` (default) finds both maxima of every mock together with
+    :func:`sys_mapping.lrt_from_maxima`.  ``method="nuts"`` fits each mock with
+    :func:`~sys_mapping.regression.run_decontamination` for both models, refines both points to
+    their maxima and differences the log-likelihoods with
+    :func:`sys_mapping.lrt_null_distribution`; it costs a full fit per mock.
 
     ``delta_t`` is the **original** (unrotated) template basis — the same array the data fit
     receives.  ``λ_LR`` is rotation-invariant, so the null (computed here in the original basis) is

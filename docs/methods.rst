@@ -266,10 +266,14 @@ NSIDE 32 we measured half the leapfrog steps per iteration and 2.5 times the min
 effective sample size per second.
 
 ``positive_efficiency=True`` (default) restricts a model carrying :math:`b` to the region
-where every fitted pixel has :math:`1 + b\cdot t(p) > 0`, the region that holds
-:math:`b = 0`; outside it the log-density is :math:`-\infty`.  The likelihood has a pole
-wherever an efficiency vanishes, and a ridge along :math:`|b|\to\infty` with
-:math:`\sigma\to0` on which the fit degenerates, and the flat prior excludes neither.
+where every fitted pixel has :math:`1 + b\cdot t(p) \ge 1/20`
+(``sys_mapping.likelihood.MIN_EFFICIENCY``), the region that holds :math:`b = 0`; outside it
+the log-density is :math:`-\infty`.  The combined likelihood is unbounded above: at any pixel
+:math:`a` can cancel the residual while that pixel's efficiency goes to zero, and
+:math:`-\ln|1 + b\cdot t|` then diverges.  Its maximum is therefore defined on the region
+above the floor, and 1/20 is the floor the weight clip already imposes.
+:func:`~sys_mapping.model_selection.lrt_from_maxima` and
+:func:`~sys_mapping.inference.refine_to_mle` use the same region.
 
 emcee
 ~~~~~

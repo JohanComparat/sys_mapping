@@ -15,7 +15,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.stats import chi2
 
-from .likelihood import make_log_likelihood
+from .likelihood import MIN_EFFICIENCY, make_log_likelihood
 from .contamination import n_free_params, pack_params
 from .diagnostics import snr_template_ranking
 import jax.numpy as jnp
@@ -194,6 +194,58 @@ _MAXIMA_RESTARTS = 3      # L-BFGS runs per maximum, each started from the best 
 _MAXIMA_GAMMA_STARTS = (1.5, -1.5)  # skewness starts; gamma = 0 is a stationary point
 
 
+def _lbfgs_maximise(neg, u0, n_iter):
+    """Minimise ``neg`` from ``u0`` with L-BFGS, robust to ``+inf`` outside a feasible region.
+
+    Returns ``(u, max|grad|)``.  Each run keeps its best finite point and stops at
+    convergence, at a non-finite value or gradient, or after ``n_iter`` iterations; it is
+    restarted from its best point ``_MAXIMA_RESTARTS`` times.  Traceable: runs under
+    ``jit`` and ``vmap``.
+    """
+    import jax
+    import optax
+    opt = optax.lbfgs()
+    value_and_grad = optax.value_and_grad_from_state(neg)
+
+    def step(carry):
+        u, state, u_best, f_best, _ = carry
+        value, grad = value_and_grad(u, state=state)
+        # Keep the best finite point: near a pixel where 1 + b.t = 0 the gradient
+        # explodes and a step can throw the iterate onto the flat ridge |b| -> inf.
+        # The value the line search leaves in the state is not always the value at u
+        # after a failed search, so the bookkeeping evaluates u itself.
+        value_here = neg(u)
+        ok = (jnp.isfinite(value) & jnp.isfinite(value_here)
+              & jnp.all(jnp.isfinite(grad)))
+        improved = ok & (value_here < f_best)
+        u_best = jnp.where(improved, u, u_best)
+        f_best = jnp.where(improved, value_here, f_best)
+        updates, state = opt.update(grad, state, u, value=value, grad=grad, value_fn=neg)
+        return optax.apply_updates(u, updates), state, u_best, f_best, ok
+
+    def running(carry):
+        # Stop at convergence (past it the line search spends its full step budget on
+        # every iteration without moving) or once the value or gradient is not finite.
+        _, state, _, _, ok = carry
+        count = optax.tree_utils.tree_get(state, "count")
+        grad = optax.tree_utils.tree_get(state, "grad")
+        return (count == 0) | (ok & (count < n_iter)
+                               & (jnp.max(jnp.abs(grad)) > _MAXIMA_GRAD_STOP))
+
+    def run_from(u_start, _):
+        f0 = neg(u_start)
+        carry = (u_start, opt.init(u_start), u_start, f0, jnp.asarray(True))
+        u, _, u_best, f_best, _ = jax.lax.while_loop(running, step, carry)
+        f_end = neg(u)
+        u_best = jnp.where(jnp.isfinite(f_end) & (f_end <= f_best), u, u_best)
+        return u_best, None
+
+    # Restart from the best point with a fresh curvature memory; a run that converged
+    # stops again after one iteration.
+    u, _ = jax.lax.scan(run_from, u0, None, length=_MAXIMA_RESTARTS)
+    return u, jnp.max(jnp.abs(jax.grad(neg)(u)))
+
+
 def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
     """Compiled ``(G, T) -> (lambda, theta_add, theta_comb, max|grad|)`` over rows of ``G``."""
     key = (int(n_sys), bool(use_skewed), int(n_iter))
@@ -206,44 +258,6 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
     ll_comb = make_log_likelihood(n_sys, "combined", use_skewed)
     i_add, i_comb = n_sys, 2 * n_sys
 
-    def maximise(neg, u0):
-        opt = optax.lbfgs()
-        value_and_grad = optax.value_and_grad_from_state(neg)
-
-        def step(carry):
-            u, state, u_best, f_best, _ = carry
-            value, grad = value_and_grad(u, state=state)
-            # Keep the best finite point: near a pixel where 1 + b.t = 0 the gradient
-            # explodes and a step can throw the iterate onto the flat ridge |b| -> inf.
-            ok = jnp.isfinite(value) & jnp.all(jnp.isfinite(grad))
-            improved = ok & (value < f_best)
-            u_best = jnp.where(improved, u, u_best)
-            f_best = jnp.where(improved, value, f_best)
-            updates, state = opt.update(grad, state, u, value=value, grad=grad, value_fn=neg)
-            return optax.apply_updates(u, updates), state, u_best, f_best, ok
-
-        def running(carry):
-            # Stop at convergence (past it the line search spends its full step budget on
-            # every iteration without moving) or once the value or gradient is not finite.
-            _, state, _, _, ok = carry
-            count = optax.tree_utils.tree_get(state, "count")
-            grad = optax.tree_utils.tree_get(state, "grad")
-            return (count == 0) | (ok & (count < n_iter)
-                                   & (jnp.max(jnp.abs(grad)) > _MAXIMA_GRAD_STOP))
-
-        def run_from(u_start, _):
-            f0 = neg(u_start)
-            carry = (u_start, opt.init(u_start), u_start, f0, jnp.asarray(True))
-            u, _, u_best, f_best, _ = jax.lax.while_loop(running, step, carry)
-            f_end = neg(u)
-            u_best = jnp.where(jnp.isfinite(f_end) & (f_end <= f_best), u, u_best)
-            return u_best, None
-
-        # Restart from the best point with a fresh curvature memory; a run that converged
-        # stops again after one iteration.
-        u, _ = jax.lax.scan(run_from, u0, None, length=_MAXIMA_RESTARTS)
-        return u, jnp.max(jnp.abs(jax.grad(neg)(u)))
-
     def one(g, T):
         gram = T @ T.T
         a = jnp.linalg.solve(gram, T @ g)
@@ -254,10 +268,11 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
             return -ll_add(u.at[i_add].set(jnp.exp(u[i_add])), g, T)
 
         def neg_comb(u):
-            # The maximum is sought where every pixel's efficiency 1 + b.t is positive, the
-            # region that holds b = 0; the likelihood has a pole wherever 1 + b.t = 0, and
-            # the line search backtracks from +inf.
-            feasible = jnp.min(1.0 + u[n_sys:2 * n_sys] @ T) > 0.0
+            # The likelihood is unbounded above as a pixel's efficiency 1 + b.t goes to
+            # zero, so the maximum is sought where every efficiency is at least
+            # MIN_EFFICIENCY, the region that holds b = 0; the line search backtracks
+            # from +inf.
+            feasible = jnp.min(1.0 + u[n_sys:2 * n_sys] @ T) >= MIN_EFFICIENCY
             u_safe = jnp.where(feasible, u, u.at[n_sys:2 * n_sys].set(0.0))
             value = -ll_comb(u_safe.at[i_comb].set(jnp.exp(u_safe[i_comb])), g, T)
             return jnp.where(feasible, value, jnp.inf)
@@ -268,13 +283,19 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
             # gamma = 0 is a stationary point of the skew-normal log-likelihood (its
             # information for the skewness vanishes there), so an optimiser started on it
             # never leaves it and the fit stays Gaussian.  Start off it, both ways.
-            cands = [maximise(neg_add, u_add.at[-1].set(g0)) for g0 in _MAXIMA_GAMMA_STARTS]
+            cands = [_lbfgs_maximise(neg_add, u_add.at[-1].set(g0), n_iter)
+                     for g0 in _MAXIMA_GAMMA_STARTS]
             values = jnp.stack([neg_add(u) for u, _ in cands])
             pick = jnp.argmin(values)
             u_add = jnp.stack([u for u, _ in cands])[pick]
             g_add = jnp.stack([g for _, g in cands])[pick]
         u_comb0 = jnp.concatenate([u_add[:n_sys], jnp.zeros(n_sys), u_add[n_sys:]])
-        u_comb, g_comb = maximise(neg_comb, u_comb0)
+        u_comb, g_comb = _lbfgs_maximise(neg_comb, u_comb0, n_iter)
+        # The start is feasible and finite, so a maximum that is neither is replaced by it;
+        # the gradient there is large, and the field is flagged as not converged.
+        good_comb = jnp.isfinite(neg_comb(u_comb))
+        u_comb = jnp.where(good_comb, u_comb, u_comb0)
+        g_comb = jnp.where(good_comb, g_comb, jnp.inf)
         lam = 2.0 * (neg_add(u_add) - neg_comb(u_comb))
         th_add = u_add.at[i_add].set(jnp.exp(u_add[i_add]))
         th_comb = u_comb.at[i_comb].set(jnp.exp(u_comb[i_comb]))
@@ -282,6 +303,36 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
 
     fn = jax.jit(jax.vmap(one, in_axes=(0, None)))
     _MAXIMA_CACHE[key] = fn
+    return fn
+
+
+_REFINE_B_CACHE: dict = {}
+
+
+def _refine_with_floor(n_sys: int, model: str, use_skewed: bool, n_iter: int = 500):
+    """Compiled ``(u0, g, T) -> (u, max|grad|)``: the maximum of a model carrying ``b``.
+
+    ``u`` has ``sigma`` on a log scale; the search stays where every efficiency ``1 + b.t``
+    is at least ``MIN_EFFICIENCY``, where the likelihood is bounded.
+    """
+    key = (int(n_sys), str(model), bool(use_skewed), int(n_iter))
+    if key in _REFINE_B_CACHE:
+        return _REFINE_B_CACHE[key]
+    import jax
+    ll = make_log_likelihood(n_sys, model, use_skewed)
+    i_sigma = n_free_params(n_sys, model)
+    i_b = n_sys if model == "combined" else 0
+
+    def run(u0, g, T):
+        def neg(u):
+            feasible = jnp.min(1.0 + u[i_b:i_b + n_sys] @ T) >= MIN_EFFICIENCY
+            u_safe = jnp.where(feasible, u, u.at[i_b:i_b + n_sys].set(0.0))
+            value = -ll(u_safe.at[i_sigma].set(jnp.exp(u_safe[i_sigma])), g, T)
+            return jnp.where(feasible, value, jnp.inf)
+        return _lbfgs_maximise(neg, u0, n_iter)
+
+    fn = jax.jit(run)
+    _REFINE_B_CACHE[key] = fn
     return fn
 
 
@@ -329,8 +380,10 @@ def lrt_from_maxima(
     -------
     dict with ``"lambda"`` ``(n_field,)``; ``"theta_null"`` and ``"theta_alt"``, the maxima in
     the packed layout of :func:`~sys_mapping.contamination.pack_params`; ``"max_grad"``
-    ``(n_field,)``; and ``"converged"`` ``(n_field,)`` booleans.  A warning names the fields
-    that did not converge.
+    ``(n_field,)``; ``"min_efficiency"``, the smallest ``1 + b.t`` of each combined maximum;
+    ``"at_efficiency_floor"``, whether that maximum sits on ``MIN_EFFICIENCY``; and
+    ``"converged"`` ``(n_field,)`` booleans, true for a vanishing gradient or a maximum on
+    the floor.  A warning names the fields that did not converge.
 
     Examples
     --------
@@ -348,18 +401,33 @@ def lrt_from_maxima(
     if T.ndim != 2 or G.shape[1] != T.shape[1]:
         raise ValueError(f"delta_g must be (n_field, n_pix) matching delta_t (n_sys, n_pix); "
                          f"got {G.shape} and {T.shape}")
-    fn = _batched_maxima(T.shape[0], use_skewed, n_iter)
-    Tj = jnp.asarray(T)
+    n_sys = T.shape[0]
+    # Optimise in the whitened basis T_w = W T, whose second moment is the identity:
+    # a . t = a_w . t_w with a = W^T a_w (the same for b), so the likelihood, the
+    # efficiency 1 + b.t and lambda are unchanged, while L-BFGS no longer has to cross
+    # the ill-conditioned valleys of a collinear basis.
+    evals, evecs = np.linalg.eigh(T @ T.T / T.shape[1])
+    W = (evecs / np.sqrt(np.clip(evals, 1e-300, None))).T
+    fn = _batched_maxima(n_sys, use_skewed, n_iter)
+    Tj = jnp.asarray(W @ T)
     parts = [fn(jnp.asarray(G[i:i + batch_size]), Tj) for i in range(0, len(G), int(batch_size))]
     lam, th0, th1, gmax = (np.concatenate([np.asarray(p[j]) for p in parts]) for j in range(4))
-    converged = gmax < grad_tol
+    th0[:, :n_sys] = th0[:, :n_sys] @ W
+    th1[:, :n_sys] = th1[:, :n_sys] @ W
+    th1[:, n_sys:2 * n_sys] = th1[:, n_sys:2 * n_sys] @ W
+    # A maximum on the efficiency floor is a constrained maximum: its unconstrained
+    # gradient need not vanish there.
+    min_eff = (1.0 + th1[:, n_sys:2 * n_sys] @ T).min(axis=1)
+    at_floor = min_eff <= MIN_EFFICIENCY * (1.0 + 1e-3)
+    converged = (gmax < grad_tol) | at_floor
     if not converged.all():
         warnings.warn(
             f"lrt_from_maxima: {int((~converged).sum())} of {len(G)} fields did not converge "
             f"(largest gradient {gmax.max():.3g} >= {grad_tol}); raise n_iter.",
             RuntimeWarning, stacklevel=2)
     return {"lambda": lam, "theta_null": th0, "theta_alt": th1,
-            "max_grad": gmax, "converged": converged}
+            "max_grad": gmax, "converged": converged, "at_efficiency_floor": at_floor,
+            "min_efficiency": min_eff}
 
 
 def lrt_null_distribution(
