@@ -45,8 +45,8 @@ Rules of thumb
 * The independent-pixel error :math:`\sigma_i` ignores the correlation of the
   clustered field between pixels. Against 400 uncontaminated GLASS
   realisations carrying each sample's matched spectrum, the median over templates of
-  the amplitude scatter divided by :math:`\sigma_i` is 1.3 to 2.9 per
-  sample and rises with resolution (NSIDE 16: 1.3; NSIDE 32: 1.8; NSIDE 64: 1.8 to 2.4; NSIDE 128: 2.5 to 2.9). Single templates span
+  the amplitude scatter divided by :math:`\sigma_i` is 1.3 to 3.0 per
+  sample and rises with resolution (NSIDE 16: 1.3; NSIDE 32: 1.8; NSIDE 64: 1.8 to 2.4; NSIDE 128: 2.6 to 3.0). Single templates span
   0.9 to 5.6. ``sys_mapping.calibrated_template_significance`` measures
   the factor per template.
 * A search over :math:`n_{\rm sys}` templates reports the largest significance, so
@@ -68,7 +68,7 @@ independent-pixel SNR 6.8.
 
 Occupancy puts this sample at NSIDE 128 (32.5 galaxies per pixel,
 floor 25). There the leading template is GAIA_phot_rp_mean_flux, at calibrated significance
-4.19 (independent-pixel 4.2, inflation 0.99) and family-wise
+4.02 (independent-pixel 4.2, inflation 1.03) and family-wise
 :math:`p` ≤ 0.0025 from 400 realisations. It traces the Gaia stellar density.
 
 .. csv-table:: Calibrated significance per sample, each at the resolution its occupancy supports.

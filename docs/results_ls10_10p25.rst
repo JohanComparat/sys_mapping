@@ -3,7 +3,7 @@
 BGS VLIM log M* ≥ 10.25, z < 0.22
 =================================
 
-3,308,841 galaxies, issued at NSIDE 128 (39.0 galaxies per pixel over 84,831 pixels). Leading template: ``GAIA_phot_rp_mean_flux`` at 4.81 calibrated, family-wise p ≤ 0.0025. Recommended column: ``WEIGHT_SYS``; a template is detected (family-wise p ≤ 0.0025); the NSIDE 64 likelihood ratio does not require the multiplicative term (p = 0.078), so WEIGHT_ADD is the simpler alternative.
+3,308,841 galaxies, issued at NSIDE 128 (39.0 galaxies per pixel over 84,831 pixels). Leading template: ``GAIA_phot_rp_mean_flux`` at 4.99 calibrated, family-wise p ≤ 0.0025. Recommended column: ``WEIGHT_SYS``; a template is detected (family-wise p ≤ 0.0025); the NSIDE 64 likelihood ratio does not require the multiplicative term (p = 0.078), so WEIGHT_ADD is the simpler alternative.
 
 .. contents:: On this page
    :local:
@@ -19,17 +19,17 @@ Template significance
 .. csv-table::
    :header: "template", "S cal", "S iid", "p", "κ"
 
-   "GAIA_phot_rp_mean_flux", "4.81", "4.95", "0.0025", "1.03"
-   "LS10_GALDEPTH_R", "2.53", "6.87", "0.0175", "2.72"
-   "GAIA_phot_g_mean_flux", "2.19", "2.33", "0.0299", "1.06"
-   "GAIA_phot_bp_mean_flux", "1.96", "2.13", "0.0474", "1.09"
-   "LS10_NOBS_R", "1.88", "5.12", "0.0798", "2.73"
-   "GAIA_nstar_medium", "1.78", "5.02", "0.0823", "2.82"
-   "LS10_GALDEPTH_G", "1.44", "4.25", "0.1446", "2.95"
-   "LS10_PSFSIZE_R", "1.16", "3.76", "0.2369", "3.23"
-   "LS10_GALDEPTH_Z", "0.48", "1.34", "0.6160", "2.78"
-   "GAIA_nstar_faint", "0.29", "0.80", "0.7781", "2.71"
-   "LS10_EBV", "0.08", "0.37", "0.9551", "4.88"
+   "GAIA_phot_rp_mean_flux", "4.99", "4.95", "0.0025", "0.99"
+   "LS10_GALDEPTH_R", "2.55", "6.87", "0.0150", "2.70"
+   "GAIA_phot_g_mean_flux", "2.17", "2.33", "0.0274", "1.07"
+   "GAIA_phot_bp_mean_flux", "1.87", "2.13", "0.0549", "1.13"
+   "LS10_NOBS_R", "1.86", "5.12", "0.0873", "2.75"
+   "GAIA_nstar_medium", "1.81", "5.02", "0.0773", "2.78"
+   "LS10_GALDEPTH_G", "1.45", "4.25", "0.1596", "2.94"
+   "LS10_PSFSIZE_R", "1.17", "3.76", "0.2344", "3.20"
+   "LS10_GALDEPTH_Z", "0.48", "1.34", "0.6035", "2.79"
+   "GAIA_nstar_faint", "0.30", "0.80", "0.7556", "2.65"
+   "LS10_EBV", "0.08", "0.37", "0.9426", "4.84"
 
 Calibrated on 400 realisations; p is per template, with floor 0.0025.
 
@@ -39,17 +39,17 @@ Fitted amplitudes (NSIDE 128)
 .. csv-table::
    :header: "template", "a OLS", "a ElasticNet", "a ISD-1", "a ISD-3", "a MCMC-add", "a MCMC-comb", "b MCMC-comb"
 
-   "GAIA_nstar_faint", "+0.0037", "-0.0000", "+0.0000", "+0.0000", "+0.0037", "+0.0035", "-0.0132"
-   "GAIA_nstar_medium", "-0.0228", "-0.0186", "+0.0000", "+0.0000", "-0.0228", "-0.0240", "-0.0125"
-   "GAIA_phot_bp_mean_flux", "-0.0071", "-0.0028", "+0.0000", "+0.0000", "-0.0072", "-0.0056", "+0.0510"
-   "GAIA_phot_g_mean_flux", "+0.0119", "+0.0000", "+0.0000", "+0.0000", "+0.0119", "+0.0082", "+0.0217"
-   "GAIA_phot_rp_mean_flux", "-0.0221", "-0.0136", "-0.0122", "-0.0123", "-0.0221", "-0.0190", "+0.0020"
-   "LS10_EBV", "+0.0008", "-0.0000", "+0.0000", "+0.0000", "+0.0008", "-0.0006", "-0.0050"
-   "LS10_GALDEPTH_G", "-0.0089", "-0.0059", "+0.0000", "+0.0000", "-0.0089", "-0.0037", "+0.0019"
-   "LS10_GALDEPTH_R", "+0.0186", "+0.0139", "+0.0000", "+0.0000", "+0.0186", "+0.0161", "+0.0102"
-   "LS10_GALDEPTH_Z", "+0.0025", "+0.0014", "+0.0000", "+0.0000", "+0.0025", "-0.0001", "-0.0358"
-   "LS10_NOBS_R", "-0.0117", "-0.0081", "+0.0000", "+0.0000", "-0.0117", "-0.0123", "-0.0326"
-   "LS10_PSFSIZE_R", "-0.0067", "-0.0059", "+0.0000", "+0.0000", "-0.0067", "-0.0066", "+0.0136"
+   "GAIA_nstar_faint", "+0.0037", "-0.0000", "+0.0000", "+0.0000", "+0.0037", "+0.0011", "-0.0052"
+   "GAIA_nstar_medium", "-0.0228", "-0.0186", "+0.0000", "+0.0000", "-0.0228", "-0.0250", "-0.0270"
+   "GAIA_phot_bp_mean_flux", "-0.0071", "-0.0028", "+0.0000", "+0.0000", "-0.0072", "-0.0009", "+0.0213"
+   "GAIA_phot_g_mean_flux", "+0.0119", "+0.0000", "-0.0102", "-0.0105", "+0.0119", "-0.0146", "+0.0200"
+   "GAIA_phot_rp_mean_flux", "-0.0221", "-0.0136", "-0.0049", "+0.0000", "-0.0221", "+0.0010", "-0.0167"
+   "LS10_EBV", "+0.0008", "-0.0000", "+0.0000", "+0.0000", "+0.0008", "+0.0056", "+0.0146"
+   "LS10_GALDEPTH_G", "-0.0089", "-0.0059", "+0.0000", "+0.0000", "-0.0089", "-0.0141", "-0.0091"
+   "LS10_GALDEPTH_R", "+0.0186", "+0.0139", "+0.0000", "+0.0000", "+0.0186", "+0.0149", "+0.0107"
+   "LS10_GALDEPTH_Z", "+0.0025", "+0.0014", "+0.0000", "+0.0000", "+0.0025", "+0.0165", "-0.0133"
+   "LS10_NOBS_R", "-0.0117", "-0.0081", "+0.0000", "+0.0000", "-0.0117", "-0.0134", "-0.0458"
+   "LS10_PSFSIZE_R", "-0.0067", "-0.0059", "+0.0000", "+0.0000", "-0.0067", "-0.0067", "+0.0155"
 
 Amplitudes are per unit template standard deviation on the footprint.
 
@@ -87,12 +87,12 @@ Angular correlation function
 .. csv-table:: Corrected over observed w(θ).
    :header: "method", "at 30′", "smallest ratio", "at θ"
 
-   "OLS", "0.992", "0.943", "272′"
-   "ElasticNet", "0.993", "0.949", "272′"
-   "ISD-1", "1.000", "1.000", "272′"
-   "ISD-3", "1.000", "1.000", "272′"
-   "MCMC-add", "0.991", "0.942", "272′"
-   "MCMC-comb", "0.990", "0.937", "272′"
+   "OLS", "0.995", "0.961", "272′"
+   "ElasticNet", "0.996", "0.967", "272′"
+   "ISD-1", "1.003", "1.000", "1′"
+   "ISD-3", "1.003", "1.000", "1′"
+   "MCMC-add", "0.995", "0.961", "272′"
+   "MCMC-comb", "0.992", "0.955", "272′"
 
 Likelihood ratio
 ----------------
