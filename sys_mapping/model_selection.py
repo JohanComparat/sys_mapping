@@ -191,6 +191,7 @@ def likelihood_ratio_test(
 _MAXIMA_CACHE: dict = {}
 _MAXIMA_GRAD_STOP = 1e-9  # largest gradient component at which an L-BFGS run stops
 _MAXIMA_RESTARTS = 3      # L-BFGS runs per maximum, each started from the best point so far
+_MAXIMA_GAMMA_STARTS = (1.5, -1.5)  # skewness starts; gamma = 0 is a stationary point
 
 
 def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
@@ -264,7 +265,14 @@ def _batched_maxima(n_sys: int, use_skewed: bool, n_iter: int):
         u_add = jnp.concatenate([a, log_sig[None], gamma0])
         g_add = jnp.asarray(0.0)
         if use_skewed:
-            u_add, g_add = maximise(neg_add, u_add)
+            # gamma = 0 is a stationary point of the skew-normal log-likelihood (its
+            # information for the skewness vanishes there), so an optimiser started on it
+            # never leaves it and the fit stays Gaussian.  Start off it, both ways.
+            cands = [maximise(neg_add, u_add.at[-1].set(g0)) for g0 in _MAXIMA_GAMMA_STARTS]
+            values = jnp.stack([neg_add(u) for u, _ in cands])
+            pick = jnp.argmin(values)
+            u_add = jnp.stack([u for u, _ in cands])[pick]
+            g_add = jnp.stack([g for _, g in cands])[pick]
         u_comb0 = jnp.concatenate([u_add[:n_sys], jnp.zeros(n_sys), u_add[n_sys:]])
         u_comb, g_comb = maximise(neg_comb, u_comb0)
         lam = 2.0 * (neg_add(u_add) - neg_comb(u_comb))

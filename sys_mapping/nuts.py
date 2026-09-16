@@ -68,6 +68,7 @@ def build_logdensity(
     prior_scale_a: float | None = None,
     prior_scale_b: float | None = None,
     precision=None,
+    positive_efficiency: bool = True,
 ):
     """Return ``(logdensity_fn, n_dim, idx_sigma)`` for NUTS in unconstrained space.
 
@@ -80,9 +81,17 @@ def build_logdensity(
     ``precision`` (a :class:`sys_mapping.covariance.LowRankPrecision`) switches the
     Gaussian likelihood to the correlated-noise (GLS) form :math:`C = \\sigma^2 R`;
     ``None`` keeps the white :math:`\\sigma^2 I` likelihood.
+
+    ``positive_efficiency`` (default ``True``) restricts a model carrying ``b`` to the
+    region where every fitted pixel has :math:`1 + b\\cdot t(p) > 0`, the region that holds
+    ``b = 0``.  The likelihood has a pole wherever an efficiency vanishes and a ridge along
+    :math:`|b|\\to\\infty` with :math:`\\sigma\\to0`, neither of which the flat prior excludes;
+    outside the region the log-density is :math:`-\\infty`, so a trajectory that leaves it is
+    rejected.
     """
     base, n_dim, idx_sigma = _logdensity_with_data(
-        n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision)
+        n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
+        positive_efficiency)
     _delta_g = jnp.asarray(delta_g_obs, dtype=jnp.float64)
     _delta_t = jnp.asarray(delta_t, dtype=jnp.float64)
 
@@ -92,17 +101,29 @@ def build_logdensity(
     return logdensity_fn, n_dim, idx_sigma
 
 
-def _logdensity_with_data(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision):
+def _logdensity_with_data(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
+                          positive_efficiency=True):
     """``(logdensity(u, delta_g, delta_t), n_dim, idx_sigma)`` with the data as arguments."""
     log_likelihood = make_log_likelihood(n_sys, model, use_skewed, precision=precision)
     n_cont = n_free_params(n_sys, model)
     idx_sigma = n_cont
     n_dim = n_cont + 1 + (1 if use_skewed else 0)
 
+    has_b = model in ("combined", "multiplicative")
+    i_b0 = n_sys if model == "combined" else 0
+
     def logdensity(u, delta_g, delta_t):
         u_sigma = u[idx_sigma]
         # map unconstrained -> constrained: sigma = exp(u_sigma), rest identity
         theta = u.at[idx_sigma].set(jnp.exp(u_sigma))
+        feasible = jnp.asarray(True)
+        if has_b and positive_efficiency:
+            # Outside the region every efficiency is positive in, the likelihood has a pole
+            # and an unbounded ridge; evaluate it at b = 0 there so the gradient stays finite,
+            # and return -inf.
+            feasible = jnp.min(1.0 + theta[i_b0:i_b0 + n_sys] @ delta_t) > 0.0
+            theta = jnp.where(feasible, theta,
+                              theta.at[i_b0:i_b0 + n_sys].set(0.0))
         lp = log_likelihood(theta, delta_g, delta_t)
         lp = lp + u_sigma  # log|d sigma / d u_sigma| = u_sigma
         if prior_scale_a is not None:
@@ -111,7 +132,7 @@ def _logdensity_with_data(n_sys, model, use_skewed, prior_scale_a, prior_scale_b
         if prior_scale_b is not None and model == "combined":
             b = u[n_sys : 2 * n_sys]
             lp = lp - 0.5 * jnp.sum((b / prior_scale_b) ** 2)
-        return lp
+        return jnp.where(feasible, lp, -jnp.inf)
 
     return logdensity, n_dim, idx_sigma
 
@@ -121,7 +142,7 @@ _RUNNER_CACHE: dict = {}
 
 def _chain_runner(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
                   n_warmup, n_samples, target_acceptance_rate, chain_method,
-                  dense_mass_matrix=True):
+                  dense_mass_matrix=True, positive_efficiency=True):
     """Compiled ``(chain_keys, u0, delta_g, delta_t) -> (positions, divergent, accept)``.
 
     Everything that fixes the computation is static and forms the cache key; the data
@@ -134,11 +155,12 @@ def _chain_runner(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precis
                          f"got {chain_method!r}")
     key = (int(n_sys), str(model), bool(use_skewed), prior_scale_a, prior_scale_b,
            int(n_warmup), int(n_samples), float(target_acceptance_rate), chain_method,
-           bool(dense_mass_matrix))
+           bool(dense_mass_matrix), bool(positive_efficiency))
     if precision is None and key in _RUNNER_CACHE:
         return _RUNNER_CACHE[key]
     base, _, _ = _logdensity_with_data(n_sys, model, use_skewed,
-                                       prior_scale_a, prior_scale_b, precision)
+                                       prior_scale_a, prior_scale_b, precision,
+                                       positive_efficiency)
 
     def run(chain_keys, u0, delta_g, delta_t):
         def logdensity_fn(u):
@@ -197,6 +219,7 @@ def run_nuts(
     precision=None,
     chain_method: str = "vmap",
     dense_mass_matrix: bool = True,
+    positive_efficiency: bool = True,
     progress: bool = False,
 ) -> tuple[np.ndarray, _NutsSampler]:
     """Run BlackJAX NUTS to infer contamination parameters.
@@ -230,6 +253,9 @@ def run_nuts(
         one.  The contamination amplitudes are strongly correlated; on the LS10 combined
         fit (23 parameters) the dense matrix halves the leapfrog steps per iteration and
         gives 2.5 times the effective samples per second, with the same posterior.
+    positive_efficiency : bool  restrict a model carrying ``b`` to the region where every
+        fitted pixel has ``1 + b.t(p) > 0`` (default).  Outside it the likelihood has a
+        pole and an unbounded ridge, which the flat prior does not exclude.
     progress : bool  accepted for signature parity with :func:`run_mcmc` (unused)
 
     Returns
@@ -247,7 +273,7 @@ def run_nuts(
     n_dim = n_cont + 1 + (1 if use_skewed else 0)
     runner = _chain_runner(n_sys, model, use_skewed, prior_scale_a, prior_scale_b, precision,
                            n_warmup, n_samples, target_acceptance_rate, chain_method,
-                           dense_mass_matrix)
+                           dense_mass_matrix, positive_efficiency)
 
     # Initial positions (unconstrained): mirror the emcee init scheme, but with
     # u_sigma = log(sigma0) since sigma = exp(u_sigma).

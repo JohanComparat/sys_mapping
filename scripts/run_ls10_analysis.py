@@ -477,7 +477,7 @@ def _regen_weight_figures(sample_id, nside, templates, good_pix,
 
 
 def _plot_wtheta_figure(theta_arcmin, w_obs, all_w_corr, sample_id, nside, n_gal,
-                        outdir, docs_dir):
+                        outdir, docs_dir, w_corr_err=None):
     """Log-log w(θ) comparison for all 6 methods.
 
     Top panel: log-log scale, positive values only.
@@ -505,6 +505,13 @@ def _plot_wtheta_figure(theta_arcmin, w_obs, all_w_corr, sample_id, nside, n_gal
                 color=METHOD_COLORS.get(_m, 'grey'),
                 ls=METHOD_LINESTYLES.get(_m, '-'), lw=1.5,
                 label=METHOD_LABELS.get(_m, _m))
+        _err = None if w_corr_err is None else w_corr_err.get(_m)
+        if _err is not None:
+            _e = np.asarray(_err, dtype=float)
+            ax.fill_between(theta_arcmin,
+                            np.where(_wc - _e > 0, _wc - _e, np.nan),
+                            np.where(_wc + _e > 0, _wc + _e, np.nan),
+                            color=METHOD_COLORS.get(_m, 'grey'), alpha=0.15, lw=0)
     ax.set_ylabel(r"$w(\theta)$")
     ax.set_title(f"{sample_id}\nNSIDE={nside}  n_gal={n_gal:,}")
     ax.legend(fontsize=8, ncol=2)
@@ -523,8 +530,16 @@ def _plot_wtheta_figure(theta_arcmin, w_obs, all_w_corr, sample_id, nside, n_gal
                  color=METHOD_COLORS.get(_m, 'grey'),
                  ls=METHOD_LINESTYLES.get(_m, '-'), lw=1.5,
                  label=METHOD_LABELS.get(_m, _m))
+        _err = None if w_corr_err is None else w_corr_err.get(_m)
+        if _err is not None:
+            _e = np.asarray(_err, dtype=float) / np.abs(_w_ref)
+            ax2.fill_between(theta_arcmin, _frac - _e, _frac + _e,
+                             color=METHOD_COLORS.get(_m, 'grey'), alpha=0.15, lw=0)
     ax2.set_xlabel(r"$\theta$ [arcmin]")
     ax2.set_ylabel(r"$\delta w / w_{\rm obs}$")
+    if w_corr_err:
+        ax2.text(0.99, 0.04, "bands: amplitude covariance only",
+                 transform=ax2.transAxes, ha="right", va="bottom", fontsize=7, color="0.35")
 
     plt.tight_layout()
     fig_path = Path(outdir) / f"{sample_id}_NSIDE{nside:04d}_wtheta.png"
@@ -997,6 +1012,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     # against their scatter across uncontaminated realisations drawn with this
     # sample's matched spectrum, and the largest against the largest of each.
     _significance = None
+    _cov_sandwich = None
     if getattr(args, "significance_n_mocks", 0) > 0:
         _zs0, _zs1 = _parse_z_range(sample_id)
         print(f"\nCalibrating detection significance on {args.significance_n_mocks} "
@@ -1008,6 +1024,10 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
             cl_input=null_cl_input, cl_amplitude=args.lrt_null_cl_amplitude,
             draw=getattr(args, "null_draw", "pixel"))
         _sig = sm.calibrated_template_significance(delta_g, delta_t, _sig_null)
+        # The same realisations calibrate the amplitude covariance the two-point
+        # correction debiases with: the independent-pixel covariance of a fit is too
+        # small on a clustered field, and four of the six methods have none at all.
+        _cov_sandwich = sm.mock_sandwich_covariance(delta_t, _sig_null)
         _a_iid = np.linalg.lstsq(delta_t.T, delta_g, rcond=None)[0]
         _res = delta_g - _a_iid @ delta_t
         _sd_iid = np.sqrt(np.diag(np.var(_res) * len(delta_g) / (len(delta_g) - n_sys)
@@ -1154,21 +1174,32 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     except Exception as e:
         raise RuntimeError(f"template correlation measurement failed: {e}") from e
 
+    # The correction runs in the rotated basis, so the calibrated covariance is rotated
+    # with the templates.  Without the significance realisations there is none, and the
+    # per-method fallback below is each fit's own covariance, or none.
+    _R_corr = np.asarray(res_comb.get("R", np.eye(n_sys)))
+    _cov_sand_rot = (_R_corr @ _cov_sandwich @ _R_corr.T
+                     if _cov_sandwich is not None else None)
+    _cov_source = "sandwich" if _cov_sand_rot is not None else "fit"
+
     # Two-point correction (combined model, rotated basis)
-    w_corr_comb = correct_two_point_function(
+    _ca_comb = _cov_sand_rot if _cov_sand_rot is not None else res_comb.get("cov_a_rot")
+    _cb_comb = res_comb.get("cov_b_rot")
+    w_corr_comb, cov_w_comb = correct_two_point_function(
         w_obs, np.asarray(res_comb.get("a_rot", np.zeros(n_sys))),
         np.asarray(res_comb.get("b_rot", np.zeros(n_sys))),
-        np.diag(res_comb.get("cov_a_rot", np.eye(n_sys))),
-        np.diag(res_comb.get("cov_b_rot", np.eye(n_sys))), ct_rot,
-        cov_a=res_comb.get("cov_a_rot"), cov_b=res_comb.get("cov_b_rot"),
+        np.diag(_ca_comb) if _ca_comb is not None else np.zeros(n_sys),
+        np.diag(_cb_comb) if _cb_comb is not None else np.zeros(n_sys), ct_rot,
+        cov_a=_ca_comb, cov_b=_cb_comb, return_cov=True,
     )
     # Additive model correction
-    w_corr_add = correct_two_point_function(
+    _ca_add = _cov_sand_rot if _cov_sand_rot is not None else res_add.get("cov_a_rot")
+    w_corr_add, cov_w_add = correct_two_point_function(
         w_obs, np.asarray(res_add.get("a_rot", np.zeros(n_sys))),
         np.zeros(n_sys),
-        np.diag(res_add.get("cov_a_rot", np.eye(n_sys))),
+        np.diag(_ca_add) if _ca_add is not None else np.zeros(n_sys),
         np.zeros(n_sys), ct_rot,
-        cov_a=res_add.get("cov_a_rot"),
+        cov_a=_ca_add, return_cov=True,
     )
 
     # ── Per-galaxy weights: all 6 methods ─────────────────────────────────
@@ -1309,6 +1340,7 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
     _METHOD_ORDER_LS10 = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
     _R_ls10 = np.asarray(res_comb.get("R", np.eye(n_sys)))
     _all_w_corr_ls10 = {}
+    _all_w_corr_err = {}
     for _mls in _METHOD_ORDER_LS10:
         _rls = all_method_results.get(_mls, {})
         _a_ls = np.asarray(_rls.get("a_hat", np.zeros(n_sys)))
@@ -1327,19 +1359,26 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         else:
             _ar_ls = _R_ls10 @ _a_ls
             _br_ls = _R_ls10 @ _b_ls
-            _va_ls = np.zeros(n_sys)
-            _vb_ls = np.zeros(n_sys)
             _ca_ls = _cb_ls = None
+        # The calibrated covariance of the significance realisations, when there is one:
+        # it is the covariance of the linear estimator on this basis, and the closest
+        # available for the regression methods, which carry none of their own.
+        if _cov_sand_rot is not None:
+            _ca_ls = _cov_sand_rot
+        _va_ls = np.diag(_ca_ls) if _ca_ls is not None else np.zeros(n_sys)
+        _vb_ls = np.diag(_cb_ls) if _cb_ls is not None else np.zeros(n_sys)
         try:
-            _all_w_corr_ls10[_mls] = correct_two_point_function(
+            _all_w_corr_ls10[_mls], _cw_ls = correct_two_point_function(
                 w_obs, _ar_ls, _br_ls, _va_ls, _vb_ls, ct_rot,
-                cov_a=_ca_ls, cov_b=_cb_ls)
+                cov_a=_ca_ls, cov_b=_cb_ls, return_cov=True)
+            _all_w_corr_err[_mls] = np.sqrt(np.clip(np.diag(_cw_ls), 0.0, None)).tolist()
         except Exception:
             _all_w_corr_ls10[_mls] = np.full_like(w_obs, np.nan)
 
     # ── Diagnostic plot: all 6 methods (shared helper) ────────────────────
     _plot_wtheta_figure(theta_arcmin, w_obs, _all_w_corr_ls10,
-                        sample_id, nside, len(ra_gal), outdir, docs_dir)
+                        sample_id, nside, len(ra_gal), outdir, docs_dir,
+                        w_corr_err=_all_w_corr_err)
 
     # Persist the corrected curves, not only the figure.  Only --figures-only
     # wrote them, so a full run left the one quantity a post-condition needs to
@@ -1352,6 +1391,11 @@ def run_sample(sample_id, data_file, rand_file, templates, template_names,
         "w_obs": np.asarray(w_obs).tolist(),
         "all_w_corr": {m: np.asarray(v).tolist()
                        for m, v in _all_w_corr_ls10.items()},
+        # One sigma from the amplitude covariance, propagated by the parametric
+        # bootstrap of correct_two_point_function; the measurement covariance of
+        # w_obs is not included.
+        "all_w_corr_err": _all_w_corr_err,
+        "amplitude_covariance": _cov_source,
     }))
     print(f"w(θ) data saved: {_wdata_path}", flush=True)
 

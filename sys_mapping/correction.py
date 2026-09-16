@@ -78,6 +78,8 @@ def debias_params_matrix(
     b_hat: np.ndarray,
     cov_a: np.ndarray,
     cov_b: np.ndarray,
+    *,
+    project_psd: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """Debiased outer products :math:`\\tilde A = \\hat a\\hat a^\\top - {\\rm Cov}[\\hat a]`.
 
@@ -87,11 +89,14 @@ def debias_params_matrix(
     the full covariance is what makes every entry unbiased --- not just the
     diagonal, which is all :func:`debias_params` corrects.
 
-    The diagonal clip ``max(x, 0)`` has no elementwise analogue here: a squared
-    *matrix* is constrained to be positive semi-definite, not merely
-    positive-entried.  The debiased matrix is therefore projected onto the PSD
-    cone by clipping its eigenvalues at zero, which reduces exactly to
-    ``max(a^2 - var, 0)`` when ``n_sys == 1``.
+    :math:`\\hat a\\hat a^\\top` has rank one, so the debiased matrix has one positive
+    eigenvalue and :math:`n_{\\rm sys}-1` negative ones; projecting it onto the positive
+    semi-definite cone would discard the covariance subtraction in every direction but one
+    and leave a matrix more biased than the undebiased :math:`\\hat a\\hat a^\\top`.  The
+    unbiased estimator of a squared amplitude matrix is not itself positive semi-definite,
+    and it need not be: what has to stay physical is the corrected :math:`w(\\theta)`, which
+    :func:`correct_two_point_function` checks.  ``project_psd=True`` restores the projection
+    for a caller that needs a positive semi-definite matrix and accepts the bias.
 
     Parameters
     ----------
@@ -102,7 +107,8 @@ def debias_params_matrix(
 
     Returns
     -------
-    ``(A, B)``, each ``(n_sys, n_sys)`` and positive semi-definite.
+    ``(A, B)``, each ``(n_sys, n_sys)`` and symmetric; positive semi-definite only with
+    ``project_psd=True``.
 
     Examples
     --------
@@ -116,15 +122,17 @@ def debias_params_matrix(
     """
     xp = namespace(a_hat, b_hat, cov_a, cov_b)
 
-    def _psd(x_hat, cov):
+    def _debias(x_hat, cov):
         x_hat = xp.asarray(x_hat, dtype=float)
         cov = xp.atleast_2d(xp.asarray(cov, dtype=float))
         m = xp.outer(x_hat, x_hat) - cov
         m = 0.5 * (m + m.T)                       # kill asymmetry from round-off
+        if not project_psd:
+            return m
         w, v = xp.linalg.eigh(m)
         return (v * xp.maximum(w, 0.0)) @ v.T
 
-    return _psd(a_hat, cov_a), _psd(b_hat, cov_b)
+    return _debias(a_hat, cov_a), _debias(b_hat, cov_b)
 
 
 def rotate_templates(

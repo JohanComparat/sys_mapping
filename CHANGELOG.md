@@ -4,6 +4,41 @@ All notable changes to `sys_mapping` are documented here.
 
 ## [Unreleased]
 
+## [1.4.1] — 2026-09-16
+
+A referee reading of the pipeline paper found four defects in 1.4.0: an estimator that
+undid its own bias correction, a skewed fit that never left its starting point, an
+unconstrained sampler on a likelihood with a pole, and a two-point correction that carried
+no uncertainty for four of the six methods. The LS10 products and every corrected
+`w(θ)` are regenerated.
+
+### Fixed
+
+- **`debias_params_matrix` returned a matrix more biased than the one it debiased.**
+  `â âᵀ` has rank one, so `â âᵀ − Cov[â]` has one positive eigenvalue and `n_sys − 1`
+  negative ones, and projecting onto the positive semi-definite cone discarded the
+  covariance subtraction in every direction but one. Over 4000 draws at `n_sys = 5` the
+  projected estimator misses the truth by more than five times the unprojected one. The
+  projection is now opt-in (`project_psd=True`); the unbiased estimator of a squared
+  amplitude matrix is not positive semi-definite, and what has to stay physical is the
+  corrected `w(θ)`, which `correct_two_point_function` already checks.
+- **`lrt_from_maxima(use_skewed=True)` returned the Gaussian answer.** γ = 0 is a
+  stationary point of the skew-normal log-likelihood — its information for the skewness
+  vanishes there — so an optimiser started on it never moved and λ matched the Gaussian
+  value to twelve digits. Both models now start at γ = ±1.5 and keep the better maximum.
+  `refine_to_mle` adds the same starts when it is given γ = 0.
+- **`run_nuts` sampled a likelihood with a pole.** A model carrying `b` is now restricted
+  to the region where every fitted pixel has `1 + b·t(p) > 0`, the region that holds
+  `b = 0` (`positive_efficiency=True`); outside it the log-density is −∞. The flat prior
+  admitted both the pole at a vanishing efficiency and the ridge along `|b| → ∞` with
+  `σ → 0`, which is where a companion pipeline's combined fits were ending up.
+- **`run_ls10_analysis.py` debiased only the MCMC methods and propagated no uncertainty.**
+  The amplitude covariance is now the sandwich covariance of the significance
+  realisations, the same for every method, and the corrected `w(θ)` carries the
+  covariance it implies: `all_w_corr_err` in `*_wtheta_data.json`, and a band on the
+  figure. The source is recorded as `amplitude_covariance`.
+
+
 ## [1.4.0] — 2026-09-15
 
 Every calibrated statistic draws its null from a validated matched spectrum, detection

@@ -461,8 +461,8 @@ Rules of thumb
    signal away.
 #. Detect the field rather than individual templates. The field statistic is
    insensitive to collinearity, while individual templates are poorly identified
-   (condition number :math:`1.4\times10^{3}` for the standardised LS10 basis at
-   NSIDE 64). Calibrate per-template significance on matched mocks with
+   (the standardised LS10 basis on the fiducial footprint at NSIDE 64 has second-moment
+   condition number 108). Calibrate per-template significance on matched mocks with
    ``sys_mapping.calibrated_template_significance``: on LS10 the independent-pixel
    error is short by a median factor of 1.3 to 2.9 per sample, rising with
    resolution, and by 0.9 to 5.6 for single templates.

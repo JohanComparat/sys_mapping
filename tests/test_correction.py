@@ -323,16 +323,42 @@ class TestCrossTemplateTerms:
         a_sq, _ = debias_params(a, np.zeros(1), var, np.zeros(1))
         assert A[0, 0] == pytest.approx(a_sq[0], rel=1e-12)
 
-    def test_matrix_debias_is_psd(self):
-        """A squared matrix is PSD-constrained, not entrywise-positive."""
+    def test_matrix_debias_is_unbiased_and_psd_projection_is_not(self):
+        """The unbiased estimator is not PSD, and projecting it undoes the subtraction."""
+        from sys_mapping.correction import debias_params_matrix
+
+        rng = np.random.default_rng(0)
+        n, n_draw = 5, 4000
+        a_true = rng.normal(0, 0.03, n)
+        cov = np.diag(rng.uniform(0.5, 1.5, n) * 4e-4)
+        chol = np.linalg.cholesky(cov)
+        plain = np.zeros((n, n))
+        projected = np.zeros((n, n))
+        for _ in range(n_draw):
+            a_hat = a_true + chol @ rng.standard_normal(n)
+            zero = np.zeros((n, n))
+            plain += debias_params_matrix(a_hat, np.zeros(n), cov, zero)[0]
+            projected += debias_params_matrix(a_hat, np.zeros(n), cov, zero,
+                                              project_psd=True)[0]
+        truth = np.outer(a_true, a_true)
+        err_plain = np.abs(plain / n_draw - truth).mean()
+        err_projected = np.abs(projected / n_draw - truth).mean()
+        err_none = np.abs(cov).mean()
+        assert err_plain < 0.2 * err_none          # the subtraction works
+        assert err_projected > 5 * err_plain       # the projection undoes most of it
+        A, _ = debias_params_matrix(a_true, np.zeros(n), cov, np.zeros((n, n)))
+        np.testing.assert_allclose(A, A.T, atol=1e-14)
+        assert np.linalg.eigvalsh(A).min() < 0     # rank-one minus positive definite
+
+    def test_matrix_debias_projects_when_asked(self):
         from sys_mapping.correction import debias_params_matrix
 
         rng = np.random.default_rng(0)
         n = 5
         a = rng.normal(0, 0.05, n)
         C = rng.standard_normal((n, n))
-        C = C @ C.T * 1e-3          # large enough that naive subtraction goes negative
-        A, _ = debias_params_matrix(a, np.zeros(n), C, np.zeros((n, n)))
+        C = C @ C.T * 1e-3
+        A, _ = debias_params_matrix(a, np.zeros(n), C, np.zeros((n, n)), project_psd=True)
         assert np.linalg.eigvalsh(A).min() >= -1e-12
         np.testing.assert_allclose(A, A.T, atol=1e-14)
 

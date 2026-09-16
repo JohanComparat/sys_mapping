@@ -504,6 +504,18 @@ def refine_to_mle(
     except np.linalg.LinAlgError:
         pass
 
+    if use_skewed:
+        # gamma = 0 is a stationary point of the skew-normal log-likelihood, so a start
+        # that sits on it cannot move off it; offer starts on both sides of it.
+        extra = []
+        for start in starts:
+            if abs(float(start[-1])) < 1e-12:
+                for g0 in (1.5, -1.5):
+                    alt = np.array(start, dtype=float)
+                    alt[-1] = g0
+                    extra.append(alt)
+        starts = starts + extra
+
     ll0 = float(log_lik(jnp.asarray(theta0), _dg, _dt))
     best_theta, best_ll, messages = theta0, ll0, []
     for start in starts:
