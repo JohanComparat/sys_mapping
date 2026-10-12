@@ -1,37 +1,37 @@
-Progressive Template Contamination Study
-=========================================
-
-sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15), GRICAD dahu campaign 20260915r, cell ``progressive`` (node dahu128, Intel Xeon Gold 5218, 8 cores), 2026-09-15; the run took 7 min.
+Detection under progressive template contamination
+==================================================
 
 We contaminate the first :math:`k` of four templates and measure how often a per-template S/N
-cut detects the contaminated templates and how often the likelihood ratio test selects the right
-model (Figs. 1–3, Table 1).
+cut detects the contaminated templates and how often the likelihood ratio test (LRT) selects the
+right model (Figs. 1–3, Table 1).
+The run used ``sys_mapping`` 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15) in cell ``progressive`` of the GRICAD dahu campaign 20260915r (node dahu128, Intel Xeon Gold 5218, 8 cores) on 2026-09-15, and took 7 min.
 
-Setup
------
+Mocks and detection criteria
+----------------------------
 
 ``scripts/run_mock_analysis_progressive.py`` uses the mock generator of
 :doc:`results_mock_analysis` at NSIDE 32 with templates ``synth_0`` … ``synth_3``.
 The first :math:`k \in \{1, 2, 3\}` templates carry :math:`a_i \sim \mathcal{N}(0, 0.15)` (additive
 mode), :math:`b_i \sim \mathcal{N}(0, 0.15)` (multiplicative mode) or both (combined mode); each of
-the nine cells has 5 mocks.
+the nine cells has five mocks.
 The S/N is :math:`|\hat a_i|/\sigma_{a_i}` from the MCMC-add (analytic) posterior and
 :math:`|\hat b_i|/\sigma_{b_i}` from the MCMC-comb (NUTS) posterior, and a template is detected
 when the S/N of the injected amplitude exceeds 2 (either S/N in combined mode).
 TP is the detected fraction of the :math:`k` contaminated templates, FP that of the :math:`4-k`
 clean ones.
-:math:`\lambda_{\rm LR}` is taken between the additive and combined maxima, and the LRT decision,
-at a Wilks :math:`\chi^2(4)` p-value of 0.05 with no mock null, is correct when it keeps the
-additive model in additive mode and rejects it otherwise; on a correlated field that p-value is too
-small (:ref:`lrt-methods`).
+:math:`\lambda_{\rm LR}` is taken between the additive and combined maxima.
+The LRT decision, at a Wilks :math:`\chi^2(4)` p-value of 0.05 with no mock null, is correct when
+it keeps the additive model in additive mode and rejects it otherwise; on a correlated field that
+p-value is too small (:ref:`lrt-methods`).
 
-Results
--------
+Detection rates and model selection
+-----------------------------------
 
 TP was 0.87–1.00 in every cell and FP 0.20–0.90 (Table 1, Fig. 2).
-The LRT decision was correct in all multiplicative and combined mocks and in 1, 0 and 1 of 5
-additive mocks for :math:`k = 1, 2, 3`, with median :math:`\lambda_{\rm LR}` of 28–58 in
-additive cells and 31–987 in the others (Fig. 3); the smallest :math:`\lambda_{\rm LR}` was 3.3.
+The LRT decision was correct in all multiplicative and combined mocks, and in 1, 0 and 1 of the
+five additive mocks for :math:`k = 1`, 2 and 3, respectively.
+The median :math:`\lambda_{\rm LR}` was 28–58 in the additive cells and 31–987 in the others
+(Fig. 3); the smallest :math:`\lambda_{\rm LR}` was 3.3.
 NUTS converged in every mock (:math:`\hat R \le 1.001`, no divergent transitions).
 MCMC-comb took 8.3 s per mock at the median and 13.6 s at most, MCMC-add 0.10 s.
 
@@ -44,9 +44,11 @@ MCMC-comb took 8.3 s per mock at the median and 13.6 s at most, MCMC-add 0.10 s.
    :align: center
    :alt: Per-template S/N for each k and contamination mode
 
-   Fig. 1. Mean ± std over 5 mocks of :math:`|\hat a_i|/\sigma_{a_i}` (blue) and
-   :math:`|\hat b_i|/\sigma_{b_i}` (orange) per template; the red dotted line separates
-   contaminated from clean templates and the dashed line is S/N = 2.
+   Fig. 1. Per-template S/N for each :math:`k` and contamination mode: mean ± standard
+   deviation over five mocks of :math:`|\hat a_i|/\sigma_{a_i}` (blue) and
+   :math:`|\hat b_i|/\sigma_{b_i}` (orange).
+   The red dotted line separates contaminated from clean templates and the dashed line is
+   S/N = 2.
 
 .. figure:: _static/results_progressive_contamination/progressive_detection_rates.png
    :width: 90%
@@ -60,11 +62,11 @@ MCMC-comb took 8.3 s per mock at the median and 13.6 s at most, MCMC-add 0.10 s.
    :align: center
    :alt: Distribution of the likelihood-ratio statistic per cell
 
-   Fig. 3. :math:`\lambda_{\rm LR}` per cell over 5 mocks, between the additive and combined maxima; blue cells
-   have a correct-decision rate of at least 0.5.
+   Fig. 3. :math:`\lambda_{\rm LR}` between the additive and combined maxima per cell, over five
+   mocks; blue cells have a correct-decision rate of at least 0.5.
 
-Reproduce
----------
+Reproduction
+------------
 
 .. code-block:: bash
 

@@ -1,12 +1,12 @@
-Results: SNR-based Template Pre-selection
-=========================================
-
-sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15), laptop Intel Core i9-11900H, 2026-09-15; the run took 0.5 min.
+SNR-based template pre-selection
+================================
 
 Stage 1 ranks every candidate template by a fast statistic and keeps a short list; Stage 2 runs
-the decontamination on that list. We test Stage 1 on a simulation in which two of 20 templates
-are injected, with ``scripts/run_snr_preselection_demo.py``. Every number below is in
+the decontamination on that list.
+We tested Stage 1 with ``scripts/run_snr_preselection_demo.py`` on a simulation in which two of 20
+templates are injected; every number below is in
 ``docs/_static/results_snr_preselection/summary.json``.
+The run used ``sys_mapping`` 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15) on a laptop with an Intel Core i9-11900H on 2026-09-15, and took 0.5 min.
 
 The ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking` are:
 
@@ -32,15 +32,16 @@ The ranking statistics of :func:`~sys_mapping.diagnostics.snr_template_ranking` 
 p-value by comparing it with uncontaminated GLASS realisations on the same footprint,
 :math:`p = (N_{\ge} + 1)/(N_{\rm mocks} + 1)`.
 
-The ISD statistic accumulates the per-bin variance in centred two-pass form. Under ``jax.jit``
-the algebraically equal :math:`\langle\delta^2\rangle - \langle\delta\rangle^2` is contracted
-into a fused multiply-add that returns :math:`\sim10^{-20}` instead of zero for a one-pixel bin.
+The ISD statistic accumulates the per-bin variance in centred two-pass form, because under
+``jax.jit`` the algebraically equal :math:`\langle\delta^2\rangle - \langle\delta\rangle^2` is
+contracted into a fused multiply-add that returns :math:`\sim10^{-20}` instead of zero for a
+one-pixel bin.
 The kernels therefore require :math:`N_\beta \ge 2` pixels per bin, a bin variance above
 :math:`10^{-12}` times the variance of :math:`\delta_g`, and at least two surviving bins; they
 agree with the NumPy fallback to :math:`4\times10^{-15}`.
 
-Simulation
-----------
+Simulated sky and injected contamination
+----------------------------------------
 
 .. list-table::
    :header-rows: 1
@@ -75,8 +76,11 @@ match; an analysis of data uses the sample's matched spectrum
    Top: clean overdensity, the injected templates T2 and T7, and the noise template T0.
    Bottom: the overdensity at the medium level and the injected contamination alone.
 
-Ranking
--------
+Template ranking
+----------------
+
+All three statistics rank T7 first, T2 second and the noise template T8 third at every level
+(figures and table below).
 
 .. figure:: /_static/results_snr_preselection/02_snr_ranking_data.png
    :width: 100 %
@@ -96,8 +100,6 @@ Ranking
    :alt: SNR bar chart for the ISD Delta-chi2 method
 
    ISD :math:`\Delta\chi^2` per template at the three levels.
-
-All three statistics rank T7 first, T2 second and the noise template T8 third at every level.
 
 .. list-table:: Injected templates (T2, T7) and the largest noise template, per level.
    :header-rows: 1
@@ -131,12 +133,13 @@ All three statistics rank T7 first, T2 second and the noise template T8 third at
    Statistics of T2 against the injected amplitude :math:`a`; dotted lines mark the three levels.
 
 For T2 at :math:`a = 0` the independent-pixel :math:`|\hat\alpha|/\sigma` is 2.99 and the
-realisation-calibrated one 0.96. At :math:`a` = 0.01, 0.05 and 0.15 the calibrated value is 6.5,
-36.5 and 111.4, and :math:`|r|` is 0.18, 0.58 and 0.70. :math:`\Delta\chi^2` rises from 6 at
-:math:`a = 0` to 402 at 0.01 and 11 747 at 0.15.
+realisation-calibrated one 0.96.
+At :math:`a` = 0.01, 0.05 and 0.15 the calibrated value is 6.5, 36.5 and 111.4, and :math:`|r|`
+is 0.18, 0.58 and 0.70, respectively.
+:math:`\Delta\chi^2` rises from 6 at :math:`a = 0` to 402 at 0.01 and 11 747 at 0.15.
 
-ISD p-values
-------------
+Mock-based ISD p-values
+-----------------------
 
 .. figure:: /_static/results_snr_preselection/04_pvalues.png
    :width: 100 %
@@ -144,9 +147,10 @@ ISD p-values
 
    Mock-based p-values from 100 GLASS realisations; dashed line at :math:`p = 0.05`.
 
-T2 and T7 reach the floor :math:`p = 1/101` at every level. The 18 noise templates have median
-p-values of 0.66, 0.59 and 0.50 at the three levels. T8 has :math:`p = 0.099` at the low level
-and 0.020 at the medium and high levels; no other noise template falls below 0.10.
+T2 and T7 reach the floor :math:`p = 1/101` at every level.
+The eighteen noise templates have median p-values of 0.66, 0.59 and 0.50 at the three levels.
+T8 has :math:`p = 0.099` at the low level and 0.020 at the medium and high levels; no other noise
+template falls below 0.10.
 The 68th percentile of the null :math:`\Delta\chi^2` is 10 to 15 for the four family-2 templates
 and 0.8 to 2.7 for the others.
 
@@ -158,8 +162,8 @@ and 0.8 to 2.7 for the others.
 
 Both injected templates are in the top three for every statistic at every level.
 
-Cost
-----
+Run time
+--------
 
 .. figure:: /_static/results_snr_preselection/06_timing.png
    :width: 65 %
@@ -168,9 +172,10 @@ Cost
    Best of five calls of :func:`~sys_mapping.diagnostics.snr_template_ranking`, 20 templates,
    12 288 pixels.
 
-One ranking call takes 0.74 ms for ``"data"``, 0.96 ms for ``"template"`` and 3.3 ms for
-``"isd"``. The 100-realisation null of :func:`~sys_mapping.diagnostics.isd_template_significance`,
-drawn per pixel, takes 1 to 2 s per level.
+One ranking call took 0.74 ms for ``"data"``, 0.96 ms for ``"template"`` and 3.3 ms for
+``"isd"``.
+The 100-realisation null of :func:`~sys_mapping.diagnostics.isd_template_significance`, drawn per
+pixel, took 1 to 2 s per level.
 
 Number of realisations
 ----------------------
@@ -180,16 +185,17 @@ Number of realisations
    :alt: Mock convergence of ISD p-values
 
    Left: p-values at the high level from the first :math:`N` of the 100 realisations, injected
-   templates in red, with the floor :math:`1/(N+1)`. Right: the largest change of a noise-template
-   p-value relative to :math:`N = 100`.
+   templates in red, with the floor :math:`1/(N+1)`.
+   Right: the largest change of a noise-template p-value relative to :math:`N = 100`.
 
-The p-values of T2 and T7 follow the floor :math:`1/(N+1)` from :math:`N = 5`. The largest change
-of a noise-template p-value relative to :math:`N = 100` is 0.50 at :math:`N = 5`, 0.15 at 20, 0.062
-at 50 and 0.035 at 75. The floor also sets the smallest reportable p-value: a threshold
-:math:`\alpha` needs :math:`N \ge 1/\alpha - 1` realisations, 19 for 0.05 and 99 for 0.01.
+The p-values of T2 and T7 follow the floor :math:`1/(N+1)` from :math:`N = 5`.
+The largest change of a noise-template p-value relative to :math:`N = 100` is 0.50 at
+:math:`N = 5`, 0.15 at 20, 0.062 at 50 and 0.035 at 75.
+The floor also sets the smallest reportable p-value: a threshold :math:`\alpha` needs
+:math:`N \ge 1/\alpha - 1` realisations, 19 for 0.05 and 99 for 0.01.
 
-Reproduce
----------
+Reproduction
+------------
 
 .. code-block:: bash
 

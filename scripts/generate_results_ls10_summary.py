@@ -209,13 +209,15 @@ def figure(src: str, width: str, caption: str) -> list[str]:
 
 def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dict]) -> str:
     L: list[str] = []
-    L += title("Results: systematic weights", "=")
-    L += ["Per-galaxy systematic weights for the nine LS10 BGS volume-limited stellar-mass",
-          "threshold samples, computed by ``scripts/run_ls10_analysis.py`` with 11 templates",
-          "(Gaia DR3 star counts and fluxes; LS10 extinction, depth, exposure count and PSF",
-          "size). Each sample is issued at the finest NSIDE whose mean occupancy reaches 25",
-          "galaxies per pixel. :doc:`results_ls10_recommendations` gives the column to use per",
-          "sample, and :doc:`pipeline_ls10` how to reproduce the products.", "",
+    L += title("Systematic weights of the LS10 samples", "=")
+    L += ["This page gives the per-galaxy systematic weights of the nine LS10 BGS volume-limited",
+          "stellar-mass threshold samples, computed by ``scripts/run_ls10_analysis.py`` from",
+          "eleven templates (Gaia DR3 star counts and fluxes; LS10 extinction, depth, exposure",
+          "count and PSF size).",
+          "Each sample is issued at the finest NSIDE whose mean occupancy reaches 25 galaxies",
+          "per pixel.",
+          ":doc:`results_ls10_recommendations` gives the column to use per sample, and",
+          ":doc:`pipeline_ls10` how to reproduce the products.", "",
           ".. contents:: On this page", "   :local:", "   :depth: 1", ""]
 
     L += title("Issued products", "-")
@@ -236,18 +238,20 @@ def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dic
         vers = sorted({str(d["_weights"]["WEIGHTVER"]) for d in issued})
         basis = sorted({str(d["_weights"]["TPLBASIS"]) for d in issued})
         L += [f"Every file records ``WEIGHTVER`` = {', '.join(vers)} and ``TPLBASIS`` = "
-              f"``{', '.join(basis)}``. *Clipped* is the fraction of galaxies at the weight clip "
+              f"``{', '.join(basis)}``.\n*Clipped* is the fraction of galaxies at the weight clip "
               f"[1/20, 20].", ""]
     L += ["The two-point correction uses the full cross-template matrix",
           r":math:`\xi_{ij}(\theta)`, measured from the template values the galaxies carry.", ""]
 
     L += title("Detection of systematics", "-")
-    L += ["Each template amplitude is scored against its scatter over uncontaminated GLASS",
+    L += ["We scored each template amplitude against its scatter over N uncontaminated GLASS",
           "realisations drawn with the sample's matched spectrum",
-          "(``sys_mapping.calibrated_template_significance``). The family-wise p compares the",
-          "largest significance over the templates with the largest of each realisation, and",
-          "is bounded below by 1/(N+1). κ is the calibrated error over the independent-pixel",
-          "error.", ""]
+          "(``sys_mapping.calibrated_template_significance``).",
+          "S cal and S iid are the significances with the calibrated and with the",
+          "independent-pixel error, and κ is the calibrated error over the independent-pixel",
+          "error.",
+          "The family-wise p compares the largest significance over the templates with the",
+          "largest of each realisation, and is bounded below by 1/(N+1).", ""]
     rows = []
     for d in issued:
         sig = d["significance"]
@@ -260,10 +264,11 @@ def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dic
     L += csv_table(["log M* ≥", "NSIDE", "leading template", "S cal", "S iid", "family-wise p",
                     "κ median", "κ range", "N"], rows)
 
-    L += title("Additive or combined model: likelihood ratio", "-")
-    L += ["Both models are refined to their likelihood maxima, and the statistic is ranked",
-          "against 50 uncontaminated realisations of the sample's matched spectrum fitted the",
-          "same way. The Wilks p assumes independent pixels and is shown for contrast.", ""]
+    L += title("Likelihood ratio between the additive and combined models", "-")
+    L += ["We refined both models to their likelihood maxima and ranked the statistic λ LR",
+          "against 50 uncontaminated realisations of the sample's matched spectrum, fitted the",
+          "same way (mock p).",
+          "The Wilks p assumes independent pixels and is shown for contrast.", ""]
     rows = []
     for ns in LRT_NSIDES:
         for d in issued:
@@ -279,11 +284,11 @@ def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dic
                     "rejects additive"], rows)
     L += ["The likelihood-ratio grids use templates standardised over each map's own valid",
           "region rather than over the footprint; on the footprint basis the NSIDE 64 statistic",
-          "changes by a median of 0.7 %.", ""]
+          "changes by a median of 0.7%.", ""]
 
     L += title("Corrected angular correlation function", "-")
     L += figure("_static/results_ls10/wtheta_ratio_occupancy.png", "95%",
-                "Corrected over observed w(θ), each sample at its issued resolution.")
+                "Ratio of corrected to observed w(θ), each sample at its issued resolution.")
     rows = []
     for d in issued:
         depth = wtheta_depth(d)
@@ -295,9 +300,10 @@ def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dic
     L += ["*min* is the smallest corrected/observed ratio over the 30 bins and the separation",
           "it occurs at.", ""]
 
-    L += title("Resolution comparison", "-")
-    L += ["The same fits at NSIDE 32, 64 and 128. Coarser pixels hold more galaxies, so",
-          r":math:`\hat\sigma` tracks shot noise and does not select a resolution.", ""]
+    L += title("Residual scatter at three resolutions", "-")
+    L += ["We repeated the fits at NSIDE 32, 64 and 128.",
+          r"Coarser pixels hold more galaxies, so :math:`\hat\sigma` tracks shot noise and does",
+          "not select a resolution.", ""]
     for key, label in (("MCMC-add", "additive"), ("MCMC-comb", "combined")):
         rows = []
         for d in issued:
@@ -316,11 +322,11 @@ def summary_page(issued: list[dict], lrts: dict[str, dict], grids: dict[str, dic
 def recommendations_page(issued: list[dict], lrts: dict[str, dict]) -> str:
     L: list[str] = [".. _ls10-recommendations:", ""]
     L += title("LS10 systematic-correction recommendations", "=")
-    L += ["The weight column to use per sample, from two tests on the issued products: whether",
-          "any template is detected by the calibrated significance, and whether the",
-          "mock-calibrated likelihood ratio on the grid nearest the issued resolution (NSIDE 32",
-          f"below NSIDE 64, NSIDE 64 otherwise) requires the multiplicative term. Both at",
-          f"α = {ALPHA}.", ""]
+    L += ["This page gives the weight column to use for each LS10 sample, from two tests on the",
+          f"issued products, both at α = {ALPHA}: whether any template is detected by the",
+          "calibrated significance, and whether the mock-calibrated likelihood ratio on the grid",
+          "nearest the issued resolution (NSIDE 32 below NSIDE 64, NSIDE 64 otherwise) requires",
+          "the multiplicative term.", ""]
     rows = []
     for d in issued:
         col, reason = recommendation(d, lrts[d["sample_id"]])
@@ -345,13 +351,13 @@ def sample_page(d: dict, lrt: dict[int, dict], grid: dict[int, dict]) -> str:
     col, reason = recommendation(d, lrt)
     L: list[str] = [f".. _sample-{anchor}:", ""]
     L += title(f"BGS VLIM log M* ≥ {ms}, z < {_zmax(sid)}", "=")
-    L += [f"{d['n_galaxies']:,} galaxies, issued at NSIDE {ns} "
-          f"({d['n_galaxies'] / d['n_good_pix']:.1f} galaxies per pixel over "
-          f"{d['n_good_pix']:,} pixels). Leading template: ``{lead}`` at "
-          f"{sig['significance'][i]:.2f} calibrated, family-wise p {fwp_str(sig)}. "
-          f"Recommended column: ``{col}``; {reason}.", "",
+    L += [f"The sample holds {d['n_galaxies']:,} galaxies and is issued at NSIDE {ns}, with "
+          f"{d['n_galaxies'] / d['n_good_pix']:.1f} galaxies per pixel over "
+          f"{d['n_good_pix']:,} pixels.\nThe leading template is ``{lead}``, at calibrated "
+          f"significance {sig['significance'][i]:.2f} and family-wise p {fwp_str(sig)}.\n"
+          f"The recommended column is ``{col}``: {reason}.", "",
           ".. contents:: On this page", "   :local:", "   :depth: 1", "",
-          ".. seealso::", "", "   :doc:`results_ls10` — all nine samples.", ""]
+          ".. seealso::", "", "   :doc:`results_ls10` compares the nine samples.", ""]
 
     L += title("Template significance", "-")
     infl = np.asarray(sig["inflation"])
@@ -359,8 +365,8 @@ def sample_page(d: dict, lrt: dict[int, dict], grid: dict[int, dict]) -> str:
              f"{sig['significance'][k] * infl[k]:.2f}", f"{sig['p_values'][k]:.4f}",
              f"{infl[k]:.2f}"] for k in np.argsort(sig["significance"])[::-1]]
     L += csv_table(["template", "S cal", "S iid", "p", "κ"], rows)
-    L += [f"Calibrated on {sig['n_null']} realisations; p is per template, with floor "
-          f"{sig['p_value_floor']:.4f}.", ""]
+    L += [f"The significances are calibrated on {sig['n_null']} realisations; p is the "
+          f"per-template p-value, with floor {sig['p_value_floor']:.4f}.", ""]
 
     L += title(f"Fitted amplitudes (NSIDE {ns})", "-")
     rows = []
@@ -383,30 +389,31 @@ def sample_page(d: dict, lrt: dict[int, dict], grid: dict[int, dict]) -> str:
     L += figure(f"_static/results_ls10/issued/{d['_stem']}_weight_map.png", "95%",
                 f"Weight maps at NSIDE {ns}, one panel per method.")
     L += figure(f"_static/results_ls10/issued/{d['_stem']}_weight_hist.png", "70%",
-                "Weight distributions.")
+                "Distributions of the weights of the six methods.")
 
     L += title("Angular correlation function", "-")
     L += figure(f"_static/results_ls10/issued/{d['_stem']}_wtheta.png", "80%",
-                "Observed and corrected w(θ), full cross-template correction.")
+                "Observed and corrected w(θ) for the six methods, with the full cross-template "
+                "correction.")
     depth = wtheta_depth(d)
     L += csv_table(["method", "at 30′", "smallest ratio", "at θ"],
                    [[m, f"{ratio_at(d, m, THETA_REF):.3f}", f"{depth[m][0]:.3f}",
                      f"{depth[m][1]:.0f}′"] for m in METHODS],
-                   caption="Corrected over observed w(θ).")
+                   caption="Ratio of corrected to observed w(θ) per method.")
 
     if lrt:
-        L += title("Likelihood ratio", "-")
+        L += title("Likelihood ratio between the additive and combined models", "-")
         rows = [[str(n), f"{l['lambda_lr']:.1f}", f"{l['p_value']:.3f}",
                  f"{l['null_lambda_mean']:.1f} / {l['null_lambda_max']:.1f}", str(l["n_null"])]
                 for n, l in sorted(lrt.items())]
         L += csv_table(["NSIDE", "λ LR", "mock p", "null mean / max", "N"], rows)
 
     if grid:
-        L += title("Resolution comparison", "-")
+        L += title("Residual scatter at three resolutions", "-")
         rows = [[m] + [f"{grid[n]['methods'][m]['sigma_hat']:.4f}" if n in grid else "—"
                        for n in GRID_NSIDES] for m in METHODS]
         L += csv_table(["method"] + [f"NSIDE {n}" for n in GRID_NSIDES], rows,
-                       caption=r"Residual scatter :math:`\hat\sigma`.")
+                       caption=r"Residual scatter :math:`\hat\sigma` per method.")
     return "\n".join(L)
 
 

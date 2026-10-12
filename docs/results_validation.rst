@@ -1,15 +1,15 @@
-End-to-end validation
-=====================
-
-sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15), laptop Intel Core i9-11900H, 2026-09-15; the run took 4 min.
+End-to-end validation under four contamination scenarios
+========================================================
 
 We apply the six decontamination methods to synthetic catalogues under four contamination
 scenarios and compare the corrected field with the true one.
-The figures and numbers below come from ``scripts/run_validation.py``; the JSON results are in
+The figures and numbers below come from ``scripts/run_validation.py``, and the JSON results are in
 ``docs/_static/results_validation/``.
+The run used sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of
+2026-09-15) on a laptop (Intel Core i9-11900H) on 2026-09-15 and took 4 min.
 
-Setup
------
+Catalogues and contamination
+----------------------------
 
 .. list-table::
    :header-rows: 1
@@ -45,8 +45,8 @@ the contamination:
    \text{additive: } \hat\delta_g = \delta_g + \textstyle\sum_i a_i t_i, \qquad
    \text{multiplicative: } \hat\delta_g = \delta_g\,(1 + \textstyle\sum_i b_i t_i),
 
-and combined applies both terms. The amplitudes are drawn once from
-:math:`\mathcal{N}(0, 0.1^2)`:
+and combined applies both terms.
+The amplitudes are drawn once from :math:`\mathcal{N}(0, 0.1^2)`:
 
 .. list-table::
    :header-rows: 1
@@ -96,6 +96,9 @@ The large-scale template t2 correlates with the clustered field by chance far mo
 
 Maps and distributions
 ----------------------
+
+The four figure grids below show, for each scenario, the maps, the histograms of the pixel
+overdensity, the recovered against the true overdensity, and the pixel weights.
 
 .. list-table::
    :header-rows: 1
@@ -177,8 +180,15 @@ Pixel weights of each method, on a common scale from 0.5 to 1.5.
 Recovery
 --------
 
-We grade each correction by the rms of :math:`\delta_{\rm rec} - \delta_{\rm true}` and by the
-Pearson correlation :math:`r` with the true field, over the unmasked pixels.
+We grade each correction against the known true field, by the rms of
+:math:`\delta_{\rm rec} - \delta_{\rm true}` and by the Pearson correlation :math:`r` with the true
+field over the unmasked pixels, in the table below.
+The correlation of a corrected field with the templates it fitted cannot grade it: a
+least-squares residual is orthogonal to its regressors, so that correlation is zero to rounding
+error whatever the correction left.
+On data, :func:`~sys_mapping.diagnostics.residual_template_correlation_test` tests the corrected
+field against a template the correction did not fit, calibrated on uncontaminated realisations put
+through the same correction.
 
 .. list-table::
    :header-rows: 1
@@ -257,14 +267,16 @@ Pearson correlation :math:`r` with the true field, over the unmasked pixels.
      - 0.1593
      - 0.9512
 
-Without contamination ElasticNet, ISD-1 and ISD-3 leave the field untouched: ElasticNet shrinks
-every amplitude to zero and neither ISD takes a step. In the additive scenario MCMC-add and
-MCMC-comb reach rms 0.149 to 0.150, OLS, ElasticNet and ISD-1 0.158 to 0.160, and ISD-3 0.170.
+Without contamination ElasticNet, ISD-1 and ISD-3 leave the field untouched, since ElasticNet
+shrinks every amplitude to zero and neither ISD takes a step; OLS, MCMC-add and MCMC-comb raise
+the rms from 0.1474 to 0.1496–0.1504.
+In the additive scenario MCMC-add and MCMC-comb reach rms 0.149 to 0.150, OLS, ElasticNet and
+ISD-1 0.158 to 0.160, and ISD-3 0.170.
 ISD-1 corrects t1, t0 and t2 in three steps; ISD-3 stops after t1 and t0, because the
-contamination of t2 does not reach twice its :math:`\Delta\chi^2_{68}` of 48.9. In the
-multiplicative scenario MCMC-comb lowers the rms from 0.188 to 0.161 and OLS to 0.183; ISD takes
-no step, ElasticNet fits zero and MCMC-add reaches 0.190. In the combined scenario MCMC-comb reaches 0.159 against 0.182 to
-0.191 for the other five.
+contamination of t2 does not reach twice its :math:`\Delta\chi^2_{68}` of 48.9.
+In the multiplicative scenario MCMC-comb lowers the rms from 0.188 to 0.161 and OLS to 0.183; ISD
+takes no step, ElasticNet fits zero and MCMC-add reaches 0.190.
+In the combined scenario MCMC-comb reaches 0.159 against 0.182 to 0.191 for the other five.
 
 .. figure:: _static/results_validation/summary_rms_delta_error.png
    :width: 80%
@@ -281,34 +293,30 @@ no step, ElasticNet fits zero and MCMC-add reaches 0.190. In the combined scenar
 Amplitude recovery
 ------------------
 
+The figure below gives the error on the amplitudes of MCMC-add and MCMC-comb.
+
 .. figure:: _static/results_validation/amplitude_recovery.png
    :width: 85%
    :align: center
 
    Recovered minus true amplitude per template for MCMC-add and MCMC-comb in the additive and
-   combined scenarios. The error bars on :math:`a` are the mock-covariance sandwich standard
-   deviation (:func:`~sys_mapping.covariance.mock_sandwich_covariance`) from the 100
-   uncontaminated realisations; :math:`b` has none.
+   combined scenarios.
+   The error bars on :math:`a` are the mock-covariance sandwich standard deviation
+   (:func:`~sys_mapping.covariance.mock_sandwich_covariance`) from the 100 uncontaminated
+   realisations; :math:`b` has none.
 
 The sandwich standard deviation of :math:`\hat a` is 0.0080, 0.0068 and 0.0367 for t0, t1 and t2.
 The MCMC-add posterior gives 0.0057 for all three, smaller by factors of 1.4, 1.2 and 6.5.
 In the additive scenario the MCMC-add errors are +0.0011, +0.0121 and −0.0301, that is 0.1, 1.8
-and 0.8 sandwich standard deviations. In the combined scenario MCMC-comb gives +0.0007, +0.0207
-and −0.0208 on :math:`a` (0.1, 3.0 and 0.6 standard deviations) and −0.0026, +0.0408 and +0.0016
-on :math:`b`, whose largest amplitude, :math:`b_1 = -0.195`, it recovers as −0.154.
-
-Grading against the truth
--------------------------
-
-A correction is graded here against the known true field. Correlating the corrected field with
-the templates it fitted grades nothing: a least-squares residual is orthogonal to its regressors,
-so that correlation is zero to rounding error whatever the correction left. On data,
-:func:`~sys_mapping.diagnostics.residual_template_correlation_test` tests the corrected field
-against a template the correction did not fit, calibrated on uncontaminated realisations put
-through the same correction.
+and 0.8 sandwich standard deviations.
+In the combined scenario MCMC-comb gives +0.0007, +0.0207 and −0.0208 on :math:`a` (0.1, 3.0 and
+0.6 standard deviations) and −0.0026, +0.0408 and +0.0016 on :math:`b`, whose largest amplitude,
+:math:`b_1 = -0.195`, it recovers as −0.154.
 
 Template ranking
 ----------------
+
+The figure below ranks the templates in the combined scenario by three statistics.
 
 .. figure:: _static/results_validation/snr_ranking.png
    :width: 85%
@@ -318,14 +326,15 @@ Template ranking
    correlation :math:`|r(\hat\delta_g, t_i)|` and the peak cross-spectrum over the noise level.
 
 In the combined scenario the OLS statistic is 5.1, 15.7 and 6.5 and the correlation 0.057, 0.172
-and 0.073 for t0, t1 and t2, so both rank t1, the largest amplitude, first. Without contamination
-the same statistics give 0.6, 0.6 and 4.0, and 0.007, 0.007 and 0.045; for the large-scale t2
-the independent-pixel :math:`\sigma_i` is 6.5 times smaller than the sandwich error above.
+and 0.073 for t0, t1 and t2, so both rank t1, the largest amplitude, first.
+Without contamination the same statistics give 0.6, 0.6 and 4.0, and 0.007, 0.007 and 0.045; for
+the large-scale t2 the independent-pixel :math:`\sigma_i` is 6.5 times smaller than the sandwich
+error above.
 The peak cross-spectrum ranks t2 first in every scenario, at 356 without contamination and 305
 in the combined scenario.
 
-Reproduce
----------
+Reproduction
+------------
 
 .. code-block:: bash
 

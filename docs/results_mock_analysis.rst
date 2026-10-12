@@ -1,21 +1,21 @@
-Synthetic mock analysis
-=======================
-
-sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of 2026-09-15),
-GRICAD dahu campaign 20260915r, cell ``mockanalysis`` (node dahu153, Intel Xeon Gold 5318Y,
-8 cores), 2026-09-15; the run took 61 min.
+Parameter recovery on synthetic mocks
+=====================================
 
 We fit 100 synthetic mocks of known contamination with the six methods of
 ``sm.run_decontamination`` and report the recovery of :math:`a` (Fig. 1, Table 1),
-:math:`\lambda_{\rm LR}` (Fig. 2), the recovery of :math:`b` (Fig. 3) and of the scatter (Fig. 4).
+:math:`\lambda_{\rm LR}` (Fig. 2), the recovery of :math:`b` (Fig. 3) and that of the scatter
+(Fig. 4).
+The run used sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of
+2026-09-15) in GRICAD dahu campaign 20260915r, cell ``mockanalysis`` (node dahu153, Intel Xeon
+Gold 5318Y, 8 cores), on 2026-09-15, and took 61 min.
 
-Setup
------
+Mocks and fits
+--------------
 
 ``scripts/run_mock_analysis.py --synthetic`` draws a Gaussian field :math:`G` with
 :math:`C_\ell \propto (\ell+1)^{-2}` and :math:`\sigma_G = 0.5`, forms
 :math:`\delta_g^{\rm true} = e^{G-\sigma_G^2/2} - 1`, masks latitudes within 20° of the Galactic
-plane and contaminates it as
+plane and contaminates the field as
 
 .. math::
 
@@ -24,23 +24,28 @@ plane and contaminates it as
 
 Galaxy counts are Poisson with mean :math:`\bar n (1 + \delta_g^{\rm obs})`, :math:`\bar n = 30`,
 and randoms number :math:`8\bar n` per unmasked pixel.
-The templates ``synth_0`` … ``synth_2`` are ``sm.generate_systematic_maps`` families 0–2,
-:math:`C_\ell \propto e^{-\ell/500}`, :math:`e^{-(\ell/250)^2}` and :math:`(\ell+1)^{-2}`, at unit variance.
-MCMC-add is the analytic posterior and MCMC-comb NUTS (4 chains of 1000 warm-up and 1000 draws);
+The templates ``synth_0`` … ``synth_2`` are ``sm.generate_systematic_maps`` families 0–2, with
+:math:`C_\ell \propto e^{-\ell/500}`, :math:`e^{-(\ell/250)^2}` and :math:`(\ell+1)^{-2}`, at unit
+variance.
+MCMC-add is the analytic posterior and MCMC-comb NUTS (four chains of 1000 warm-up steps and 1000
+draws).
 ISD stops on a :math:`\Delta\chi^2_{68}` calibrated per template and order on 50 uncontaminated
 mocks from the same generator.
-:math:`\lambda_{\rm LR}` is taken between the additive and combined maxima (``sm.lrt_from_maxima``)
+:math:`\lambda_{\rm LR}` is taken between the additive and combined maxima (``sm.lrt_from_maxima``),
 and the additive model is rejected when the :math:`\chi^2(3)` (Wilks) p-value is below 0.05, with
 no mock null; on a correlated field that p-value is too small (:ref:`lrt-methods`).
 
-Results
--------
+Recovery of the parameters
+--------------------------
 
 At NSIDE 64 each mock has 32 512 unmasked pixels and 972 318 ± 33 386 galaxies (range
 886 194–1 074 394).
 The calibrated :math:`\Delta\chi^2_{68}` (``isd_chi2_68.json``) was 2.12, 1.17 and 230.4 for ISD-1
-and 5.03, 3.51 and 270.8 for ISD-3 on ``synth_0``, ``synth_1`` and ``synth_2``; both ISD variants
-stopped on this threshold in all 100 mocks, after a median of 3 steps (range 1–6).
+and 5.03, 3.51 and 270.8 for ISD-3 on ``synth_0``, ``synth_1`` and ``synth_2``.
+Both ISD variants stopped on this threshold in all 100 mocks, after a median of three steps (range
+1–6).
+
+Figure 1 and Table 1 give the error on :math:`a` per template and method.
 
 .. figure:: _static/results_mock_analysis/mock_parameter_recovery_all_methods.png
    :width: 100%
@@ -97,16 +102,19 @@ stopped on this threshold in all 100 mocks, after a median of 3 steps (range 1�
      - 0.0323
      - 31.6
 
+MCMC-add reproduces the errors of OLS to the fourth decimal.
+``synth_2``, whose spectrum is that of the field, has the largest rms for every method, 0.0323–0.0396.
 The median posterior standard deviation of :math:`\hat a_i` was 0.0031 for MCMC-add and 0.0029
 for MCMC-comb.
 For MCMC-comb, NUTS gave :math:`\hat R \le 1.001`, an effective sample size of 2 983–6 082 and no
 divergences in 99 mocks; in mock 45, :math:`\hat R = 6.1` and the effective sample size was 2.
 
+Figure 2 shows :math:`\lambda_{\rm LR}`.
 All 100 mocks rejected the additive model; :math:`\lambda_{\rm LR}` had median 1 158,
-16th–84th percentiles 389–2 734, minimum 21.0 and maximum 6 152 (Fig. 2).
-Mock 98 was re-fitted on the laptop with the maximiser of sys_mapping 1.4.0 as released, whose
-L-BFGS runs keep every pixel's efficiency :math:`1 + b\cdot t` positive; the campaign snapshot
-had stopped at :math:`b = 0` and returned :math:`\lambda_{\rm LR} = 0` for this mock.
+16th–84th percentiles 389–2 734, minimum 21.0 and maximum 6 152.
+We re-fitted mock 98 on a laptop with the maximiser of sys_mapping 1.4.0 as released, whose
+L-BFGS runs keep every pixel's efficiency :math:`1 + b\cdot t` positive, because the campaign
+snapshot had stopped at :math:`b = 0` and returned :math:`\lambda_{\rm LR} = 0` for this mock.
 Its other results agree with the campaign run to the NUTS sampling noise.
 
 .. figure:: _static/results_mock_analysis/mock_lrt_statistics.png
@@ -114,11 +122,12 @@ Its other results agree with the campaign run to the NUTS sampling noise.
    :align: center
    :alt: Histogram of the likelihood-ratio statistic over 100 mocks
 
-   Fig. 2. :math:`\lambda_{\rm LR}` over 100 mocks.
+   Fig. 2. Histogram of :math:`\lambda_{\rm LR}` over 100 mocks.
 
-For MCMC-comb the MAD of :math:`\hat b_i - b_i^{\rm true}` was 0.0154, with rms 0.020, 0.022 and
-0.038 per template and a median posterior standard deviation of 0.0037 (Fig. 3); with
-:math:`b_i = 0` the error is :math:`|b_i^{\rm true}|`, of median 0.064.
+Figure 3 shows the error on :math:`b` of MCMC-comb.
+Its MAD was 0.0154, with rms 0.020, 0.022 and 0.038 per template and a median posterior standard
+deviation of 0.0037.
+A method that fixes :math:`b_i = 0` has error :math:`|b_i^{\rm true}|`, of median 0.064.
 
 .. figure:: _static/results_mock_analysis/mock_b_parameter_recovery.png
    :width: 65%
@@ -127,10 +136,10 @@ For MCMC-comb the MAD of :math:`\hat b_i - b_i^{\rm true}` was 0.0154, with rms 
 
    Fig. 3. :math:`\hat b_i - b_i^{\rm true}` per template for MCMC-comb over 100 mocks.
 
-The scatter :math:`\sigma` of the Gaussian likelihood is compared with
+Figure 4 compares the scatter :math:`\sigma` of the Gaussian likelihood with
 :math:`\sigma_{\rm eff} = \sqrt{e^{\sigma_G^2} - 1 + 1/\bar n} = 0.563`.
 We measured :math:`\langle\hat\sigma\rangle = 0.560 \pm 0.028` for MCMC-add and
-:math:`0.554 \pm 0.027` for MCMC-comb (Fig. 4).
+:math:`0.554 \pm 0.027` for MCMC-comb.
 
 .. figure:: _static/results_mock_analysis/mock_sigma_recovery.png
    :width: 90%
@@ -140,8 +149,8 @@ We measured :math:`\langle\hat\sigma\rangle = 0.560 \pm 0.028` for MCMC-add and
    Fig. 4. :math:`\hat\sigma` over 100 mocks for MCMC-add (left) and MCMC-comb (right); the dashed
    line is :math:`\sigma_{\rm eff}`.
 
-Reproduce
----------
+Reproduction
+------------
 
 .. code-block:: bash
 

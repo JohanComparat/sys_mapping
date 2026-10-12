@@ -1,8 +1,8 @@
 sys_mapping
 ===========
 
-Inference of multiplicative and additive systematics in galaxy
-density maps.
+``sys_mapping`` takes a galaxy overdensity map and HEALPix maps of the observing conditions (templates), fits the multiplicative and additive contamination the templates imprint, and returns per-galaxy weights and the corrected angular correlation function.
+The pages below give the method and its references, the survey-design forecasts, the validation on mocks, the application to Legacy Survey DR10, and the API.
 
 .. toctree::
    :maxdepth: 2

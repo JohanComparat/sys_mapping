@@ -1,12 +1,14 @@
-Results: systematic weights
-===========================
+Systematic weights of the LS10 samples
+======================================
 
-Per-galaxy systematic weights for the nine LS10 BGS volume-limited stellar-mass
-threshold samples, computed by ``scripts/run_ls10_analysis.py`` with 11 templates
-(Gaia DR3 star counts and fluxes; LS10 extinction, depth, exposure count and PSF
-size). Each sample is issued at the finest NSIDE whose mean occupancy reaches 25
-galaxies per pixel. :doc:`results_ls10_recommendations` gives the column to use per
-sample, and :doc:`pipeline_ls10` how to reproduce the products.
+This page gives the per-galaxy systematic weights of the nine LS10 BGS volume-limited
+stellar-mass threshold samples, computed by ``scripts/run_ls10_analysis.py`` from
+eleven templates (Gaia DR3 star counts and fluxes; LS10 extinction, depth, exposure
+count and PSF size).
+Each sample is issued at the finest NSIDE whose mean occupancy reaches 25 galaxies
+per pixel.
+:doc:`results_ls10_recommendations` gives the column to use per sample, and
+:doc:`pipeline_ls10` how to reproduce the products.
 
 .. contents:: On this page
    :local:
@@ -28,7 +30,8 @@ Issued products
    "11.25", "0.35", "541,855", "64", "21,555", "25.1", "0.871–1.124", "0.023 %"
    "11.5", "0.35", "120,882", "16", "1,465", "82.5", "0.853–1.126", "0.000 %"
 
-Every file records ``WEIGHTVER`` = 3 and ``TPLBASIS`` = ``footprint``. *Clipped* is the fraction of galaxies at the weight clip [1/20, 20].
+Every file records ``WEIGHTVER`` = 3 and ``TPLBASIS`` = ``footprint``.
+*Clipped* is the fraction of galaxies at the weight clip [1/20, 20].
 
 The two-point correction uses the full cross-template matrix
 :math:`\xi_{ij}(\theta)`, measured from the template values the galaxies carry.
@@ -36,12 +39,14 @@ The two-point correction uses the full cross-template matrix
 Detection of systematics
 ------------------------
 
-Each template amplitude is scored against its scatter over uncontaminated GLASS
+We scored each template amplitude against its scatter over N uncontaminated GLASS
 realisations drawn with the sample's matched spectrum
-(``sys_mapping.calibrated_template_significance``). The family-wise p compares the
-largest significance over the templates with the largest of each realisation, and
-is bounded below by 1/(N+1). κ is the calibrated error over the independent-pixel
+(``sys_mapping.calibrated_template_significance``).
+S cal and S iid are the significances with the calibrated and with the
+independent-pixel error, and κ is the calibrated error over the independent-pixel
 error.
+The family-wise p compares the largest significance over the templates with the
+largest of each realisation, and is bounded below by 1/(N+1).
 
 .. csv-table::
    :header: "log M* ≥", "NSIDE", "leading template", "S cal", "S iid", "family-wise p", "κ median", "κ range", "N"
@@ -56,12 +61,13 @@ error.
    "11.25", "64", "GAIA_phot_rp_mean_flux", "3.84", "3.75", "0.0050", "1.8", "1.0–2.9", "400"
    "11.5", "16", "LS10_GALDEPTH_G", "1.23", "1.57", "0.9002", "1.3", "1.0–2.2", "400"
 
-Additive or combined model: likelihood ratio
---------------------------------------------
+Likelihood ratio between the additive and combined models
+---------------------------------------------------------
 
-Both models are refined to their likelihood maxima, and the statistic is ranked
-against 50 uncontaminated realisations of the sample's matched spectrum fitted the
-same way. The Wilks p assumes independent pixels and is shown for contrast.
+We refined both models to their likelihood maxima and ranked the statistic λ LR
+against 50 uncontaminated realisations of the sample's matched spectrum, fitted the
+same way (mock p).
+The Wilks p assumes independent pixels and is shown for contrast.
 
 .. csv-table::
    :header: "log M* ≥", "NSIDE", "λ LR", "Wilks p", "mock p", "null min / mean / max", "rejects additive"
@@ -87,7 +93,7 @@ same way. The Wilks p assumes independent pixels and is shown for contrast.
 
 The likelihood-ratio grids use templates standardised over each map's own valid
 region rather than over the footprint; on the footprint basis the NSIDE 64 statistic
-changes by a median of 0.7 %.
+changes by a median of 0.7%.
 
 Corrected angular correlation function
 --------------------------------------
@@ -95,7 +101,7 @@ Corrected angular correlation function
 .. figure:: /_static/results_ls10/wtheta_ratio_occupancy.png
    :width: 95%
 
-   Corrected over observed w(θ), each sample at its issued resolution.
+   Ratio of corrected to observed w(θ), each sample at its issued resolution.
 
 .. csv-table::
    :header: "log M* ≥", "NSIDE", "MCMC-comb at 30′", "OLS min", "ElasticNet min", "ISD-1 min", "ISD-3 min", "MCMC-add min", "MCMC-comb min"
@@ -113,11 +119,12 @@ Corrected angular correlation function
 *min* is the smallest corrected/observed ratio over the 30 bins and the separation
 it occurs at.
 
-Resolution comparison
----------------------
+Residual scatter at three resolutions
+-------------------------------------
 
-The same fits at NSIDE 32, 64 and 128. Coarser pixels hold more galaxies, so
-:math:`\hat\sigma` tracks shot noise and does not select a resolution.
+We repeated the fits at NSIDE 32, 64 and 128.
+Coarser pixels hold more galaxies, so :math:`\hat\sigma` tracks shot noise and does
+not select a resolution.
 
 .. csv-table:: Residual scatter :math:`\hat\sigma` of the additive model.
    :header: "log M* ≥", "NSIDE 32", "NSIDE 64", "NSIDE 128"

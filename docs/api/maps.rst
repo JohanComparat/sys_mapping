@@ -1,34 +1,25 @@
 sys_mapping.maps
 ================
 
-HEALPix map utilities: pixelisation, overdensity estimation, resolution choice,
-template standardisation and synthetic template generation.
+``sys_mapping.maps`` provides the HEALPix map utilities: pixelisation, overdensity estimation, resolution choice, template standardisation and synthetic template generation.
+It takes RA/Dec arrays of the galaxy and random catalogues, or an NSIDE,
+and returns HEALPix count maps, overdensity arrays ``delta_g`` at unmasked pixels, and template arrays ``delta_t`` of shape ``(n_sys, n_good_pix)``.
 
-**Inputs:** RA/Dec galaxy and random catalog arrays, or HEALPix NSIDE parameter.
+:func:`~sys_mapping.maps.choose_nside_by_occupancy` returns the finest NSIDE whose mean footprint occupancy reaches a floor (25 galaxies per pixel by default),
+counting footprint pixels by the rule of :func:`~sys_mapping.maps.compute_overdensity`.
+:func:`~sys_mapping.maps.standardise_on_footprint` gives each template zero mean and unit rms over the fitted pixels.
 
-**Outputs:** HEALPix count maps, overdensity arrays ``delta_g`` at unmasked
-pixels, and template arrays ``delta_t`` of shape ``(n_sys, n_good_pix)``.
-
-:func:`~sys_mapping.maps.choose_nside_by_occupancy` returns the finest NSIDE whose
-mean footprint occupancy reaches a floor (25 galaxies per pixel by default), counting
-footprint pixels by the rule of :func:`~sys_mapping.maps.compute_overdensity`.
-:func:`~sys_mapping.maps.standardise_on_footprint` gives each template zero mean and
-unit rms over the fitted pixels.
-
-:func:`~sys_mapping.maps.inverse_variance_pixel_weights` builds the per-pixel
-weight :math:`A_k^2/(N_k + 2)` of Weaverdyck et al. 2026 (Eq. 8) from the same
-galaxy and random counts, for use as ``pixel_weights`` in the regression: it
-downweights partially covered pixels and accounts for the Poisson scatter of the
-counts, with the regulariser keeping empty pixels finite.
+:func:`~sys_mapping.maps.inverse_variance_pixel_weights` builds the per-pixel weight :math:`A_k^2/(N_k + 2)` of Weaverdyck et al. 2026 (Eq. 8)
+from the same galaxy and random counts, for use as ``pixel_weights`` in the regression.
+It downweights partially covered pixels and accounts for the Poisson scatter of the counts, with the regulariser keeping empty pixels finite.
 
 Synthetic template families
 ---------------------------
 
-Five spectral families (0–4) are available through :func:`generate_systematic_map`
-and :func:`generate_systematic_maps`.  Each map is drawn from a Gaussian random
-field with power spectrum :math:`C_\ell` normalised so that
-:math:`\sum_\ell \frac{2\ell+1}{4\pi} C_\ell = 1` (unit variance over the full
-sky), then the map itself is rescaled to zero mean and unit standard deviation.
+:func:`generate_systematic_map` and :func:`generate_systematic_maps` draw from five spectral families (0–4).
+Each map is drawn from a Gaussian random field with power spectrum :math:`C_\ell` normalised so that
+:math:`\sum_\ell \frac{2\ell+1}{4\pi} C_\ell = 1` (unit variance over the full sky),
+then the map itself is rescaled to zero mean and unit standard deviation.
 
 .. list-table::
    :header-rows: 1
@@ -54,38 +45,31 @@ sky), then the map itself is rescaled to zero mean and unit standard deviation.
      - :math:`C_\ell = \text{const}` — pixel-scale noise
 
 Real observational templates
------------------------------
+----------------------------
 
-Two loaders bring in physically motivated templates from external FITS files:
+Two loaders read templates of observing conditions from external FITS files:
 
 :func:`load_real_template`
-    Generic loader for any HEALPix FITS ``BinTableHDU``.  Reads the requested
-    column, optionally degrades or upgrades the resolution via
-    :func:`healpy.ud_grade`, and normalises the map to zero mean and unit
-    standard deviation over valid pixels.  Pixels where the raw value is
-    :math:`\leq` ``valid_min`` (default 0) are set to exactly 0 in the output
-    and excluded from the normalisation; they are not ``NaN``.
+    Loads any HEALPix FITS ``BinTableHDU``.
+    It reads the requested column, optionally degrades or upgrades the resolution with :func:`healpy.ud_grade`,
+    and normalises the map to zero mean and unit standard deviation over valid pixels.
+    Pixels where the raw value is :math:`\leq` ``valid_min`` (default 0) are set to exactly 0 in the output and excluded from the normalisation; they are not ``NaN``.
 
 :func:`load_real_templates`
-    Convenience wrapper that loads the two templates used in the real-data
-    validation tests:
+    Loads the two templates used in the real-data validation tests:
 
-    * **synth_5** — GAIA DR3 faint-star surface density
-      (file: ``GAIA_nstar_faint_NSIDE_NNNNN.fits``, column ``nstar_faint``).
-      A proxy for stellar contamination: misclassified stars inflate galaxy
-      counts in proportion to the local stellar density.
-    * **synth_6** — Legacy Survey DR10 galaxy depth in the z band
-      (file: ``LS10_GALDEPTH_Z_NSIDE_NNNN.fits``, column ``GALDEPTH_Z``).
-      A proxy for depth-dependent selection: survey completeness decreases
-      in shallow regions, modulating galaxy counts multiplicatively.
+    * ``synth_5``: the Gaia DR3 faint-star surface density
+      (file ``GAIA_nstar_faint_NSIDE_NNNNN.fits``, column ``nstar_faint``),
+      a proxy for stellar contamination: misclassified stars inflate galaxy counts in proportion to the local stellar density.
+    * ``synth_6``: the Legacy Survey DR10 galaxy depth in the z band
+      (file ``LS10_GALDEPTH_Z_NSIDE_NNNN.fits``, column ``GALDEPTH_Z``),
+      a proxy for depth-dependent selection: the survey completeness decreases in shallow regions, modulating galaxy counts multiplicatively.
 
-    The combined valid mask is the *intersection* of the two individual
-    footprints (GAIA is full-sky; the LS10 mask determines the survey area).
-    At NSIDE = 32 this yields approximately 5 954 valid pixels
-    (48.4 % of the sky), matching the LS10 South Galactic Cap footprint.
+    The combined valid mask is the *intersection* of the two footprints (Gaia is full-sky; the LS10 mask sets the survey area).
+    At NSIDE = 32 it holds approximately 5 954 valid pixels (48.4% of the sky), matching the LS10 South Galactic Cap footprint.
 
-    Files are expected in ``~/data/legacysurvey/dr10/systematics/`` by
-    default (see the :ref:`real-template-tests` section of :doc:`../testing`).
+    Files are expected in ``~/data/legacysurvey/dr10/systematics/`` by default
+    (see the :ref:`real-template-tests` section of :doc:`../testing`).
 
 .. automodule:: sys_mapping.maps
    :members:

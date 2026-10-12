@@ -47,14 +47,15 @@ def _table(header, rows):
 def test_coverage_section(report: dict) -> list[str]:
     t = report["totals"]
     lines = ["Test coverage", "-------------", "",
-             f"The suite covers {t['covered_lines']} of {t['num_statements']} statements "
+             f"The test suite covers {t['covered_lines']} of {t['num_statements']} statements "
              f"({100 * t['covered_lines'] / t['num_statements']:.1f}%) and "
              f"{t['covered_branches']} of {t['num_branches']} branches "
              f"({100 * t['covered_branches'] / t['num_branches']:.1f}%), "
-             f"{t['percent_covered']:.1f}% combined. Docstring examples run as part of the "
-             "suite. CI measures the same with branch coverage on every push and fails below "
+             f"{t['percent_covered']:.1f}% combined; the table gives the coverage per module.\n"
+             "Docstring examples run as part of the suite.\n"
+             "CI measures the same coverage, branches included, on every push and fails below "
              "the ``fail_under`` value in ``pyproject.toml``; tests that need the LS10 and "
-             "Gaia maps or the Uchuu mocks skip there.", ""]
+             "Gaia maps or the Uchuu mocks are skipped there.", ""]
     rows = []
     for f, v in sorted(report["files"].items()):
         s = v["summary"]
@@ -76,12 +77,13 @@ def jax_static_section() -> list[str]:
     pub = Counter(f["kind"] for r in results for f in r["functions"]
                   if f["public"] and f["kind"] != "none")
     lines = ["JAX coverage", "------------", "",
-             "Static share", "~~~~~~~~~~~~", "",
-             "Every call is attributed to the library providing it (``scripts/jax_coverage.py``). "
+             "Static share of JAX calls", "~~~~~~~~~~~~~~~~~~~~~~~~~", "",
+             "``scripts/jax_coverage.py`` attributes every call in the source to the library "
+             "that provides it.\n"
              f"Of {tot_num} numeric source lines, {tot_jax} ({100 * tot_jax / tot_num:.0f}%) call "
-             f"JAX. Of the {sum(pub.values())} public functions that make numeric calls, "
+             f"JAX.\nOf the {sum(pub.values())} public functions that make numeric calls, "
              f"{pub['jax']} call JAX only, {pub['mixed']} mix JAX with other libraries and "
-             f"{pub['other']} call none of it.", ""]
+             f"{pub['other']} do not call JAX.", ""]
     rows = []
     for r in results:
         if not r["numeric"]:
@@ -103,11 +105,11 @@ def transformability_section() -> list[str]:
     for name, tr in cases:
         by_fn[name].append((tr, (name, tr) not in failing))
     full = sum(all(ok for _, ok in v) for v in by_fn.values())
-    lines = ["Transformability", "~~~~~~~~~~~~~~~~", "",
+    lines = ["Transformability under jit, vmap and grad", "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", "",
              "``tests/test_jax_transformability.py`` applies ``jax.jit``, ``jax.vmap`` and, where "
              "a gradient is meaningful, ``jax.grad`` to the public numeric functions and checks "
-             f"the result against the eager call. {len(cases) - len(failing)} of {len(cases)} "
-             f"cases pass; {full} of {len(by_fn)} functions pass every transform that applies. "
+             f"the result against the eager call.\n{len(cases) - len(failing)} of {len(cases)} "
+             f"cases pass; {full} of {len(by_fn)} functions pass every transform that applies.\n"
              "The failures are strict expected failures, so a function that becomes "
              "transformable fails the suite until its entry is removed.", ""]
     rows = []
@@ -127,9 +129,10 @@ def profile_section(profile: Path, compile_log: Path | None, label: str) -> list
     for (filename, _l, funcname), (_cc, _nc, tottime, _ct, _c) in stats.stats.items():
         by_lib[pl.classify(filename, funcname)] += tottime
     total = sum(by_lib.values())
-    lines = ["Where a pipeline run spends its time", "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", "",
-             f"A profiled run of ``scripts/run_ls10_analysis.py`` ({label}), own time per "
-             f"library from ``scripts/profile_by_library.py``; {total:.0f} s in total. Time "
+    lines = ["Time profile of a pipeline run", "~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~", "",
+             f"We profiled one run of ``scripts/run_ls10_analysis.py`` ({label}) and summed the "
+             f"own time per library with ``scripts/profile_by_library.py``, {total:.0f} s in "
+             f"total.\nTime "
              "spent executing compiled XLA code is counted under JAX.", ""]
     rows = [[lib, f"{t:.0f}", f"{100 * t / total:.1f}"]
             for lib, t in sorted(by_lib.items(), key=lambda kv: -kv[1]) if t / total >= 0.001]
@@ -139,7 +142,7 @@ def profile_section(profile: Path, compile_log: Path | None, label: str) -> list
         if "/sys_mapping/sys_mapping/" in filename and funcname in STAGES:
             stages[funcname] = (cumtime, nc)
     if stages:
-        lines += ["By stage, cumulative time of the package functions that dominate:", ""]
+        lines += ["The cumulative time of the package functions that dominate, by stage:", ""]
         lines += _table(["function", "calls", "seconds", "share %"],
                         [[fn, nc, f"{ct:.0f}", f"{100 * ct / total:.1f}"]
                          for fn, (ct, nc) in sorted(stages.items(), key=lambda kv: -kv[1][0])])
@@ -176,8 +179,12 @@ def main() -> None:
 
     report = json.loads(Path(args.coverage_json).read_text())
     lines = ["Test and JAX coverage", "=====================", "",
-             "How much of the package the test suite exercises, and how much of its numerical "
-             "work runs through JAX. Generated by ``scripts/coverage_report.py``.", "",
+             "This page gives the share of ``sys_mapping`` that the test suite exercises and "
+             "the share of its numerical work that runs through JAX.\n"
+             "``scripts/coverage_report.py`` writes it from the coverage report of the test "
+             "suite, the static analysis of ``scripts/jax_coverage.py``, the transformability "
+             "cases of ``tests/test_jax_transformability.py`` and, when one is given, a profiled "
+             "pipeline run.", "",
              ".. contents:: On this page", "   :local:", "   :depth: 1", ""]
     lines += test_coverage_section(report)
     lines += jax_static_section()
@@ -186,9 +193,9 @@ def main() -> None:
         lines += profile_section(Path(args.profile),
                                  Path(args.compile_log) if args.compile_log else None,
                                  args.profile_label)
-    lines += ["Outside JAX", "~~~~~~~~~~~", ""]
+    lines += ["Code outside JAX", "~~~~~~~~~~~~~~~~", ""]
     lines += [f"* **{what}**: {why}." for what, why in OUT_OF_SCOPE] + [""]
-    lines += ["Measuring", "---------", "", ".. code-block:: bash", "",
+    lines += ["Reproduction", "------------", "", ".. code-block:: bash", "",
               "   pytest --cov=sys_mapping --cov-branch --cov-report=json:coverage.json",
               "   python scripts/jax_coverage.py",
               "   JAX_LOG_COMPILES=1 python -m cProfile -o run.prof scripts/run_ls10_analysis.py ... 2> run.err",

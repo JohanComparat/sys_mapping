@@ -1,12 +1,11 @@
 Testing
 =======
 
-The suite collects 798 items: 725 test functions in the 25 files of ``tests/`` and 73
-docstring examples from ``sys_mapping/``.
+The test suite of ``sys_mapping`` collects 798 items: 725 test functions in the 25 files of ``tests/`` and 73 docstring examples from ``sys_mapping/``.
 Eight tests carry the ``slow`` marker.
 Timing benchmarks live in the separate
 `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-repository, with the measurements in :doc:`results_benchmark`.
+repository, and their measurements are in :doc:`results_benchmark`.
 
 ----
 
@@ -22,14 +21,13 @@ Install the package with the extras CI uses, then run pytest from the repository
    pytest tests/test_contamination.py   # one module
    pytest --cov=sys_mapping --cov-branch --cov-report=term-missing
 
-``pyproject.toml`` sets ``testpaths = ["tests", "sys_mapping"]`` and
-``addopts = "-v --doctest-modules"``, so a bare ``pytest`` collects the docstring examples
-alongside ``tests/``.
+``pyproject.toml`` sets ``testpaths = ["tests", "sys_mapping"]`` and ``addopts = "-v --doctest-modules"``,
+so a bare ``pytest`` collects the docstring examples alongside ``tests/``.
 
 We ran the full suite with
 ``python -m pytest -q -p no:cacheprovider --cov=sys_mapping --cov-branch`` in the ``sys_map``
 environment, with the LS10 and Gaia maps present and the Uchuu mocks absent:
-776 passed, 7 skipped, 19 xfailed in 4 min 40 s, at 98.0 % branch coverage.
+776 passed, 7 skipped, 19 xfailed in 4 min 40 s, at 98.0% branch coverage.
 Six of the skips are the ``test_glass_mocks.py`` tests that need the Uchuu mocks and one is a
 docstring example marked ``+SKIP``; the 19 expected failures are the transformability
 entries described below.
@@ -153,28 +151,22 @@ Counts are from ``python -m pytest --collect-only -qqq``.
      - 73
      - Every ``Examples`` section, 1 to 11 per module
 
-The slow tests are three calibration checks on clustered fields in ``test_diagnostics.py``
-(residual test size and power, calibrated-significance false-positive rate), two comparisons
-of the analytic posterior and NUTS with emcee in ``test_samplers.py``, and three checks of
-template-correlation support at the pixel scale in ``test_utils.py``.
+The slow tests are three calibration checks on clustered fields in ``test_diagnostics.py`` (residual test size and power, calibrated-significance false-positive rate),
+two comparisons of the analytic posterior and NUTS with emcee in ``test_samplers.py``,
+and three checks of template-correlation support at the pixel scale in ``test_utils.py``.
 
 ----
 
 Coverage and CI
 ---------------
 
-``[tool.coverage.run]`` in ``pyproject.toml`` measures ``sys_mapping`` with
-``branch = true``; ``[tool.coverage.report]`` sets ``fail_under = 97`` on the combined line
-and branch figure, which pytest-cov enforces whenever ``--cov`` is given.
-The measured coverage, per module, is in :doc:`coverage`: 98.0% combined, 98.8% of lines and
-94.8% of branches.
+``[tool.coverage.run]`` in ``pyproject.toml`` measures ``sys_mapping`` with ``branch = true``;
+``[tool.coverage.report]`` sets ``fail_under = 97`` on the combined line and branch figure, which pytest-cov enforces whenever ``--cov`` is given.
+The measured coverage, per module, is in :doc:`coverage`: 98.0% combined, 98.8% of lines and 94.8% of branches.
 
-``.github/workflows/tests.yml`` runs on Python 3.11 and 3.12 with ``JAX_PLATFORMS=cpu`` and
-``XLA_PYTHON_CLIENT_PREALLOCATE=false``, after installing ``.[dev,regression,glass]``.
-Pull requests run the fast suite (``-m "not slow"``); pushes to ``main``, the nightly schedule
-and manual runs run the full suite.
-Both measure branch coverage and upload ``coverage.xml`` to Codecov with a flag per Python
-version (``py3.11``, ``py3.12``).
+``.github/workflows/tests.yml`` runs on Python 3.11 and 3.12 with ``JAX_PLATFORMS=cpu`` and ``XLA_PYTHON_CLIENT_PREALLOCATE=false``, after installing ``.[dev,regression,glass]``.
+Pull requests run the fast suite (``-m "not slow"``); pushes to ``main``, the nightly schedule and manual runs run the full suite.
+Both measure branch coverage and upload ``coverage.xml`` to Codecov with a flag per Python version (``py3.11``, ``py3.12``).
 The LS10, Gaia and Uchuu data are absent there, so the tests that need them skip.
 
 ----
@@ -184,26 +176,20 @@ Docstring examples
 
 Docstring examples run under ``--doctest-modules`` with the ``ELLIPSIS`` and
 ``NORMALIZE_WHITESPACE`` flags.
-NumPy 2 prints scalars as ``np.float64(0.5)`` and ``np.True_``; the root ``conftest.py``
-selects ``np.set_printoptions(legacy="1.25")`` whenever doctests are collected, so the
-examples print the plain form.
+NumPy 2 prints scalars as ``np.float64(0.5)`` and ``np.True_``;
+the root ``conftest.py`` selects ``np.set_printoptions(legacy="1.25")`` whenever doctests are collected, so the examples print the plain form.
 
 ----
 
 JAX tests
 ---------
 
-``tests/test_jax_transformability.py`` wraps 17 public numeric cases as functions of one
-array and applies ``jax.jit``, ``jax.vmap`` and, where a gradient is meaningful,
-``jax.grad``, 46 cases in all.
+``tests/test_jax_transformability.py`` wraps 17 public numeric cases as functions of one array and applies ``jax.jit``, ``jax.vmap`` and, where a gradient is meaningful, ``jax.grad``, 46 cases in all.
 A case passes when the transform runs on traced inputs and reproduces the eager result.
-The functions written against NumPy are listed in ``_NUMPY_ON_TRACER`` and their cases
-marked strict ``xfail``: 8 functions and 19 cases.
-Porting one of them turns its cases into unexpected passes, which fail the suite until the
-entry is removed.
+The functions written against NumPy are listed in ``_NUMPY_ON_TRACER`` and their cases marked strict ``xfail``: 8 functions and 19 cases.
+Porting one of them turns its cases into unexpected passes, which fail the suite until the entry is removed.
 
-``tests/test_jax_acceleration.py`` checks the JAX kernels that run the ISD, ranking and
-null-test statistics against NumPy reference implementations kept in the test file.
+``tests/test_jax_acceleration.py`` checks the JAX kernels that run the ISD, ranking and null-test statistics against NumPy reference implementations kept in the test file.
 
 ----
 
@@ -212,10 +198,8 @@ null-test statistics against NumPy reference implementations kept in the test fi
 Real-template integration tests
 -------------------------------
 
-``tests/test_real_templates.py`` builds one mock at NSIDE 32 with four templates, synthetic
-families 0 and 1, ``GAIA_nstar_faint`` and ``LS10_GALDEPTH_Z``, on the pixels where both
-real maps are finite and positive (the mask of
-:func:`~sys_mapping.maps.load_real_templates`).
+``tests/test_real_templates.py`` builds one mock at NSIDE 32 with four templates, synthetic families 0 and 1, ``GAIA_nstar_faint`` and ``LS10_GALDEPTH_Z``,
+on the pixels where both real maps are finite and positive (the mask of :func:`~sys_mapping.maps.load_real_templates`).
 
 .. list-table::
    :widths: 40 60
@@ -236,14 +220,11 @@ real maps are finite and positive (the mask of
    * - Seed
      - 7
 
-The tests check shapes, finiteness and a mean absolute amplitude error below a loose
-tolerance: 0.20 for OLS, 0.25 for ElasticNet (3 folds), ISD-1 and ``run_mcmc`` additive
-chains, and 0.30 for :math:`a_i` and :math:`b_i` of combined chains.
-ISD runs with a fixed ``chi2_68 = 50`` in place of a mock calibration, and ISD-3 is checked for
-finite, positive weights and termination.
+The tests check shapes, finiteness and a mean absolute amplitude error below a loose tolerance:
+0.20 for OLS, 0.25 for ElasticNet (3 folds), ISD-1 and ``run_mcmc`` additive chains, and 0.30 for :math:`a_i` and :math:`b_i` of combined chains.
+ISD runs with a fixed ``chi2_68 = 50`` in place of a mock calibration, and ISD-3 is checked for finite, positive weights and termination.
 The likelihood-ratio test must reject the additive null at 5%.
-The residual test must detect contamination on a template held out of the correction,
-against 30 null realisations put through the same correction.
+The residual test must detect contamination on a template held out of the correction, against 30 null realisations put through the same correction.
 The SNR ranking must be non-negative with at least one entry above 0.01.
 
 ----
@@ -258,5 +239,5 @@ Adding tests
 5. Mark long-running tests with ``@pytest.mark.slow``; pull requests run without them.
 6. Add the file to the table above.
 
-Standalone scripts such as ``scripts/run_systematic_tests.py`` produce the result pages and
-are not collected by pytest.
+Standalone scripts such as ``scripts/run_systematic_tests.py`` produce the result pages and are not collected by pytest.
+

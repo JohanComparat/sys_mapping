@@ -1496,7 +1496,7 @@ def _format_method_stats_table(sample_id, nside, output_dir):
         lrt_str = (f"λ={float(lam):.1f}  p={float(pv):.2e}"
                    f"  dof={dof}  reject={'yes' if rej else 'no'}")
     lines = [
-        ".. csv-table:: Goodness-of-fit statistics",
+        ".. csv-table:: Goodness-of-fit statistics per method",
         '   :header: "Method", "σ_hat", "ln L", "acc_frac", "elapsed (s)"',
         "   :widths: 14, 12, 14, 12, 12",
         "",
@@ -1607,10 +1607,10 @@ def update_ls10_rst(method_tag: str, entries: list,
 
     lines_in_section = [
         "",
-        f"{method_tag} Results — LS10 BGS (auto-generated {ts})",
-        "-" * (len(f"{method_tag} Results — LS10 BGS (auto-generated {ts})") + 2),
+        f"{method_tag} estimates for the LS10 BGS samples (written {ts})",
+        "-" * (len(f"{method_tag} estimates for the LS10 BGS samples (written {ts})") + 2),
         "",
-        f"Samples processed: {len(entries)}",
+        f"The run processed {len(entries)} samples.",
         "",
         f".. csv-table:: LS10 {method_tag} estimates per sample",
         f"   :header: {header}",
@@ -1670,18 +1670,18 @@ def _update_ls10_comparison_figures(entries: list, rst_path,
 
     lines = [
         "",
-        f"Per-sample comparison figures (auto-generated {ts})",
+        f"Per-sample figures (written {ts})",
         "-" * 56,
         "",
-        "Each sample shows a goodness-of-fit table followed by three figures:",
+        "Each sample has a goodness-of-fit table and three figures:",
         "",
-        "* **w(θ)**: log-log angular correlation before/after correction (all 6 methods).",
-        "* **Weight maps**: 2×3 Mollweide projection of per-pixel weights for all 6 methods.",
-        "* **Weight histograms**: log-scale distribution of per-pixel weights.",
+        "* **w(θ)**: the angular correlation function before and after correction by the six methods, on log-log axes.",
+        "* **Weight maps**: Mollweide projections of the per-pixel weights of the six methods, in a 2×3 grid.",
+        "* **Weight histograms**: the distribution of the per-pixel weights, on a logarithmic scale.",
         "",
         ".. note::",
         "",
-        "   ISD-3 and (for some samples) ISD-1 weights may be unreliable — see method notes above.",
+        "   ISD-3 weights, and ISD-1 weights for some samples, may be unreliable (see the method notes above).",
         "",
     ]
 
@@ -1697,11 +1697,11 @@ def _update_ls10_comparison_figures(entries: list, rst_path,
             except Exception:
                 pass
         lines.append(_fig_block(sid, nside, "wtheta",
-            f"w(θ) before/after correction — {label}"))
+            f"w(θ) before and after correction, {label}."))
         lines.append(_fig_block(sid, nside, "weight_map",
-            f"Weight maps (6 methods) — {label}"))
+            f"Weight maps of the six methods, {label}."))
         lines.append(_fig_block(sid, nside, "weight_hist",
-            f"Weight histograms (6 methods) — {label}"))
+            f"Weight histograms of the six methods, {label}."))
         lines.append("")
 
     new_section = (

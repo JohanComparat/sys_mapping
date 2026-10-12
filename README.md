@@ -8,10 +8,10 @@
 **Docs:** https://sys-mapping.readthedocs.io/en/latest/
 
 Joint inference of multiplicative and additive systematics in galaxy clustering, after
-[Berlfein et al. 2024](https://arxiv.org/abs/2401.12293). The package pre-selects
-templates, fits the contamination with six methods, calibrates every detection statistic
-against GLASS realisations of the galaxy field, writes per-galaxy weights and corrects the
-angular correlation function with the full cross-template matrix.
+[Berlfein et al. 2024](https://arxiv.org/abs/2401.12293).
+
+`sys_mapping` takes a galaxy overdensity map and HEALPix maps of the observing conditions (templates), and returns per-galaxy weights and the angular correlation function corrected with the full cross-template matrix.
+It pre-selects templates, fits the contamination with six methods, and calibrates every detection statistic against GLASS realisations of the galaxy field.
 
 ---
 
@@ -41,9 +41,8 @@ angular correlation function with the full cross-template matrix.
 
 ## Calibrated statistics
 
-Every null the package builds is a set of uncontaminated GLASS realisations drawn from a
-spectrum matched to the sample (`load_matched_cl`). Realisations are Poisson counts per
-footprint pixel (`draw_null_overdensity`).
+Every null `sys_mapping` builds is a set of uncontaminated GLASS realisations drawn from a spectrum matched to the sample (`load_matched_cl`).
+Realisations are Poisson counts per footprint pixel (`draw_null_overdensity`).
 
 | Statistic | Function |
 |---|---|
@@ -52,9 +51,8 @@ footprint pixel (`draw_null_overdensity`).
 | ISD stopping threshold | `isd_template_significance` |
 | Likelihood-ratio test, additive against combined | `likelihood_ratio_test(null_lambda=...)` with the null from `lrt_from_maxima` |
 
-The Wilks χ² p-value assumes independent pixels, which the clustered field violates, so it
-is overconfident. `lrt_from_maxima` takes λ_LR between the maxima of both models, so
-λ_LR ≥ 0.
+The Wilks χ² p-value assumes independent pixels, which the clustered field violates, so it is overconfident.
+`lrt_from_maxima` takes λ_LR between the maxima of both models, so λ_LR ≥ 0.
 
 ---
 
@@ -96,12 +94,11 @@ The [quickstart](https://sys-mapping.readthedocs.io/en/latest/quickstart.html) b
 
 ---
 
-## Scripts
+## Command-line scripts
 
 ### `scripts/run_ls10_analysis.py`
 
-The LS10 BGS pipeline: overdensity, all methods, calibrated statistics, weights and the
-corrected w(θ) for one sample or a directory of samples.
+The LS10 BGS pipeline: overdensity, all methods, calibrated statistics, weights and the corrected w(θ), for one sample or a directory of samples.
 
 ```bash
 python scripts/run_ls10_analysis.py \
@@ -113,16 +110,13 @@ python scripts/run_ls10_analysis.py \
     --output-dir data/sys_weights_auto/
 ```
 
-`--min-per-pixel` puts each sample at the finest NSIDE, no finer than `--nside`, whose
-footprint holds that many galaxies per pixel. `--null-cl-file` is required whenever a null
-is built; `--allow-parametric-null` uses a power law instead and records the product as
-parametric. `--null-draw` (`pixel` or `catalogue`) and `--lrt-null-method` (`maxima` or
-`nuts`) choose how null realisations are drawn and fitted. The phases, output keys and
-sentinel files are described in the
+`--min-per-pixel` puts each sample at the finest NSIDE, no finer than `--nside`, whose footprint holds that many galaxies per pixel.
+`--null-cl-file` is required whenever a null is built; `--allow-parametric-null` uses a power law instead and records the product as parametric.
+`--null-draw` (`pixel` or `catalogue`) and `--lrt-null-method` (`maxima` or `nuts`) choose how null realisations are drawn and fitted.
+The phases, output keys and sentinel files are described in the
 [LS10 pipeline page](https://sys-mapping.readthedocs.io/en/latest/pipeline_ls10.html).
 
-**Weights.** `run_decontamination` returns the weight that inverts the model each method
-fitted, and `run_ls10_analysis.py` writes it:
+`run_decontamination` returns the weight that inverts the model each method fitted, and `run_ls10_analysis.py` writes it:
 
 | Form | Methods | Formula | Clip |
 |---|---|---|---|
@@ -139,17 +133,13 @@ fitted, and `run_ls10_analysis.py` writes it:
 | `WEIGHT_SYS` | Alias of `WEIGHT_COMB`, the recommended weight |
 
 The header records the convention in `WEIGHTVER`, `WEIGHTCON`, `WMAXCLIP` and `TPLBASIS`.
-Version 3 marks templates standardised over the analysis footprint, so amplitudes are in
-units of one template standard deviation; lower versions are read with a warning.
-`--no-footprint-standardise` and `--ct-from-pixels` write a version-2 product. `--skewed`
-fits the skew-normal likelihood for MCMC-comb; MCMC-add stays Gaussian, and the
-likelihood-ratio test compares additive and combined maxima that both carry the skewness.
+Version 3 marks templates standardised over the analysis footprint, so amplitudes are in units of one template standard deviation; lower versions are read with a warning.
+`--no-footprint-standardise` and `--ct-from-pixels` write a version-2 product.
+`--skewed` fits the skew-normal likelihood for MCMC-comb; MCMC-add stays Gaussian, and the likelihood-ratio test compares additive and combined maxima that both carry the skewness.
 
 ### `scripts/compute_sys_weights.py`
 
-Batch weights for every `*_DATA.fits` / `*_RAND.fits` pair: OLS, MCMC-add and MCMC-comb,
-written as `WEIGHT_OLS`, `WEIGHT_ADD`, `WEIGHT_COMB` and `WEIGHT_SYS` in the linear form
-(`WEIGHTCON = linear-from-a_hat`).
+Batch weights for every `*_DATA.fits` / `*_RAND.fits` pair: OLS, MCMC-add and MCMC-comb, written as `WEIGHT_OLS`, `WEIGHT_ADD`, `WEIGHT_COMB` and `WEIGHT_SYS` in the linear form (`WEIGHTCON = linear-from-a_hat`).
 
 ```bash
 python scripts/compute_sys_weights.py --catalog-dir /path/to/BGS_VLIM_Mstar --nside 64
@@ -189,8 +179,7 @@ All but `benchmark_corrfunc_vs_treecorr.py` take `--help`.
 
 ## Background runs (`bash/`)
 
-The scripts in `bash/` start a pipeline with `nohup`, write a timestamped log to `logs/`
-and a `.pid` file, and set the thread counts to `$(nproc)`.
+The scripts in `bash/` start a pipeline with `nohup`, write a timestamped log to `logs/` and a `.pid` file, and set the thread counts to `$(nproc)`.
 
 ```bash
 bash/ls10_analysis.sh
@@ -217,6 +206,8 @@ pip install "git+https://github.com/JohanComparat/sys_mapping@v1.4.0"
 
 For development:
 
+> **Maintainer setup.** On the development laptop, use the shared `dev` environment defined in `~/software/dev_env` (`conda activate dev`); this package is already installed there in editable mode. Do not create a separate environment for it: add missing dependencies to `~/software/dev_env` and rebuild.
+
 ```bash
 git clone https://github.com/JohanComparat/sys_mapping && cd sys_mapping
 mamba env create -f environment.yml
@@ -235,10 +226,9 @@ pytest -m "not slow"          # fast suite, run on pull requests
 pytest --cov=sys_mapping      # full suite with branch coverage, run on main and nightly
 ```
 
-The suite collects the docstring examples, checks JAX kernels against NumPy references,
-and records which public functions survive `jax.jit`, `jax.vmap` and `jax.grad`. Branch
-coverage is 98.0 % and CI fails below 97 %. Per-module coverage, the JAX share and the wall
-time by library are on the [coverage page](https://sys-mapping.readthedocs.io/en/latest/coverage.html);
+The suite collects the docstring examples, checks JAX kernels against NumPy references, and records which public functions survive `jax.jit`, `jax.vmap` and `jax.grad`.
+Branch coverage is 98.0% and CI fails below 97%.
+Per-module coverage, the JAX share and the wall time by library are on the [coverage page](https://sys-mapping.readthedocs.io/en/latest/coverage.html);
 test counts per module are on the [testing page](https://sys-mapping.readthedocs.io/en/latest/testing.html).
 Real-data tests skip when `~/data/legacysurvey/dr10/systematics/` is absent.
 
@@ -269,9 +259,7 @@ SYS_MAPPING_ROOT=~/software/sys_mapping python characterisation/run_crossterm_bi
 cd docs && make html    # docs/_build/html/index.html
 ```
 
-The documentation covers the method, the API, validation on mocks, the detectability law,
-and the LS10 BGS results: nine stellar-mass samples, each at the resolution its occupancy
-supports, with the same fits at NSIDE 32, 64 and 128 for comparison.
+The documentation covers the method, the API, validation on mocks, the detectability law, and the LS10 BGS results: nine stellar-mass samples, each at the resolution its occupancy supports, with the same fits at NSIDE 32, 64 and 128 for comparison.
 
 ---
 
@@ -318,24 +306,20 @@ The symbols above import from `sys_mapping` directly;
 
 Notes on the implementation:
 
-- The combined model is the paper form `δ̂_g = δ_g(1+b·t) + a·t`. The product
-  `(δ_g + a·t)(1+b·t)` differs by the second-order term `a·t·b·t`.
+- The combined model is the paper form `δ̂_g = δ_g(1+b·t) + a·t`.
+  The product `(δ_g + a·t)(1+b·t)` differs by the second-order term `a·t·b·t`.
 - The Gaussian likelihood subtracts `Σ ln|1+b·t|`, the Jacobian of the forward map.
-- In the skew-normal likelihood the residual is shifted by `ξ = −σ·δ·√(2/π)` with
-  `δ = γ/√(1+γ²)`; the shifted residual `r` enters both the quadratic form and the CDF term
-  `Σ log Φ(γ·r/σ)`, and `N·ln 2` comes from the `2/σ` prefactor.
-- With `C = VDVᵀ`, `δ'_t = Vᵀ δ_t` and `a = V a'`, the covariance propagates as
-  `Cov[a] = V · Cov[a'] · Vᵀ`, the full matrix (`R.T @ cov_rot @ R` in
-  `regression.py:run_decontamination`).
-- The two-point correction uses the full `(n_sys, n_sys)` amplitude matrices and the
-  template correlation matrix from `template_correlation_matrix`, whose cross terms are
-  `ξ_ij = [ξ(t_i+t_j) − ξ_ii − ξ_jj]/2`.
+- In the skew-normal likelihood the residual is shifted by `ξ = −σ·δ·√(2/π)` with `δ = γ/√(1+γ²)`;
+  the shifted residual `r` enters both the quadratic form and the CDF term `Σ log Φ(γ·r/σ)`, and `N·ln 2` comes from the `2/σ` prefactor.
+- With `C = VDVᵀ`, `δ'_t = Vᵀ δ_t` and `a = V a'`, the covariance propagates as `Cov[a] = V · Cov[a'] · Vᵀ`, the full matrix (`R.T @ cov_rot @ R` in `regression.py:run_decontamination`).
+- The two-point correction uses the full `(n_sys, n_sys)` amplitude matrices and the template correlation matrix from `template_correlation_matrix`, whose cross terms are `ξ_ij = [ξ(t_i+t_j) − ξ_ii − ξ_jj]/2`.
 
 ---
 
 ## Data files
 
-`data/` is not tracked. `scripts/run_ls10_analysis.py` writes:
+`data/` is not tracked.
+`scripts/run_ls10_analysis.py` writes:
 
 | Directory | Contents |
 |---|---|

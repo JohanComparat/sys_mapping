@@ -1,9 +1,5 @@
-Model test matrix
-=================
-
-Run: sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of
-2026-09-15), GRICAD dahu campaign 20260915r, cell ``systests`` (node dahu148, Intel Xeon Gold
-5318Y, 8 cores), 2026-09-15; the run took 32 min.
+Test matrix of contamination configurations
+===========================================
 
 We run the six methods of ``sm.run_decontamination`` on 32 contaminated mocks and report, for
 each, the pixel standard deviation of
@@ -13,9 +9,12 @@ each, the pixel standard deviation of
    \mathcal{R}(p) = \frac{1 + \delta_g^{\rm corr}(p)}{1 + \delta_g^{\rm true}(p)}
 
 over the footprint, after discarding pixels outside the 0.5th–99.5th percentiles of
-:math:`\mathcal{R}`.
+:math:`\mathcal{R}`, together with the amplitude bias and the compute time.
 A perfect correction gives :math:`\mathcal{R} = 1`; Poisson noise sets the floor of
 :math:`\sigma[\mathcal{R}]`.
+The run used sys_mapping 1.4.0 (commit ``6f43dcc`` plus the uncommitted working-tree changes of
+2026-09-15) in GRICAD dahu campaign 20260915r, cell ``systests`` (node dahu148, Intel Xeon Gold
+5318Y, 8 cores), on 2026-09-15, and took 32 min.
 
 Mocks
 -----
@@ -43,9 +42,9 @@ synth_6  2       :math:`(\ell+1)^{-2}`, second seed
 =======  ======  ======================================
 
 On the footprint, synth_0, synth_1 and synth_4 have pairwise correlation coefficients above
-0.9997, synth_3 correlates with each of them at 0.95, synth_2 with synth_0, 1, 3 and 4 at
-0.67–0.86, and synth_5 with synth_6 at 0.70; synth_5 and synth_6 correlate with synth_0..4 at
-below 0.04.
+0.9997, and synth_3 correlates with each of them at 0.95.
+synth_2 correlates with synth_0, 1, 3 and 4 at 0.67–0.86, and synth_5 with synth_6 at 0.70;
+synth_5 and synth_6 correlate with synth_0..4 at below 0.04.
 
 The 32 configurations are:
 
@@ -93,7 +92,7 @@ ISD calibration
 
 We set :math:`\Delta\chi^2_{68}` to the 68th percentile, per template and per order, of the
 first-step marginal :math:`\Delta\chi^2` over 50 uncontaminated mocks from the same generator
-(``isd_chi2_68.json``); the table lists the values.
+(``isd_chi2_68.json``), listed in the table below.
 
 =========  =============  =============
 Template   ISD-1          ISD-3
@@ -116,7 +115,8 @@ the cap is 28.
 Correction quality
 ------------------
 
-The three tables list :math:`\sigma[\mathcal{R}]` from ``systematic_test_summary.csv``.
+The three tables below list :math:`\sigma[\mathcal{R}]` from ``systematic_test_summary.csv``, and
+the six figures after them plot it.
 
 .. table:: Tier 1 additive, :math:`\sigma[\mathcal{R}]`.
 
@@ -228,13 +228,13 @@ and ISD-1 and ISD-3 0.306–0.374.
 Amplitude bias
 --------------
 
-The column ``rms_a_bias`` is
-:math:`\sqrt{\langle(\hat{a}_i - a_i^{\rm true})^2\rangle}` over the active templates; for ISD,
-:math:`\hat{a}_i` is the sum, over the steps that selected template :math:`i`, of the
+The table below lists ``rms_a_bias``,
+:math:`\sqrt{\langle(\hat{a}_i - a_i^{\rm true})^2\rangle}` over the active templates, for the
+multi-template configurations.
+For ISD, :math:`\hat{a}_i` is the sum, over the steps that selected template :math:`i`, of the
 least-squares projection of the fitted correction onto :math:`t_i`.
-For single templates it is at most 0.042 for every method, except ISD-1 and ISD-3 on synth_6
+For single templates the bias is at most 0.042 for every method, except ISD-1 and ISD-3 on synth_6
 additive (0.100, zero steps).
-The table lists the multi-template configurations.
 
 .. table:: ``rms_a_bias`` for the multi-template configurations.
 
@@ -267,11 +267,12 @@ templates on; ElasticNet gives at most 0.099, and ISD-1 and ISD-3 at most 0.162.
 Compute time
 ------------
 
-The column ``time_s`` holds the wall-clock time of each method call on dahu148.
+The column ``time_s`` holds the wall-clock time of each method call on dahu148, plotted in the two
+figures below.
 Means over the 32 configurations are 0.002 s (OLS), 0.16 s (ElasticNet), 0.20 s (ISD-1 and
 ISD-3), 0.49 s (MCMC-add) and 58 s (MCMC-comb).
-MCMC-comb takes 5.5–134 s per configuration: 5.5–6.2 s for single templates after the first
-call, 55–127 s for the cumulative sets and 97–134 s in Tier 2.
+MCMC-comb takes 5.5–6.2 s per configuration for single templates after the first call, 55–127 s
+for the cumulative sets and 97–134 s in Tier 2.
 
 The first configuration (synth_0 additive) includes one-time compilation and set-up: 13.9 s for
 MCMC-comb, 2.4 s for MCMC-add, 1.4 s for ElasticNet and 0.3 s for ISD-1 and ISD-3.
@@ -297,8 +298,8 @@ Median timings with compilation excluded, across NSIDE and template counts, are 
 
    Mean wall-clock time per method call over the 32 configurations (log scale).
 
-Reproduce
----------
+Reproduction
+------------
 
 ::
 
@@ -307,8 +308,8 @@ Reproduce
 ``--sampler`` (``auto``, ``analytic``, ``nuts`` or ``emcee``; default ``auto``) selects the MCMC
 backend, ``--nuts-warmup`` and ``--nuts-samples`` (default 1000 each) set the NUTS chains, and
 ``--isd-n-mocks`` (default 50) sets the number of uncontaminated mocks calibrating
-:math:`\Delta\chi^2_{68}`; ``--n-walkers``, ``--n-steps`` and ``--n-burn`` apply only to
-``--sampler emcee``.
+:math:`\Delta\chi^2_{68}`.
+``--n-walkers``, ``--n-steps`` and ``--n-burn`` apply only to ``--sampler emcee``.
 ``--tier2-only`` skips Tier 1 and ``--fast`` runs OLS and MCMC-comb only.
 The script writes ``systematic_test_summary.csv``, ``isd_chi2_68.json``, the ``summary_*.png``
 and ``timing_*.png`` figures, and one histogram per configuration in ``histograms/``; these are

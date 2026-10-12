@@ -58,7 +58,7 @@ correction (Kong et al. 2026).
 The residual is second order in the templates,
 :math:`\sum_{kk'} h_k h_{k'} \langle f_k, f_{k'}\rangle \langle \delta_k, \delta_{k'}\rangle`,
 does not correlate with them, and is invisible to the residual and null tests.
-The package has no sub-sample model: the work is to fit :math:`f_k` per sub-sample (split by
+This package has no sub-sample model: the work is to fit :math:`f_k` per sub-sample (split by
 magnitude or colour) and bound the term.
 
 The monopole
@@ -103,8 +103,8 @@ The work is to run ``characterisation/match_glass_to_data.py`` from that reposit
 sample and resolution, and pass the large-scale validation that
 :func:`~sys_mapping.glass_mocks.load_matched_cl` requires.
 
-Re-run the older result grids
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Older result grids to re-run
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 The following pages come from runs of code older than 1.4.0 and are to be regenerated with it:
 :doc:`results_validation`, :doc:`results_simulation_tests`,
@@ -176,10 +176,10 @@ No test asserts that every module reachable from ``sys_mapping.__all__`` has a p
 
 ----
 
-From the literature
--------------------
+Capabilities from the literature
+--------------------------------
 
-Capabilities named in recent papers that the package does not have.
+Recent papers name the following capabilities, which this package does not have.
 
 - Power-law template linearisation: fit
   :math:`n_g/\langle n_g\rangle \propto (M_j/\langle M_j\rangle)^{\alpha_j}` and use

@@ -3,11 +3,11 @@
 LS10 systematic-correction recommendations
 ==========================================
 
-The weight column to use per sample, from two tests on the issued products: whether
-any template is detected by the calibrated significance, and whether the
-mock-calibrated likelihood ratio on the grid nearest the issued resolution (NSIDE 32
-below NSIDE 64, NSIDE 64 otherwise) requires the multiplicative term. Both at
-α = 0.05.
+This page gives the weight column to use for each LS10 sample, from two tests on the
+issued products, both at α = 0.05: whether any template is detected by the
+calibrated significance, and whether the mock-calibrated likelihood ratio on the grid
+nearest the issued resolution (NSIDE 32 below NSIDE 64, NSIDE 64 otherwise) requires
+the multiplicative term.
 
 .. csv-table::
    :header: "log M* ≥", "NSIDE", "family-wise p", "likelihood-ratio p", "column", "reason"

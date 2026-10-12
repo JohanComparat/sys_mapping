@@ -1,10 +1,9 @@
-Simulation tests: GLASS and Uchuu mocks with LSDR10 systematics
-================================================================
+Simulation tests on GLASS and Uchuu mocks with LSDR10 systematics
+=================================================================
 
+We injected contamination built from five LSDR10 imaging-systematic maps into two mock catalogues, corrected it with six decontamination methods, and compared the recovered angular correlation function :math:`w(\theta)` with that of the uncontaminated mock.
+We ran the test at NSIDE 64 and NSIDE 32 on one realisation (seed 0) per configuration; the metrics are in Tables 3 and 4 and the curves in the figures below.
 The figures and tables on this page come from cells ``simtests64`` (node dahu154, 2026-09-15 15:36–17:28, 1 h 52 min) and ``simtests32`` (node dahu155, 2026-09-15 15:36–16:32, 56 min) of campaign 20260915r on the GRICAD dahu cluster, each on 8 cores of an Intel Xeon Gold 5318Y, running ``sys_mapping`` 1.4.0 (commit 6f43dcc with the working-tree changes of 2026-09-15).
-
-We inject contamination built from five LSDR10 imaging-systematic maps into two mock catalogues, correct it with six decontamination methods, and compare the recovered angular correlation function :math:`w(\theta)` with that of the uncontaminated mock.
-We run the test at NSIDE 64 and NSIDE 32 on one realisation (seed 0) per configuration; the metrics are in Tables 3 and 4 and the curves in the figures below.
 
 Mock catalogues
 ---------------
@@ -13,7 +12,7 @@ The GLASS mock (Tessore et al. 2023) is a lognormal field in one tophat shell ov
 Galaxy positions are Poisson draws from the field, redshifts are drawn from the Uchuu :math:`n(z)` (20 bins over :math:`0.05 \le z \le 0.26`), and the randoms are uniform on the sphere at ten times the target.
 The Uchuu catalogue is the lightcone sample ``MOCK_VLIM_ANY_10.65_Mstar_12.0_0.05_z_0.26_N_0923373``, with 923 373 galaxies and 6 249 378 randoms over :math:`0.05 \le z \le 0.26`; its randoms cover one octant, :math:`180° \le \mathrm{RA} \le 270°` and :math:`-90° \le \mathrm{Dec} \le 0°`.
 
-Both catalogues are cut to the pixels where all five templates are valid, see Table 1.
+We cut both catalogues to the pixels where all five templates are valid (Table 1).
 
 .. list-table:: Table 1. Footprint and catalogue sizes after the cut.
    :widths: 30 35 35
@@ -89,24 +88,25 @@ Contamination enters as a per-galaxy weight :math:`\texttt{WEIGHT\_CONT}(p) = (1
 The grid has nine configurations: three levels, :math:`|a_i| = |b_i| = 0.02` (low), 0.05 (medium) and 0.10 (high), times three scenarios, additive (:math:`b_i = 0`), multiplicative (:math:`a_i = 0`) and combined.
 The signs of :math:`a_i` and :math:`b_i` are drawn once from the seed and shared by all levels, and all five templates are contaminated.
 
-Recovery and methods
---------------------
+Correction methods
+------------------
 
-For each configuration we compute :math:`\delta_g^{\rm obs}` from the catalogue weighted by :math:`\texttt{WEIGHT\_CONT}` and run each method; the per-galaxy weight is :math:`\texttt{WEIGHT\_CONT}` times the correction weight, and :math:`w(\theta)` is measured with the TreeCorr Landy–Szalay estimator in 10 logarithmic bins over :math:`0.1° \le \theta \le 10°`.
+For each configuration we computed :math:`\delta_g^{\rm obs}` from the catalogue weighted by :math:`\texttt{WEIGHT\_CONT}` and ran each method.
+The per-galaxy weight is :math:`\texttt{WEIGHT\_CONT}` times the correction weight, and :math:`w(\theta)` is measured with the TreeCorr Landy–Szalay estimator in ten logarithmic bins over :math:`0.1° \le \theta \le 10°`.
 The truth uses uniform weights.
 The six methods are:
 
 * OLS and ElasticNet (:math:`\ell_1 + \ell_2` regularised) regress :math:`\delta_g^{\rm obs}` on the templates, with weight :math:`w = 1/(1 + \hat{a}\cdot t)`.
-* ISD-1 and ISD-3 fit one template at a time in 10 equal-occupancy bins with a polynomial of degree 1 or 3, weight by the inverse of the most significant fit and repeat until :math:`\max S = \Delta\chi^2/\Delta\chi^2_{68} < 2`, with at most :math:`4 n_{\rm sys}` steps and three uses per template; the weight is the product of the per-step corrections.
-* MCMC-add is the analytic Normal-Inverse-Gamma posterior of :math:`a_i` with :math:`b_i = 0`; MCMC-comb samples :math:`(a_i, b_i)` with BlackJAX NUTS (dense mass matrix, 4 chains, 1000 warm-up steps and 1000 draws per chain).
+* ISD-1 and ISD-3 fit one template at a time in ten equal-occupancy bins with a polynomial of degree 1 or 3, weight by the inverse of the most significant fit and repeat until :math:`\max S = \Delta\chi^2/\Delta\chi^2_{68} < 2`, with at most :math:`4 n_{\rm sys}` steps and three uses per template; the weight is the product of the per-step corrections.
+* MCMC-add is the analytic Normal-Inverse-Gamma posterior of :math:`a_i` with :math:`b_i = 0`; MCMC-comb samples :math:`(a_i, b_i)` with BlackJAX NUTS (dense mass matrix, four chains, 1000 warm-up steps and 1000 draws per chain).
   Both use the inverse weight :math:`w = (1 + \hat{\delta}_{\rm clean})/(1 + \delta_g^{\rm obs})`.
 
 All weights are clipped to :math:`[1/20, 20]`.
 
-ISD threshold and steps
-^^^^^^^^^^^^^^^^^^^^^^^
+ISD threshold and number of steps
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-We calibrate :math:`\Delta\chi^2_{68}` per template, per degree and per mock source as the 68th percentile over 30 uncontaminated GLASS realisations, see Table 2.
+We calibrated :math:`\Delta\chi^2_{68}` per template, per degree and per mock source as the 68th percentile over 30 uncontaminated GLASS realisations (Table 2).
 The null spectrum is the parametric one at :math:`5\times10^{-4}` for the GLASS source and the matched spectrum of ``LS10_VLIM_ANY_10.5_Mstar_12.0_0.05_z_0.26_N_3263228`` at the same NSIDE for the Uchuu source (``isd_chi2_68_glass.json`` and ``isd_chi2_68_uchuu.json`` in each ``_static/results_simulation_tests/nside00NN/`` directory).
 
 .. list-table:: Table 2. ISD :math:`\Delta\chi^2_{68}` per template.
@@ -194,27 +194,24 @@ The number of steps per configuration, in the order low, medium, high and within
 * NSIDE 32, GLASS: ISD-1 4, 0, 4, 8, 0, 9, 12, 0, 12; ISD-3 2, 0, 2, 9, 0, 9, 10, 0, 10.
 * NSIDE 32, Uchuu: ISD-1 2, 0, 2, 4, 0, 6, 6, 0, 8; ISD-3 1, 0, 1, 3, 0, 3, 3, 0, 5.
 
-Recovery metric
----------------
+Mean fractional bias
+--------------------
 
-The mean fractional bias is
+We measure the recovery with the mean fractional bias, defined as:
 
 .. math::
 
    \mathcal{B}(w) = \left\langle \frac{|w(\theta) - w_{\rm true}(\theta)|}{\max\bigl(10^{-3},\,\max_\theta |w_{\rm true}(\theta)|\bigr)} \right\rangle_{\!\theta},
 
-averaged over the 10 angular bins, and the improvement factor is :math:`\mathcal{B}(w_{\rm contaminated})/\mathcal{B}(w_{\rm recovered})`.
+averaged over the ten angular bins.
+The improvement factor is :math:`\mathcal{B}(w_{\rm contaminated})/\mathcal{B}(w_{\rm recovered})`.
 The :math:`10^{-3}` floor is not reached in any configuration.
 
-Table 3 (NSIDE 64):
-
-.. csv-table::
+.. csv-table:: Table 3. Galaxy and random counts, mean fractional bias of the contaminated and corrected :math:`w(\theta)`, and improvement factor per method, for each configuration at NSIDE 64.
    :file: _static/results_simulation_tests/nside0064/summary_table.csv
    :header-rows: 1
 
-Table 4 (NSIDE 32):
-
-.. csv-table::
+.. csv-table:: Table 4. The same as Table 3 at NSIDE 32.
    :file: _static/results_simulation_tests/nside0032/summary_table.csv
    :header-rows: 1
 
@@ -268,8 +265,8 @@ Table 5 counts, per method, the configurations in which the corrected :math:`\ma
 
 The corrected :math:`\mathcal{B}` equals the contaminated one in the three multiplicative configurations for ISD-3 on GLASS and for ElasticNet on Uchuu at NSIDE 64, and for ISD-1, ISD-3 and ElasticNet on both sources at NSIDE 32.
 
-w(θ) residuals
---------------
+Residuals of w(θ)
+-----------------
 
 Each grid has contamination level in rows and scenario in columns, and shows :math:`(w - w_{\rm true})/|w_{\rm true}|` per angular bin for the contaminated measurement (grey dashed) and each method.
 
@@ -351,7 +348,7 @@ The heatmaps and amplitude scans show :math:`\mathcal{B}` averaged over the GLAS
 Amplitude recovery
 ------------------
 
-We compare the recovered amplitudes with the injected ones over both sources, all templates and all configurations with a non-zero injected value (60 values of :math:`a_i` and 60 of :math:`b_i` per NSIDE), see Table 6.
+We compared the recovered amplitudes with the injected ones over both sources, all templates and all configurations with a non-zero injected value (60 values of :math:`a_i` and 60 of :math:`b_i` per NSIDE, Table 6).
 For ISD-1 and ISD-3, :math:`\hat{a}_i` is the linear projection of the fitted curves and is zero for a template that is never selected; only MCMC-comb estimates :math:`b_i`.
 
 .. list-table:: Table 6. Relative error :math:`|\hat{a}_i - a_i|/|a_i|` (and :math:`|\hat{b}_i - b_i|/|b_i|` for MCMC-comb), mean and median.
@@ -399,7 +396,8 @@ For ISD-1 and ISD-3, :math:`\hat{a}_i` is the linear projection of the fitted cu
      - 1.294
      - 0.383
 
-The figures show the relative error against the injected value, coloured by level (blue low, orange medium, green high), with the mean and standard deviation in each panel; the rows are also written separately as ``parameter_recovery_a.png`` and ``parameter_recovery_b.png``.
+The figures below show the relative error against the injected value, coloured by level (blue low, orange medium, green high), with the mean and standard deviation in each panel.
+Their rows are also written separately as ``parameter_recovery_a.png`` and ``parameter_recovery_b.png``.
 
 .. figure:: _static/results_simulation_tests/nside0064/parameter_recovery_ab.png
    :width: 100%
@@ -460,8 +458,8 @@ Table 7 gives the wall time of each method per configuration on the dahu nodes, 
      - 195 [22, 526]
      - 7.9 [2.4, 128]
 
-Reproduce
----------
+Reproduction
+------------
 
 Each NSIDE writes to its own subdirectory of ``--output-dir``; a missing Uchuu file is an error unless ``--glass-only`` is given.
 

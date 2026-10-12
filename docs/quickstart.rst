@@ -1,18 +1,18 @@
 Quickstart
 ==========
 
-This page runs the pipeline on a synthetic lognormal mock with three templates: the six
+We run the pipeline on a synthetic lognormal mock with three templates: the six
 decontamination methods, a null from a matched spectrum, the likelihood-ratio test, and the
 two-point correction with its cross-template terms.
 The contamination model is that of
-`Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_; notation is in :doc:`overview`
+`Berlfein et al. 2024 <https://arxiv.org/abs/2401.12293>`_; the notation is in :doc:`overview`
 and the mathematics in :doc:`methods`.
 The code blocks run in sequence, and the printed values are from one run of them.
 
 ----
 
-Methods overview
-----------------
+The six methods
+---------------
 
 :func:`~sys_mapping.regression.run_decontamination` runs every method through one interface.
 
@@ -57,7 +57,7 @@ Methods overview
      - 10 s
 
 Times are orders of magnitude for the blocks below (NSIDE 32, three templates, first call
-including JAX compilation), measured on a machine shared with other jobs.
+including JAX compilation), which we measured on a machine shared with other jobs.
 ``sampler="emcee"`` selects the emcee sampler for either MCMC method instead.
 
 Each method returns per-pixel weights, clipped to :math:`[1/20, 20]`.
@@ -76,8 +76,8 @@ the fitted :math:`\hat a, \hat b`.
 
 ----
 
-Step 1 — Template maps
-----------------------
+Step 1: template maps
+---------------------
 
 Templates :math:`t_i(p)` are HEALPix maps of observing conditions, standardised to zero mean
 and unit variance so that the amplitudes :math:`a_i, b_i` are dimensionless.
@@ -93,8 +93,8 @@ and unit variance so that the amplitudes :math:`a_i, b_i` are dimensionless.
 
 ----
 
-Step 2 — Galaxy field and contamination
----------------------------------------
+Step 2: galaxy field and contamination
+--------------------------------------
 
 :func:`~sys_mapping.mocks.generate_lognormal_field` draws a Gaussian field :math:`G` with
 :math:`C_\ell \propto (\ell+1)^{-2}` and variance :math:`\sigma_G^2 = 0.25`, and returns
@@ -129,8 +129,8 @@ Poisson draws at ten times that density.
 
 ----
 
-Step 3 — Observed overdensity
------------------------------
+Step 3: observed overdensity
+----------------------------
 
 :func:`~sys_mapping.maps.compute_overdensity` keeps the pixels whose random count is at least
 10% of the maximum and returns, on those pixels,
@@ -151,8 +151,8 @@ with shape :math:`(n_{\rm sys}, N_{\rm good})`, the layout every fitting functio
 
 ----
 
-Step 4 — PCA rotation
----------------------
+Step 4: PCA rotation
+--------------------
 
 :func:`~sys_mapping.correction.rotate_templates` diagonalises the template covariance,
 :math:`\tilde t = R\,t` with the eigenvectors as the rows of :math:`R`.
@@ -172,8 +172,8 @@ A small eigenvalue marks a near-degenerate combination of templates.
 
 ----
 
-Step 5 — Run the six methods
-----------------------------
+Step 5: fits with the six methods
+---------------------------------
 
 ``run_decontamination`` takes the overdensity and the templates in the original basis.
 ``MCMC-add`` draws from the analytic posterior; ``MCMC-comb`` runs NUTS
@@ -208,8 +208,8 @@ Only ``MCMC-comb`` fits :math:`b_i`; the other methods return zeros.
 
 ----
 
-Step 6 — Point estimates and convergence
-----------------------------------------
+Step 6: point estimates and convergence
+---------------------------------------
 
 ``a_hat`` and ``b_hat`` are per-parameter posterior medians
 (:func:`~sys_mapping.inference.posterior_median_params`) in the original basis, and
@@ -233,8 +233,8 @@ Step 7 calibrates the significances on a null.
 
 ----
 
-Step 7 — A null from a matched spectrum
----------------------------------------
+Step 7: a null from a matched spectrum
+--------------------------------------
 
 A calibrated statistic compares the data with contamination-free realisations that carry
 the data's clustering.
@@ -268,8 +268,8 @@ p-value for the largest significance, whose floor is :math:`1/(N_{\rm null} + 1)
 
 ----
 
-Step 8 — Likelihood ratio test
-------------------------------
+Step 8: likelihood ratio test
+-----------------------------
 
 The test compares the combined model with the additive one (:math:`b_i = 0`):
 
@@ -334,8 +334,8 @@ In this run the null :math:`\lambda_{\rm LR}` had a median of 26, against 2.37 f
 
 ----
 
-Step 9 — Two-point correction with cross-template terms
--------------------------------------------------------
+Step 9: two-point correction with cross-template terms
+------------------------------------------------------
 
 With debiased amplitude matrices
 :math:`\tilde A = \hat a\hat a^\top - {\rm Cov}[\hat a]` and
@@ -359,8 +359,8 @@ the :math:`(n_{\rm sys}, n_{\rm sys}, n_\theta)` matrix with ``cov_a`` and ``cov
 :func:`~sys_mapping.contamination.compute_two_point_correction` on the debiased matrices.
 Given :math:`(n_{\rm sys}, n_\theta)` autos it keeps the diagonal only.
 
-Here :math:`\hat w` and :math:`\xi_{ij}` are measured on pixel centres, above the 1.8 deg pixel
-scale.
+Here :math:`\hat w` and :math:`\xi_{ij}` are measured on pixel centres, above the 1.8 deg
+pixel scale.
 With a catalogue, pass the template values each galaxy carries.
 
 .. code-block:: python

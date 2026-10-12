@@ -1,20 +1,22 @@
-Running the real-data pipeline
-==============================
+Real-data pipeline for Legacy Survey DR10
+=========================================
 
-This page describes the inputs and the command that produce the systematic weights of
-the Legacy Survey DR10 Bright Galaxy Survey (LS10 BGS) samples, selected following
-`Hahn et al. 2023 <https://ui.adsabs.harvard.edu/abs/2023AJ....165..253H/abstract>`_.
+``scripts/run_ls10_analysis.py`` takes the galaxy and random catalogues of the Legacy Survey DR10
+Bright Galaxy Survey (LS10 BGS) samples, selected following
+`Hahn et al. 2023 <https://ui.adsabs.harvard.edu/abs/2023AJ....165..253H/abstract>`_, and eleven
+template maps, and produces the systematic weights of each sample, its fitted amplitudes and its
+corrected :math:`w(\theta)`.
 The galaxy and random samples are those of
 `Comparat et al. 2025a <https://arxiv.org/abs/2503.19796>`_, available on
-`Zenodo record 15111974 <https://zenodo.org/records/15111974>`_.  The phases of
-``scripts/run_ls10_analysis.py`` and its JSON outputs are described on
-:doc:`overview`, the mathematics on :doc:`methods`, and the results on
-:doc:`results_ls10`.
+`Zenodo record 15111974 <https://zenodo.org/records/15111974>`_.
+We list the input data, then the command and its options, then the output files.
+The phases of the script and its JSON outputs are described on :doc:`overview`, the mathematics
+on :doc:`methods`, and the results on :doc:`results_ls10`.
 
 .. warning::
 
-   Without ``--template-dir`` the script fits five synthetic template families.  Pass
-   the directory of the Gaia and LS10 maps for real results::
+   Without ``--template-dir`` the script fits five synthetic template families.
+   Pass the directory of the Gaia and LS10 maps for real results::
 
       --template-dir ~/data/legacysurvey/dr10/systematics/0128
 
@@ -26,10 +28,10 @@ Input data
 BGS VLIM samples
 ~~~~~~~~~~~~~~~~
 
-Nine volume-limited stellar-mass threshold samples with :math:`0.05 < z < z_{\max}`.
-Each is a ``<sample>_DATA.fits`` and ``<sample>_RAND.fits`` pair under
-``--catalog-dir``.  The script reads ``RA``, ``DEC`` and, when present, the galaxy
-weight ``WEIGHT_COMP``.
+The nine samples, listed in the table below, are volume-limited above a stellar-mass threshold,
+with :math:`0.05 < z < z_{\max}`.
+Each is a ``<sample>_DATA.fits`` and ``<sample>_RAND.fits`` pair under ``--catalog-dir``.
+The script reads ``RA``, ``DEC`` and, when present, the galaxy weight ``WEIGHT_COMP``.
 
 .. list-table::
    :header-rows: 1
@@ -79,11 +81,12 @@ weight ``WEIGHT_COMP``.
 Systematic templates
 ~~~~~~~~~~~~~~~~~~~~
 
-Eleven HEALPix maps, six from Legacy Survey imaging metadata and five from Gaia DR3,
-stored per resolution under ``systematics/0032``, ``0064``, ``0128`` and ``0256``.  The
-script reads every ``*.fits`` file in ``--template-dir``, downgrades each map to the
-sample's resolution, normalises it over its valid pixels, and standardises the basis
-again over the sample's footprint.
+The templates are eleven HEALPix maps, six from Legacy Survey imaging metadata and five from
+Gaia DR3, listed in the table below and stored per resolution under ``systematics/0032``,
+``0064``, ``0128`` and ``0256``.
+The script reads every ``*.fits`` file in ``--template-dir``, downgrades each map to the sample's
+resolution, normalises it over its valid pixels, and standardises the basis again over the
+sample's footprint.
 
 .. list-table::
    :header-rows: 1
@@ -113,14 +116,14 @@ again over the sample's footprint.
 
 ----
 
-Running the pipeline
---------------------
+Command and options
+-------------------
 
-The issued products
-~~~~~~~~~~~~~~~~~~~
+Command for the issued products
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-Each sample runs at the finest NSIDE, from 128 down, at which its mean footprint
-occupancy reaches 25 galaxies per pixel; the nine samples land at NSIDE 16 to 128.
+Each sample runs at the finest NSIDE, from 128 down, at which its mean footprint occupancy reaches
+25 galaxies per pixel; the nine samples land at NSIDE 16 to 128.
 Every GLASS null is drawn from the sample's matched spectrum.
 
 .. code-block:: bash
@@ -135,24 +138,25 @@ Every GLASS null is drawn from the sample's matched spectrum.
        --sampler auto --no-rst \
        --output-dir data/sys_weights_auto/
 
-``--nside`` is the finest resolution tried, and ``--min-per-pixel`` halves it until the
-occupancy floor is met (NSIDE 8 at the coarsest).  Without ``--min-per-pixel`` the
-sample runs at ``--nside``.  The chosen NSIDE enters every output file name.
+``--nside`` is the finest resolution tried, and ``--min-per-pixel`` halves it until the occupancy
+floor is met (NSIDE 8 at the coarsest).
+Without ``--min-per-pixel`` the sample runs at ``--nside``.
+The chosen NSIDE enters every output file name.
 
-The matched spectra are produced and validated by
-``characterisation/match_glass_to_data.py`` in the ``sys_mapping_benchmark``
-repository, one ``<sample>_NSIDE<nside>_match.json`` per sample and resolution.
-:func:`~sys_mapping.glass_mocks.load_matched_cl` takes the file at the run's resolution
-if it passed validation, otherwise the nearest validated file above it, otherwise the
-finest validated file below.  When the run builds a null (ISD threshold, pre-selection,
-calibrated significance or LRT null) and no spectrum is found, the script stops unless
-``--allow-parametric-null`` is given.
+The matched spectra are produced and validated by ``characterisation/match_glass_to_data.py`` in
+the ``sys_mapping_benchmark`` repository, one ``<sample>_NSIDE<nside>_match.json`` per sample and
+resolution.
+:func:`~sys_mapping.glass_mocks.load_matched_cl` takes the file at the run's resolution if it
+passed validation, otherwise the nearest validated file above it, otherwise the finest validated
+file below.
+When the run builds a null (ISD threshold, pre-selection, calibrated significance or LRT null) and
+no spectrum is found, the script stops unless ``--allow-parametric-null`` is given.
 
-The additive-versus-combined likelihood ratio is calibrated with ``--lrt-null-mocks``
-(50 in the published LRT grid at NSIDE 32 and 64).  With the default
-``--lrt-null-method maxima`` the realisations are maximised together by
-:func:`~sys_mapping.model_selection.lrt_from_maxima`; ``nuts`` fits each with NUTS and
-refines to the maximum.
+The additive-versus-combined likelihood ratio is calibrated with ``--lrt-null-mocks`` (50 in the
+published LRT grid at NSIDE 32 and 64).
+With the default ``--lrt-null-method maxima`` the realisations are maximised together by
+:func:`~sys_mapping.model_selection.lrt_from_maxima`; ``nuts`` fits each with NUTS and refines to
+the maximum.
 
 Command-line options
 ~~~~~~~~~~~~~~~~~~~~
@@ -266,7 +270,7 @@ Command-line options
 Output files
 ------------
 
-::
+Each sample writes six files, and each resolution a summary::
 
    data/sys_weights_auto/
    ├── <sample>_NSIDE<nside>_WEIGHTS.fits       # per-galaxy weights, all methods
@@ -279,8 +283,8 @@ Output files
 
 The FITS header records ``WEIGHTVER`` (3), ``TPLBASIS`` (``footprint``), ``WEIGHTCON``
 (``library``), ``WMAXCLIP`` (20), ``SAMPLE``, ``NSIDE``, ``N_SYS`` and the likelihood
-ratio (``LRT_LAM``, ``LRT_P``, ``LRT_REJ``, ``LRT_CAL``).  The table holds one column
-per method and ``WEIGHT_SYS``:
+ratio (``LRT_LAM``, ``LRT_P``, ``LRT_REJ``, ``LRT_CAL``).
+The FITS table holds one column per method and ``WEIGHT_SYS``:
 
 .. list-table::
    :header-rows: 1
@@ -308,6 +312,8 @@ weight 1.
 
 Documentation pages
 ~~~~~~~~~~~~~~~~~~~
+
+The documentation is regenerated from the outputs with:
 
 .. code-block:: bash
 

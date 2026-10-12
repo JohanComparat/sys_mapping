@@ -3,7 +3,9 @@
 BGS VLIM log M* ≥ 11.25, z < 0.35
 =================================
 
-541,855 galaxies, issued at NSIDE 64 (25.1 galaxies per pixel over 21,555 pixels). Leading template: ``GAIA_phot_rp_mean_flux`` at 3.84 calibrated, family-wise p 0.0050. Recommended column: ``WEIGHT_SYS``; a template is detected (family-wise p 0.0050) and the NSIDE 64 likelihood ratio requires the multiplicative term (p = 0.020).
+The sample holds 541,855 galaxies and is issued at NSIDE 64, with 25.1 galaxies per pixel over 21,555 pixels.
+The leading template is ``GAIA_phot_rp_mean_flux``, at calibrated significance 3.84 and family-wise p 0.0050.
+The recommended column is ``WEIGHT_SYS``: a template is detected (family-wise p 0.0050) and the NSIDE 64 likelihood ratio requires the multiplicative term (p = 0.020).
 
 .. contents:: On this page
    :local:
@@ -11,7 +13,7 @@ BGS VLIM log M* ≥ 11.25, z < 0.35
 
 .. seealso::
 
-   :doc:`results_ls10` — all nine samples.
+   :doc:`results_ls10` compares the nine samples.
 
 Template significance
 ---------------------
@@ -31,7 +33,7 @@ Template significance
    "GAIA_nstar_faint", "0.39", "0.85", "0.6983", "2.14"
    "LS10_EBV", "0.00", "0.00", "1.0000", "2.89"
 
-Calibrated on 400 realisations; p is per template, with floor 0.0025.
+The significances are calibrated on 400 realisations; p is the per-template p-value, with floor 0.0025.
 
 Fitted amplitudes (NSIDE 64)
 ----------------------------
@@ -74,7 +76,7 @@ Weights
 .. figure:: /_static/results_ls10/issued/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_weight_hist.png
    :width: 70%
 
-   Weight distributions.
+   Distributions of the weights of the six methods.
 
 Angular correlation function
 ----------------------------
@@ -82,9 +84,9 @@ Angular correlation function
 .. figure:: /_static/results_ls10/issued/LS10_VLIM_ANY_11.25_Mstar_12.0_0.05_z_0.35_N_0541855_NSIDE0064_wtheta.png
    :width: 80%
 
-   Observed and corrected w(θ), full cross-template correction.
+   Observed and corrected w(θ) for the six methods, with the full cross-template correction.
 
-.. csv-table:: Corrected over observed w(θ).
+.. csv-table:: Ratio of corrected to observed w(θ) per method.
    :header: "method", "at 30′", "smallest ratio", "at θ"
 
    "OLS", "0.986", "0.828", "220′"
@@ -94,8 +96,8 @@ Angular correlation function
    "MCMC-add", "0.986", "0.828", "220′"
    "MCMC-comb", "0.949", "0.741", "220′"
 
-Likelihood ratio
-----------------
+Likelihood ratio between the additive and combined models
+---------------------------------------------------------
 
 .. csv-table::
    :header: "NSIDE", "λ LR", "mock p", "null mean / max", "N"
@@ -103,10 +105,10 @@ Likelihood ratio
    "32", "636.5", "0.020", "34.4 / 106.5", "50"
    "64", "127.4", "0.020", "47.2 / 108.9", "50"
 
-Resolution comparison
----------------------
+Residual scatter at three resolutions
+-------------------------------------
 
-.. csv-table:: Residual scatter :math:`\hat\sigma`.
+.. csv-table:: Residual scatter :math:`\hat\sigma` per method.
    :header: "method", "NSIDE 32", "NSIDE 64", "NSIDE 128"
 
    "OLS", "0.3309", "0.3842", "0.6412"
