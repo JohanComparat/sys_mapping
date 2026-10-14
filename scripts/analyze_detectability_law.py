@@ -50,6 +50,9 @@ SYSW = REPO / "data" / "sys_weights"
 # significance calibrated against matched GLASS realisations.
 SYSW_CAL = REPO / "data" / "sys_weights_auto"
 PROG = REPO / "docs" / "_static" / "results_progressive_contamination" / "progressive_results.csv"
+# NSIDE of the progressive mocks (run_mock_analysis_progressive.py --nside 32); the CSV
+# does not record it.
+PROG_NSIDE = 32
 
 FIDUCIAL = "10.0"  # log M* threshold of the fiducial LS10 sample
 NU_LEVELS = (3.0, 5.0)
@@ -284,7 +287,7 @@ def fig_detection_vs_amp(prog):
         ax.set_xlabel("injected additive amplitude (per template)")
     ax.set_ylabel("rate")
     ax.set_ylim(-0.05, 1.05)
-    ax.set_title("Fast-method detection vs amplitude (progressive mocks, NSIDE 64)")
+    ax.set_title(f"Detection vs amplitude (additive progressive mocks, NSIDE {PROG_NSIDE})")
     ax.legend(fontsize=8); ax.grid(alpha=.3)
     return _save(fig, "fig6_detection_vs_amplitude.png")
 
