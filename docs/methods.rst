@@ -473,8 +473,10 @@ its information for the skewness vanishes, so a fit started on it stays Gaussian
 The combined maximum is found by L-BFGS (optax) on :math:`(a, b, \ln\sigma)`, started from
 :math:`(\hat a_{\rm OLS}, b = 0)`, a point on the combined model's ridge, and stopped when the
 largest gradient component falls below :math:`10^{-9}` or after ``n_iter`` (300) iterations.
-It is sought where every pixel's efficiency :math:`1 + b\cdot t(p)` is positive, the region
-holding :math:`b = 0`, since the likelihood has a pole wherever it vanishes.
+It is sought where every pixel's efficiency :math:`1 + b\cdot t(p)` is at least 1/20
+(``sys_mapping.likelihood.MIN_EFFICIENCY``), the region holding :math:`b = 0`, since the
+likelihood has a pole wherever an efficiency vanishes; the line search backtracks from points
+below the floor.
 Each L-BFGS run keeps its best finite point, stops once the value or gradient is not finite, and
 is restarted from that point up to three times.
 The optimisation is ``jax.vmap``-ped over fields in batches of ``batch_size`` (64) and compiled

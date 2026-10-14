@@ -79,8 +79,11 @@ match; an analysis of data uses the sample's matched spectrum
 Template ranking
 ----------------
 
-All three statistics rank T7 first, T2 second and the noise template T8 third at every level
+The three ranking statistics, :math:`|r|`, the independent-pixel :math:`|\hat\alpha|/\sigma` and
+ISD :math:`\Delta\chi^2`, rank T7 first, T2 second and the noise template T8 third at every level
 (figures and table below).
+With the error from the realisations, :math:`|\hat\alpha|/\sigma` ranks T2 above T7 at every
+level; the third template is T5 (2.1) at the low level and T8 at the medium and high levels.
 
 .. figure:: /_static/results_snr_preselection/02_snr_ranking_data.png
    :width: 100 %

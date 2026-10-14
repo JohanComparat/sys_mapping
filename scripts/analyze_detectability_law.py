@@ -473,8 +473,13 @@ It traces the Gaia stellar density.
 .. figure:: /_static/detectability_law/fig6_detection_vs_amplitude.png
    :width: 88%
 
-   Detection fraction against injected amplitude on the progressive mocks, for OLS,
-   ISD-1, ElasticNet and the likelihood-ratio test.
+   Detection rates on the additive mocks of :doc:`results_progressive_contamination`
+   (NSIDE 32, ``progressive_results.csv``), one point per number :math:`k` of
+   contaminated templates (1, 2, 3; five mocks each), placed at the mean injected
+   :math:`|a_i|` of that cell.
+   The true-positive rate (circles, solid) and the false-positive rate (squares, dashed)
+   count templates whose MCMC-add S/N exceeds 2; the triangles (dotted) are the fraction
+   of mocks in which the likelihood-ratio test rejects the additive model.
 
 The per-sample (NSIDE 64) and per-NSIDE (fiducial sample) numbers are in
 ``_static/detectability_law/ls10_detectability_scorecard.csv``, the calibrated

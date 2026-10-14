@@ -113,27 +113,29 @@ def main() -> None:
 
     L = []
     add = L.append
-    add("Benchmarks")
-    add("==========")
+    add("Pipeline timings")
+    add("================")
     add("")
-    add(f"sys_mapping {version} (commit ``{commit}``), {where}{m.get('cpu', '?')}, {date}.")
+    add(f"This page gives the run time of {len(rows)} cases of the pipeline: the public functions "
+        "on the hot path, the HEALPix map utilities, and the two stages.")
+    add("We timed them with ``benchmark/benchmark_pipeline.py`` of the")
+    add("`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_")
+    add("repository, and ``docs/generate_benchmark_page.py`` renders")
+    add("``docs/_static/benchmark/benchmarks.csv`` into this page.")
+    add("Each entry is the median over repeated calls, with the JIT compilation of the first call "
+        "excluded.")
+    add(f"The run used sys_mapping {version} (commit ``{commit}``) on {where}{m.get('cpu', '?')}, "
+        f"on {date}.")
     if args.note:
         add(args.note)
-    add("")
-    add(f"We time {len(rows)} cases of the pipeline with ``benchmark/benchmark_pipeline.py`` of the")
-    add("`sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_")
-    add("repository; ``docs/generate_benchmark_page.py`` renders")
-    add("``docs/_static/benchmark/benchmarks.csv`` into this page.")
-    add("Each entry is the median over repeated calls, with the JIT compilation of the first call")
-    add("excluded.")
-    add(f"The run used {cores} cores, Python {m.get('python', '?')}, JAX {v.get('jax', '?')} "
+    add(f"It used {cores} cores, Python {m.get('python', '?')}, JAX {v.get('jax', '?')} "
         f"(``{m.get('jax_backend', '?')}``, 64-bit "
         f"{'on' if m.get('jax_x64') else 'off'}), NumPy {v.get('numpy', '?')}, "
         f"SciPy {v.get('scipy', '?')}, healpy {v.get('healpy', '?')} and "
         f"BlackJAX {v.get('blackjax', '?')}; the one-minute load average at the start was "
         f"{load:.2f}.")
-    add("MCMC-add is the analytic posterior and MCMC-comb NUTS with two chains"
-        + (f", {nuts[0]} warmup steps and {nuts[0]} draws per chain." if len(nuts) == 1 else "."))
+    add("MCMC-add is the analytic posterior, and MCMC-comb is NUTS with two chains"
+        + (f", {nuts[0]} warm-up steps and {nuts[0]} draws per chain." if len(nuts) == 1 else "."))
     add("")
 
     configs = sorted({(r["nside"], r["n_sys"]) for r in rows})
@@ -171,16 +173,16 @@ def main() -> None:
     s1, s2 = _finite("stage1"), _finite("stage2")
     if s1 or s2:
         add("")
-        add("Ranges")
-        add("------")
+        add("Range of the run times")
+        add("----------------------")
         add("")
         if s2:
             add(f"Stage-2 calls span {math.log10(max(s2) / min(s2)):.1f} decades, from "
                 f"{fmt(min(s2))} to {fmt(max(s2))}.")
         if s1:
             add(f"A Stage-1 ranking call takes {fmt(min(s1))} to {fmt(max(s1))}; the cost of "
-                "pre-selection is the GLASS null, which runs in parallel over "
-                "``preselect_n_jobs``.")
+                "the pre-selection is dominated by the GLASS null, which runs in parallel over "
+                "``preselect_n_jobs`` processes.")
         add("")
     OUT.write_text("\n".join(L) + "\n")
     print(f"wrote {OUT} ({len(rows)} measurements, {len(configs)} configurations)")

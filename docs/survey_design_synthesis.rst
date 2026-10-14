@@ -80,7 +80,7 @@ Design rules
    has second-moment condition number 108).
    Calibrate per-template significance on matched mocks with
    ``sys_mapping.calibrated_template_significance``: on LS10 the independent-pixel
-   error is short by a median factor of 1.3 to 2.9 per sample, rising with
+   error is short by a median factor of 1.3 to 3.0 per sample, rising with
    resolution, and by 0.9 to 5.6 for single templates.
 #. The contamination of :math:`w(\theta)` grows as :math:`A^2` and the field
    regression signal as :math:`A`, so the field regression detects fainter

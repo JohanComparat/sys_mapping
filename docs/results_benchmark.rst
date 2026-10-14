@@ -1,16 +1,15 @@
-Benchmarks
-==========
+Pipeline timings
+================
 
-sys_mapping 1.4.0 (commit ``6f43dcc``), dahu node dahu122, Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz, 2026-09-15.
-
-We time 280 cases of the pipeline with ``benchmark/benchmark_pipeline.py`` of the
+This page gives the run time of 280 cases of the pipeline: the public functions on the hot path, the HEALPix map utilities, and the two stages.
+We timed them with ``benchmark/benchmark_pipeline.py`` of the
 `sys_mapping_benchmark <https://github.com/JohanComparat/sys_mapping_benchmark>`_
-repository; ``docs/generate_benchmark_page.py`` renders
+repository, and ``docs/generate_benchmark_page.py`` renders
 ``docs/_static/benchmark/benchmarks.csv`` into this page.
-Each entry is the median over repeated calls, with the JIT compilation of the first call
-excluded.
-The run used 8 cores, Python 3.11.16, JAX 0.10.2 (``cpu``, 64-bit on), NumPy 2.4.6, SciPy 1.17.1, healpy 1.20.0 and BlackJAX 1.5; the one-minute load average at the start was 24.23.
-MCMC-add is the analytic posterior and MCMC-comb NUTS with two chains, 400 warmup steps and 400 draws per chain.
+Each entry is the median over repeated calls, with the JIT compilation of the first call excluded.
+The run used sys_mapping 1.4.0 (commit ``6f43dcc``) on dahu node dahu122, Intel(R) Xeon(R) Gold 5218 CPU @ 2.30GHz, on 2026-09-15.
+It used 8 cores, Python 3.11.16, JAX 0.10.2 (``cpu``, 64-bit on), NumPy 2.4.6, SciPy 1.17.1, healpy 1.20.0 and BlackJAX 1.5; the one-minute load average at the start was 24.23.
+MCMC-add is the analytic posterior, and MCMC-comb is NUTS with two chains, 400 warm-up steps and 400 draws per chain.
 
 
 Per-function costs
@@ -85,9 +84,9 @@ One call to :func:`~sys_mapping.regression.run_decontamination` per method.
    "``MCMC-comb``", "10.8 s", "30.2 s", "54.3 s", "98.9 s", "192 s", "326 s", "585 s", "4.05e+03 s", "3.03e+03 s", "1.23e+04 s"
 
 
-Ranges
-------
+Range of the run times
+----------------------
 
 Stage-2 calls span 7.6 decades, from 314 µs to 1.23e+04 s.
-A Stage-1 ranking call takes 306 µs to 201 ms; the cost of pre-selection is the GLASS null, which runs in parallel over ``preselect_n_jobs``.
+A Stage-1 ranking call takes 306 µs to 201 ms; the cost of the pre-selection is dominated by the GLASS null, which runs in parallel over ``preselect_n_jobs`` processes.
 
