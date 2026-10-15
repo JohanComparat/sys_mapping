@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## [1.4.5] — 2026-10-15
+
+The package code is that of 1.4.4; this release records a revision of the documentation.
+
+### Documentation
+
+- The README, this changelog and the documentation pages are rewritten in one style, and their numbers, captions and tables are checked against the code and the results they report.
+- The scripts that write the generated pages (`analyze_detectability_law`, `coverage_report`, `generate_results_ls10_summary`, `make_survey_design_synthesis`, `run_ls10_analysis`) carry the revised text.
+  Fig. 6 of the detectability-law page names the resolution of the progressive mocks.
+
 ## [1.4.4] — 2026-09-16
 
 ### Fixed
