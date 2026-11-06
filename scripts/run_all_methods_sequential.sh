@@ -42,7 +42,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 # ── Python / Sphinx resolution ────────────────────────────────────────────────
-if [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then
+if [[ -d "$HOME/software/miniforge3/envs/dev" ]]; then
+    # laptop: the shared `dev` env (~/software/dev_env)
+    PYTHON="$HOME/software/miniforge3/envs/dev/bin/python"
+    SPHINX="$HOME/software/miniforge3/envs/dev/bin/sphinx-build"
+elif [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then
     PYTHON="$HOME/miniforge3/envs/sys_map/bin/python"
     SPHINX="$HOME/miniforge3/envs/sys_map/bin/sphinx-build"
 elif [[ -d "$HOME/mamba/envs/sys_map" ]]; then

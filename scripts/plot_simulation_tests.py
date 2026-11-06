@@ -52,6 +52,8 @@ import matplotlib
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sys_mapping.plotting import METHOD_COLORS, METHOD_LINESTYLES, METHOD_MARKERS
+
 matplotlib.use("Agg")
 
 REPO = Path(__file__).resolve().parent.parent
@@ -89,12 +91,8 @@ plt.rcParams.update(
 )
 
 METHOD_STYLES = {
-    "OLS":        {"color": "C0", "ls": "-",   "marker": "o"},
-    "ISD-1":      {"color": "C1", "ls": "--",  "marker": "s"},
-    "ISD-3":      {"color": "C5", "ls": "--",  "marker": "P"},
-    "ElasticNet": {"color": "C2", "ls": "-.",  "marker": "^"},
-    "MCMC-add":   {"color": "C3", "ls": ":",   "marker": "D"},
-    "MCMC-comb":  {"color": "C4", "ls": "--",  "marker": "v"},
+    m: {"color": METHOD_COLORS[m], "ls": METHOD_LINESTYLES[m], "marker": METHOD_MARKERS[m]}
+    for m in ("OLS", "ISD-1", "ISD-3", "ElasticNet", "MCMC-add", "MCMC-comb")
 }
 
 LEVEL_ORDER = ["low", "medium", "high"]
@@ -260,7 +258,7 @@ def plot_wtheta_recovery_grid(
             w_cont = np.asarray(r["w_contaminated"])
             denom = max(1e-3, float(np.max(np.abs(w_true))))
 
-            ax.axhline(0, color="k", lw=1.5, ls="-", label="truth", zorder=5)
+            ax.axhline(0, color="0.55", lw=2.5, ls="-", alpha=0.6, label="truth", zorder=1)
             ax.plot(theta, (w_cont - w_true) / denom,
                     color="0.6", lw=1.5, ls="--", label="contaminated")
             for method in methods:
@@ -318,7 +316,7 @@ def plot_wtheta_by_source(results: list[dict], output_dir: Path) -> None:
         w_cont = np.asarray(r["w_contaminated"])
         denom = max(1e-3, float(np.max(np.abs(w_true))))
 
-        ax.axhline(0, color="k", lw=1.5, ls="-", label="truth", zorder=5)
+        ax.axhline(0, color="0.55", lw=2.5, ls="-", alpha=0.6, label="truth", zorder=1)
         ax.plot(theta, (w_cont - w_true) / denom,
                 color="0.6", lw=1.5, ls="--", label="contaminated")
         for method in methods:
@@ -353,7 +351,7 @@ def plot_recovery_bias_heatmap(results: list[dict], output_dir: Path) -> None:
     """Heatmap: mean |Δw/w| per method × (level-scenario) configuration."""
     methods = _get_methods(results)
     configs = [(lv, sc) for lv in LEVEL_ORDER for sc in SCENARIO_ORDER]
-    col_labels = [f"{lv[:3]}/{sc[:3]}" for lv, sc in configs]
+    col_labels = [sc for lv, sc in configs]
 
     # Collect biases separately for contaminated and each method
     cont_bias = []
@@ -392,7 +390,7 @@ def plot_recovery_bias_heatmap(results: list[dict], output_dir: Path) -> None:
     matrix = np.array([cont_bias] + [method_bias[m] for m in methods])
 
     fig, ax = plt.subplots(figsize=(max(10, len(configs) * 0.9), 1 + n_rows * 0.5 + 0.5))
-    im = ax.imshow(matrix, aspect="auto", cmap="RdYlGn_r", vmin=0, vmax=0.5)
+    im = ax.imshow(matrix, aspect="auto", cmap="Blues", vmin=0, vmax=0.5)
 
     ax.set_xticks(range(len(configs)))
     ax.set_xticklabels(col_labels, rotation=45, ha="right", fontsize=7)
@@ -410,14 +408,14 @@ def plot_recovery_bias_heatmap(results: list[dict], output_dir: Path) -> None:
     plt.colorbar(im, ax=ax, label="mean fractional bias", shrink=0.8)
     # Vertical lines between level groups
     for k in range(1, 3):
-        ax.axvline(k * len(SCENARIO_ORDER) - 0.5, color="white", lw=1.5)
+        ax.axvline(k * len(SCENARIO_ORDER) - 0.5, color="0.3", lw=1.5)
 
     # Level group labels on top
     ax2 = ax.twiny()
     ax2.set_xlim(ax.get_xlim())
     level_ticks = [len(SCENARIO_ORDER) / 2 - 0.5 + k * len(SCENARIO_ORDER) for k in range(3)]
     ax2.set_xticks(level_ticks)
-    ax2.set_xticklabels([lv.upper() for lv in LEVEL_ORDER], fontsize=8, fontweight="bold")
+    ax2.set_xticklabels([f"{lv} amplitude" for lv in LEVEL_ORDER], fontsize=8)
     ax2.tick_params(top=False)
 
     fig.tight_layout()

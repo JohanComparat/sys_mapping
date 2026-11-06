@@ -33,10 +33,12 @@
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
-if   [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then _MR="$HOME/miniforge3"
-elif [[ -d "$HOME/mamba/envs/sys_map"      ]]; then _MR="$HOME/mamba"
+# Laptop (docs stage): the shared `dev` env (~/software/dev_env); servers: sys_map.
+if   [[ -d "$HOME/software/miniforge3/envs/dev" ]]; then _MR="$HOME/software/miniforge3"; _EN=dev
+elif [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then _MR="$HOME/miniforge3"; _EN=sys_map
+elif [[ -d "$HOME/mamba/envs/sys_map"      ]]; then _MR="$HOME/mamba"; _EN=sys_map
 else echo "ERROR: sys_map conda env not found (expected \$HOME/mamba or \$HOME/miniforge3)"; exit 1; fi
-source "$_MR/etc/profile.d/mamba.sh"; mamba activate sys_map; PY=python
+source "$_MR/etc/profile.d/mamba.sh"; mamba activate "$_EN"; PY=python
 export JAX_PLATFORMS="${JAX_PLATFORMS:-cpu}"
 export JAX_ENABLE_X64="${JAX_ENABLE_X64:-1}"
 mkdir -p logs results

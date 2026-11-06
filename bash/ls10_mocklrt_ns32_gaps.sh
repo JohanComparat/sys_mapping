@@ -25,7 +25,7 @@ SYST_BASE=${SYST_BASE:-$HOME/data/legacysurvey/dr10/systematics}
 OUTBASE=${OUTBASE:-results/ls10_mocklrt}
 NUTS=${NUTS:-1000}
 NCHAINS=${NCHAINS:-4}
-PY=${PY:-$HOME/mamba/envs/sys_map/bin/python}
+PY=${PY:-$HOME/software/miniforge3/envs/dev/bin/python}
 NS=32
 TDIR="$SYST_BASE/$(printf '%04d' "$NS")"
 [ -d "$TDIR" ] || { echo "ERROR: no template dir $TDIR"; exit 1; }

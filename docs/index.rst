@@ -17,6 +17,7 @@ The pages below give the method and its references, the survey-design forecasts,
    :caption: Methods & references
 
    methods
+   pedagogy_decontamination
    bibliography
 
 .. toctree::

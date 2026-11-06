@@ -48,7 +48,7 @@ Output per configuration
 
 Usage
 -----
-    conda activate sys_map
+    conda activate dev
     python scripts/run_systematic_tests.py --output-dir results/systematic_tests/
 
     # Fast smoke-test (OLS + MCMC-comb only, NSIDE=16):

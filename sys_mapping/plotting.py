@@ -13,35 +13,39 @@ Usage
 
 Color palette
 -------------
-The palette is inspired by Tableau-10 and tested for colorblind accessibility
-(deuteranopia and protanopia safe):
+The six method colours are taken from the Okabe--Ito set.
+Under simulated protanopia, deuteranopia and tritanopia (Machado et al. 2009, full
+severity), every pair stays at least 8.6 apart in OKLab (x100), and at least 15.6 apart
+with normal vision; each method also has its own line style.
+Related methods share a hue family: the least-squares pair in blue, the two ISD orders
+in orange.
 
-  OLS        — steel blue    #4E79A7
-  ElasticNet — forest green  #59A14F
-  ISD-1      — amber         #F28E2B
-  ISD-3      — coral red     #E15759
-  MCMC-add   — muted purple  #B07AA1
-  MCMC-comb  — teal          #76B7B2
+  OLS        — blue          #0072B2
+  MCMC-add   — sky blue      #56B4E9
+  ElasticNet — bluish green  #009E73
+  ISD-1      — orange        #E69F00
+  ISD-3      — vermillion    #D55E00
+  MCMC-comb  — black         #000000
 
 Two additional keys cover the *data* and *uncorrected* reference curves:
 
-  observed   — near-black    #333333   (raw measurement before correction)
-  uncorrected— mid-grey      #888888   (baseline with no decontamination applied)
+  observed   — mid-grey      #777777   (raw measurement before correction)
+  uncorrected— light grey    #AAAAAA   (baseline with no decontamination applied)
 """
 
 # ---------------------------------------------------------------------------
-# Per-method color (hex RGB, consistent with Tableau-10 palette)
+# Per-method color (hex RGB, Okabe--Ito)
 # ---------------------------------------------------------------------------
 METHOD_COLORS: dict[str, str] = {
-    "OLS":         "#4E79A7",   # steel blue
-    "ElasticNet":  "#59A14F",   # forest green
-    "ISD-1":       "#F28E2B",   # amber
-    "ISD-3":       "#E15759",   # coral red
-    "MCMC-add":    "#B07AA1",   # muted purple
-    "MCMC-comb":   "#76B7B2",   # teal
+    "OLS":         "#0072B2",   # blue
+    "ElasticNet":  "#009E73",   # bluish green
+    "ISD-1":       "#E69F00",   # orange
+    "ISD-3":       "#D55E00",   # vermillion
+    "MCMC-add":    "#56B4E9",   # sky blue
+    "MCMC-comb":   "#000000",   # black
     # reference curves (not method-specific)
-    "observed":    "#333333",   # near-black
-    "uncorrected": "#888888",   # mid-grey
+    "observed":    "#777777",   # mid-grey
+    "uncorrected": "#AAAAAA",   # light grey
 }
 
 # ---------------------------------------------------------------------------
@@ -78,10 +82,10 @@ METHOD_MARKERS: dict[str, str] = {
 METHOD_LABELS: dict[str, str] = {
     "OLS":         "OLS",
     "ElasticNet":  "ElasticNet",
-    "ISD-1":       "ISD (poly-1)",
-    "ISD-3":       "ISD (poly-3)",
-    "MCMC-add":    "MCMC additive",
-    "MCMC-comb":   "MCMC combined",
+    "ISD-1":       "ISD-1",
+    "ISD-3":       "ISD-3",
+    "MCMC-add":    "MCMC-add",
+    "MCMC-comb":   "MCMC-comb",
     "observed":    "Observed",
     "uncorrected": "Uncorrected",
 }

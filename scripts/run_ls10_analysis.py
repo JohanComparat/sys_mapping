@@ -447,8 +447,9 @@ def _regen_weight_figures(sample_id, nside, templates, good_pix,
         plt.sca(_ax12)
         hp.mollview(_wm, title=METHOD_LABELS.get(_mf, _mf),
                     min=_vmin_map, max=_vmax_map,
-                    cmap="RdBu_r", hold=True, notext=True, unit="weight")
-    plt.suptitle(f"Systematic weight maps — {sample_id}\nNSIDE={nside}", fontsize=11)
+                    cmap="RdBu_r", hold=True, notext=True, unit="")
+    _mlabel = sample_id.split("LS10_VLIM_ANY_")[-1].split("_Mstar")[0]
+    plt.suptitle(rf"Weight per pixel, $\log M_\star\geq{_mlabel}$, NSIDE {nside}", fontsize=13)
     wmap_path = outdir / f"{sample_id}_NSIDE{nside:04d}_weight_map.png"
     plt.savefig(str(wmap_path), dpi=110, bbox_inches="tight")
     _copy_to_docs(wmap_path, docs_dir)

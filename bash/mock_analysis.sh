@@ -15,15 +15,18 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then
-    _MAMBA_ROOT="$HOME/miniforge3"
+# Laptop: the shared `dev` env (~/software/dev_env); servers: the sys_map env.
+if [[ -d "$HOME/software/miniforge3/envs/dev" ]]; then
+    _MAMBA_ROOT="$HOME/software/miniforge3"; _ENV_NAME=dev
+elif [[ -d "$HOME/miniforge3/envs/sys_map" ]]; then
+    _MAMBA_ROOT="$HOME/miniforge3"; _ENV_NAME=sys_map
 elif [[ -d "$HOME/mamba/envs/sys_map" ]]; then
-    _MAMBA_ROOT="$HOME/mamba"
+    _MAMBA_ROOT="$HOME/mamba"; _ENV_NAME=sys_map
 else
-    echo "ERROR: sys_map environment not found in $HOME/miniforge3 or $HOME/mamba" >&2; exit 1
+    echo "ERROR: neither $HOME/software/miniforge3/envs/dev nor a sys_map environment in $HOME/miniforge3 or $HOME/mamba found" >&2; exit 1
 fi
 source "$_MAMBA_ROOT/etc/profile.d/mamba.sh"
-mamba activate sys_map
+mamba activate "$_ENV_NAME"
 
 mkdir -p logs results/mock_analysis
 

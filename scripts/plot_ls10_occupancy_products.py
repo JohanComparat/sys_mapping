@@ -24,6 +24,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
+from sys_mapping.plotting import METHOD_COLORS, METHOD_LINESTYLES
+
 REPO = Path(__file__).resolve().parent.parent
 METHODS = ["OLS", "ElasticNet", "ISD-1", "ISD-3", "MCMC-add", "MCMC-comb"]
 
@@ -54,8 +56,9 @@ def main() -> None:
     for ax, r in zip(axes.flat, rows):
         pos = r["w_obs"] > 0
         for m in METHODS:
-            ax.plot(r["theta"][pos], r["w_corr"][m][pos] / r["w_obs"][pos], lw=1.2, label=m)
-        ax.axhline(1.0, c="k", ls="--", lw=0.8)
+            ax.plot(r["theta"][pos], r["w_corr"][m][pos] / r["w_obs"][pos], lw=1.2, label=m,
+                    color=METHOD_COLORS[m], ls=METHOD_LINESTYLES[m])
+        ax.axhline(1.0, c="0.55", ls="-", lw=2.5, alpha=0.6, zorder=1)
         ax.set_xscale("log")
         ax.set_title(rf"$\log M_\star\geq{r['mstar']}$, NSIDE {r['nside']}", fontsize=9)
         ax.grid(alpha=0.3, which="both")
@@ -63,7 +66,7 @@ def main() -> None:
         ax.set_xlabel(r"$\theta$ [arcmin]")
     for ax in axes[:, 0]:
         ax.set_ylabel(r"$w_{\rm corr}/w_{\rm obs}$")
-    axes[0, 0].set_ylim(0.55, 1.05)
+    axes[0, 0].set_ylim(0.70, 1.06)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="lower center", ncol=6, fontsize=8, frameon=False)
     fig.tight_layout(rect=(0, 0.04, 1, 1))
