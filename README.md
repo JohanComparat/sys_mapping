@@ -34,9 +34,10 @@ Joint inference of multiplicative and additive systematics in galaxy clustering,
 | MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior | [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293) |
 | MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix | [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293) |
 | ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943) |
-| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943) |
+| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943); [Weaverdyck et al. 2026](https://arxiv.org/abs/2601.14484) |
+| ISD-&lt;n&gt; ⚠️ | Selection weight | The same with a marginal polynomial of any degree n ≥ 1 (e.g. `"ISD-2"`), to sweep the degree | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943) |
 
-⚠️ ISD-1 and ISD-3 are work in progress: their interface and results may still change.
+⚠️ The ISD methods are work in progress: their interface and results may still change.
 
 `--sampler emcee` selects the emcee ensemble sampler for the MCMC methods.
 
