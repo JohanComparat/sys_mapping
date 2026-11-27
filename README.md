@@ -5,9 +5,12 @@
 [![Tests](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml/badge.svg)](https://github.com/JohanComparat/sys_mapping/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24599182.svg)](https://doi.org/10.5281/zenodo.24599182)
+[![Templates DOI](https://img.shields.io/badge/templates-10.5281%2Fzenodo.24600374-blue)](https://doi.org/10.5281/zenodo.24600374)
 
 `sys_mapping` takes a galaxy overdensity map and templates (HEALPix maps of the observing conditions, extinction, stellar density, ...), and returns per-galaxy weights and the angular correlation function corrected with the full cross-template matrix.
 It pre-selects templates, fits the contamination with six methods, and calibrates every detection statistic of potential contamination against GLASS realisations of the galaxy field.
+
+The templates are available on Zenodo, [doi:10.5281/zenodo.24600374](https://doi.org/10.5281/zenodo.24600374): Galactic dust (SFD, Planck), the cosmic infrared background (Planck GNILC, DIRBE), neutral hydrogen (HI4PI, LAB), Gaia DR2 star counts, and the observing conditions of the Legacy Surveys DR10 and DR11 south, as HEALPix maps in equatorial coordinates.
 
 Joint inference of multiplicative and additive systematics in galaxy clustering, after
 [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293).
