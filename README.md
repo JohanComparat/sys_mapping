@@ -31,10 +31,12 @@ Joint inference of multiplicative and additive systematics in galaxy clustering,
 |---|---|---|
 | OLS | Additive | Least-squares pixel regression |
 | ElasticNet | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
-| ISD-1 | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
-| ISD-3 | Selection weight | The same with a cubic marginal fit in one template's value |
+| ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
+| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value |
 | MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior |
 | MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix |
+
+⚠️ ISD-1 and ISD-3 are work in progress: their interface and results may still change.
 
 `--sampler emcee` selects the emcee ensemble sampler for the MCMC methods.
 
@@ -77,7 +79,7 @@ data/sys_weights_auto/  ─► read by the sum_stat package
 import sys_mapping as sm
 
 result = sm.run_decontamination(
-    "ISD-1", delta_g, delta_t,
+    "OLS", delta_g, delta_t,
     preselect=True, preselect_method="isd",
     preselect_n_mocks=100, preselect_p_threshold=0.05,
     good_pixels=good_pix, n_total_footprint=len(ra_gal),
