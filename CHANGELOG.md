@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [1.4.7] — 2026-11-27
+
+The package code is that of 1.4.6; this release records a change of the README.
+
+### Documentation
+
+- The README links the template maps on Zenodo (doi:10.5281/zenodo.24600374): Galactic dust, cosmic infrared background, neutral hydrogen, Gaia DR2 star counts and the Legacy Surveys DR10 and DR11 south observing conditions, as HEALPix maps in equatorial coordinates.
+- The README carries the DOI badges of the package and of the template maps.
+
 ## [1.4.6] — 2026-11-27
 
 ### Changed
