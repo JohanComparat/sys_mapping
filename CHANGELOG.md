@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## [1.4.6] — 2026-11-27
+
+### Changed
+
+- `plotting.METHOD_COLORS` takes the six method colours from the Okabe–Ito set, with the least-squares pair in blue and the two ISD orders in orange.
+  Under simulated protanopia, deuteranopia and tritanopia every pair stays at least 8.6 apart in OKLab (×100).
+  The observed and uncorrected reference curves are drawn in mid-grey (#777777) and light grey (#AAAAAA).
+- `plotting.METHOD_LABELS` uses the method keys as labels (ISD-1, ISD-3, MCMC-add, MCMC-comb).
+- The scripts in `bash/` activate the shared `dev` environment when it exists, and the `sys_map` environment otherwise.
+
+### Documentation
+
+- A new page, `pedagogy_decontamination`, shows three figures: the broadening of the bias by systematics, the decontamination of a map, and the budget of the correction.
+  The scripts `plot_pedagogy_bias_broadening`, `plot_pedagogy_decontamination` and `plot_pedagogy_correction_budget` make them.
+
 ## [1.4.5] — 2026-10-15
 
 The package code is that of 1.4.4; this release records a revision of the documentation.
