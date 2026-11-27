@@ -27,14 +27,14 @@ Joint inference of multiplicative and additive systematics in galaxy clustering,
 
 ## Decontamination methods
 
-| Method | Model | Estimation |
-|---|---|---|
-| OLS | Additive | Least-squares pixel regression |
-| ElasticNet | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
-| MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior |
-| MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix |
-| ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
-| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value |
+| Method | Model | Estimation | Reference |
+|---|---|---|---|
+| OLS | Additive | Least-squares pixel regression | [Weaverdyck & Huterer 2021](https://arxiv.org/abs/2007.14499) |
+| ElasticNet | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated | [Weaverdyck & Huterer 2021](https://arxiv.org/abs/2007.14499) |
+| MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior | [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293) |
+| MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix | [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293) |
+| ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943) |
+| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value | [Rodríguez-Monroy et al. 2025](https://arxiv.org/abs/2509.07943) |
 
 ⚠️ ISD-1 and ISD-3 are work in progress: their interface and results may still change.
 
