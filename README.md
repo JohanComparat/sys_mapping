@@ -6,7 +6,7 @@
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24599182.svg)](https://doi.org/10.5281/zenodo.24599182)
 
-`sys_mapping` takes a galaxy overdensity map and HEALPix maps of the observing conditions (templates), and returns per-galaxy weights and the angular correlation function corrected with the full cross-template matrix.
+`sys_mapping` takes a galaxy overdensity map and templates (HEALPix maps of the observing conditions, extinction, stellar density, ...), and returns per-galaxy weights and the angular correlation function corrected with the full cross-template matrix.
 It pre-selects templates, fits the contamination with six methods, and calibrates every detection statistic against GLASS realisations of the galaxy field.
 
 Joint inference of multiplicative and additive systematics in galaxy clustering, after
