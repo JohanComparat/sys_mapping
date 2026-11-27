@@ -31,10 +31,10 @@ Joint inference of multiplicative and additive systematics in galaxy clustering,
 |---|---|---|
 | OLS | Additive | Least-squares pixel regression |
 | ElasticNet | Additive | ℓ₁+ℓ₂-regularised regression, cross-validated |
-| ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
-| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value |
 | MCMC-add | Additive | Exact Normal–Inverse-Gamma posterior |
 | MCMC-comb | Combined | BlackJAX NUTS with a dense mass matrix |
+| ISD-1 ⚠️ | Selection weight | Iterative Systematics Decontamination: marginal binned fits, one template at a time, linear |
+| ISD-3 ⚠️ | Selection weight | The same with a cubic marginal fit in one template's value |
 
 ⚠️ ISD-1 and ISD-3 are work in progress: their interface and results may still change.
 
