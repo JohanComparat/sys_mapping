@@ -6,8 +6,6 @@
 [![codecov](https://codecov.io/gh/JohanComparat/sys_mapping/branch/main/graph/badge.svg)](https://codecov.io/gh/JohanComparat/sys_mapping)
 [![DOI](https://zenodo.org/badge/DOI/10.5281/zenodo.24599182.svg)](https://doi.org/10.5281/zenodo.24599182)
 
-**Docs:** https://sys-mapping.readthedocs.io/en/latest/
-
 Joint inference of multiplicative and additive systematics in galaxy clustering, after
 [Berlfein et al. 2024](https://arxiv.org/abs/2401.12293).
 
