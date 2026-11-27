@@ -264,7 +264,7 @@ def invert_contamination(
     Precision
     ---------
     Roundtrip (apply → invert) max absolute error < 1e-5; RMS < 1e-6 for large n_pix.
-    Assumes ``1 + b·δ_t ≠ 0`` at every pixel (satisfied for small \|b\|).
+    Assumes ``1 + b·δ_t ≠ 0`` at every pixel (satisfied for small ``|b|``).
 
     Examples
     --------
